@@ -1,41 +1,15 @@
 import db from '../db.js';
 
 /**
- * Applies a payment against a loan's installment schedule, oldest unpaid
- * installment first (mirrors how the physical passbook is settled row by
- * row). Splits across multiple installments and supports partial payments.
- * No-op for loans that don't have a schedule.
- */
-async function allocatePaymentToInstallments(trx, loanId, amount) {
-  const installments = await trx('installments')
-    .where({ loan_id: loanId })
-    .orderBy('installment_number', 'asc')
-    .forUpdate();
-
-  let remaining = amount;
-  for (const inst of installments) {
-    if (remaining <= 0) break;
-    const due = parseFloat(inst.expected_amount) - parseFloat(inst.paid_amount);
-    if (due <= 0) continue;
-
-    const applied = Math.min(due, remaining);
-    const newPaidAmount = parseFloat(inst.paid_amount) + applied;
-    remaining -= applied;
-
-    await trx('installments')
-      .where({ id: inst.id })
-      .update({
-        paid_amount: newPaidAmount,
-        paid_at: newPaidAmount >= parseFloat(inst.expected_amount) ? trx.fn.now() : inst.paid_at
-      });
-  }
-}
-
-/**
- * Records a cash payment collection from a borrower.
+ * Records a cash payment collection from a borrower — either an interest
+ * payment (clears interest_balance, never closes the loan) or a principal
+ * payment (clears principal_outstanding, closes the loan once it hits 0
+ * regardless of any interest still owed). These are deliberately separate:
+ * this is an interest-only lending model — principal stays fixed until
+ * explicitly repaid, and periodic interest is a recurring charge on top of it.
  * Executed inside a single transaction with row-level locks.
  */
-export async function recordPaymentCollection({ loanId, agentId, amount, notes, proofImageUrl, idempotencyKey, paymentMethod }) {
+export async function recordPaymentCollection({ loanId, agentId, amount, paymentType, notes, proofImageUrl, idempotencyKey, paymentMethod }) {
   return await db.transaction(async (trx) => {
     // 1. Lock the loan row to prevent concurrent updates (Double payments)
     const loan = await trx('loans')
@@ -56,10 +30,19 @@ export async function recordPaymentCollection({ loanId, agentId, amount, notes, 
     }
 
     const payAmount = parseFloat(amount);
-    const currentBalance = parseFloat(loan.current_balance);
+    const principalOutstanding = parseFloat(loan.principal_outstanding);
+    const interestBalance = parseFloat(loan.interest_balance);
 
-    if (payAmount > currentBalance) {
-      throw new Error(`Payment amount (LKR ${payAmount.toLocaleString()}) exceeds outstanding balance (LKR ${currentBalance.toLocaleString()}).`);
+    if (paymentType === 'interest') {
+      if (payAmount > interestBalance) {
+        throw new Error(`Interest payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding interest due (LKR ${interestBalance.toLocaleString()}).`);
+      }
+    } else if (paymentType === 'principal') {
+      if (payAmount > principalOutstanding) {
+        throw new Error(`Principal payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding principal (LKR ${principalOutstanding.toLocaleString()}).`);
+      }
+    } else {
+      throw new Error("Payment type must be 'interest' or 'principal'.");
     }
 
     // 2. Insert transaction entry
@@ -69,6 +52,7 @@ export async function recordPaymentCollection({ loanId, agentId, amount, notes, 
         agent_id: agentId,
         borrower_id: loan.borrower_id,
         amount: payAmount,
+        payment_type: paymentType,
         notes: notes || '',
         proof_image_url: proofImageUrl || null,
         payment_method: paymentMethod || 'cash',
@@ -76,13 +60,17 @@ export async function recordPaymentCollection({ loanId, agentId, amount, notes, 
       })
       .returning('*');
 
-    // 3. Post double-entry ledger entries:
+    // 3. Post double-entry ledger entries. loan_receivable represents the
+    // client's total amount owed (principal + unpaid interest combined) —
+    // either payment type clears part of that same receivable, so the
+    // ledger posting is identical; only the loan's own bookkeeping below
+    // distinguishes which component was paid down.
     // A: Debit cash_agent (Asset increases)
     // B: Credit loan_receivable (Asset decreases)
     await trx('ledger_entries').insert([
       {
         loan_id: loanId,
-        transaction_id: transaction.id || transaction, // handling knex returning variations
+        transaction_id: transaction.id || transaction,
         account: 'cash_agent',
         type: 'debit',
         amount: payAmount
@@ -96,26 +84,37 @@ export async function recordPaymentCollection({ loanId, agentId, amount, notes, 
       }
     ]);
 
-    // 4. Update current balance of loan
-    const newBalance = currentBalance - payAmount;
-    const newStatus = newBalance <= 0 ? 'fully_paid' : 'active';
+    // 4. Update the loan's principal/interest bookkeeping
+    let newPrincipalOutstanding = principalOutstanding;
+    let newInterestBalance = interestBalance;
+    let newStatus = loan.status;
+
+    if (paymentType === 'interest') {
+      newInterestBalance = interestBalance - payAmount;
+    } else {
+      newPrincipalOutstanding = principalOutstanding - payAmount;
+      if (newPrincipalOutstanding <= 0) {
+        newStatus = 'fully_paid';
+      }
+    }
 
     await trx('loans')
       .where({ id: loanId })
       .update({
-        current_balance: newBalance,
+        principal_outstanding: newPrincipalOutstanding,
+        interest_balance: newInterestBalance,
         status: newStatus,
         updated_at: db.fn.now()
       });
 
-    // 4b. Allocate this payment against the repayment schedule / passbook
-    await allocatePaymentToInstallments(trx, loanId, payAmount);
-
     // 5. Create audit log
+    const description = paymentType === 'interest'
+      ? `Collected interest payment of LKR ${payAmount.toLocaleString()} for Loan ID ${loanId}. Interest still due: LKR ${newInterestBalance.toLocaleString()}.`
+      : `Collected principal payment of LKR ${payAmount.toLocaleString()} for Loan ID ${loanId}. Principal remaining: LKR ${newPrincipalOutstanding.toLocaleString()}.`;
     await trx('audit_logs').insert({
       actor_id: agentId,
       action_type: 'RECORD_PAYMENT',
-      description: `Collected payment of LKR ${payAmount.toLocaleString()} for Loan ID ${loanId}. Remaining: LKR ${newBalance.toLocaleString()}.`
+      description
     });
 
     // 6. Retrieve related user data for notifications
@@ -127,7 +126,9 @@ export async function recordPaymentCollection({ loanId, agentId, amount, notes, 
       borrower,
       admin,
       amount: payAmount,
-      newBalance,
+      paymentType,
+      newPrincipalOutstanding,
+      newInterestBalance,
       status: newStatus
     };
   });

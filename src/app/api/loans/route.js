@@ -5,7 +5,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 import { generateTempPassword } from '@/lib/tempPassword.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
 import { notifyLoanCreation } from '@/lib/services/notification.js';
-import { isValidSriLankanNIC, addInterval, buildInstallmentSchedule } from '@/lib/loanSchedule.js';
+import { isValidSriLankanNIC, addInterval } from '@/lib/loanSchedule.js';
 
 // Create a new loan (Admin only)
 export async function POST(request) {
@@ -14,7 +14,7 @@ export async function POST(request) {
     const body = await request.json();
     const {
       borrower_name, borrower_phone, principal_amount, interest_rate, interest_type,
-      num_installments, assigned_agent_id, nic_number, nic_photo, guarantor
+      assigned_agent_id, nic_number, nic_photo, guarantor
     } = body;
 
     if (!borrower_name || !borrower_phone || !principal_amount || !interest_rate || !interest_type) {
@@ -39,14 +39,6 @@ export async function POST(request) {
     }
     if (isNaN(rate) || rate < 0) {
       return NextResponse.json({ message: 'Interest rate must be a non-negative number.' }, { status: 400 });
-    }
-
-    let numInstallments = null;
-    if (num_installments !== undefined && num_installments !== null && num_installments !== '') {
-      numInstallments = parseInt(num_installments, 10);
-      if (isNaN(numInstallments) || numInstallments <= 0) {
-        return NextResponse.json({ message: 'Number of installments must be a positive whole number.' }, { status: 400 });
-      }
     }
 
     let guarantorRecord = null;
@@ -132,11 +124,6 @@ export async function POST(request) {
     const creationDate = new Date();
     const nextAccrualDate = addInterval(creationDate, interest_type);
 
-    let schedule = null;
-    if (numInstallments) {
-      schedule = buildInstallmentSchedule({ principal, rate, interestType: interest_type, numInstallments, startDate: creationDate });
-    }
-
     const loanResult = await db.transaction(async (trx) => {
       const [newLoan] = await trx('loans').insert({
         borrower_id,
@@ -145,14 +132,12 @@ export async function POST(request) {
         principal_amount: principal,
         interest_rate: rate,
         interest_type,
-        current_balance: principal,
+        principal_outstanding: principal,
+        interest_balance: 0,
         status: 'active',
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
-        nic_photo_url,
-        num_installments: numInstallments,
-        installment_amount: schedule ? schedule.installmentAmount : null,
-        total_repayable: schedule ? schedule.totalRepayable : null
+        nic_photo_url
       }).returning('*');
 
       const loanId = newLoan.id || newLoan;
@@ -162,9 +147,6 @@ export async function POST(request) {
         { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal }
       ]);
 
-      if (schedule) {
-        await trx('installments').insert(schedule.installments.map((inst) => ({ loan_id: loanId, ...inst })));
-      }
       if (guarantorRecord) {
         await trx('guarantors').insert({ loan_id: loanId, ...guarantorRecord });
       }
@@ -172,7 +154,7 @@ export async function POST(request) {
       await trx('audit_logs').insert({
         actor_id: authUser.id,
         action_type: 'CREATE_LOAN',
-        description: `Created new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${schedule ? ` over ${numInstallments} installments of LKR ${schedule.installmentAmount.toLocaleString()}` : ''}${guarantorRecord ? ` with guarantor '${guarantorRecord.full_name}'` : ''} for Borrower ID ${borrower_id}.`
+        description: `Created new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${guarantorRecord ? ` with guarantor '${guarantorRecord.full_name}'` : ''} for Borrower ID ${borrower_id}.`
       });
 
       return newLoan;

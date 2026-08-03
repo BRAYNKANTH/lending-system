@@ -20,7 +20,7 @@ export async function GET(request) {
       .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
       .where({ assigned_agent_id: agentId, 'loans.status': 'active' })
       .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone')
-      .orderBy('loans.current_balance', 'desc');
+      .orderBy('loans.principal_outstanding', 'desc');
 
     const collectionHistory = await db('transactions')
       .join('users as borrowers', 'transactions.borrower_id', 'borrowers.id')

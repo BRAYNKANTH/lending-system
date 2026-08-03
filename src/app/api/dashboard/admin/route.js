@@ -20,10 +20,15 @@ export async function GET(request) {
 
     const overdueResult = await db('loans')
       .where('status', 'active')
-      .andWhere('current_balance', '>', 0)
       .andWhere('next_accrual_date', '<', now)
       .count('id as count');
     const totalOverdue = parseInt(overdueResult[0].count) || 0;
+
+    const outstandingResult = await db('loans')
+      .where({ status: 'active' })
+      .select(db.raw('COALESCE(SUM(principal_outstanding), 0) as principal'), db.raw('COALESCE(SUM(interest_balance), 0) as interest'));
+    const totalPrincipalOutstanding = parseFloat(outstandingResult[0].principal) || 0;
+    const totalInterestDue = parseFloat(outstandingResult[0].interest) || 0;
 
     const agentPerformance = await db('transactions')
       .join('users as agents', 'transactions.agent_id', 'agents.id')
@@ -48,7 +53,6 @@ export async function GET(request) {
       .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
       .leftJoin('users as agents', 'loans.assigned_agent_id', 'agents.id')
       .where('loans.status', 'active')
-      .andWhere('loans.current_balance', '>', 0)
       .andWhere('loans.next_accrual_date', '<', now)
       .select('loans.*', 'borrowers.name as borrower_name', 'agents.name as agent_name');
 
@@ -71,7 +75,9 @@ export async function GET(request) {
         totalActiveLoans,
         totalRepayments,
         totalOverdue,
-        totalOutstanding: (totalMoneyLent - totalRepayments > 0) ? (totalMoneyLent - totalRepayments) : 0
+        totalPrincipalOutstanding,
+        totalInterestDue,
+        totalOutstanding: totalPrincipalOutstanding + totalInterestDue
       },
       dailyReport: { collectionsToday, interestToday, date: todayStart.toDateString() },
       agentPerformance,

@@ -23,25 +23,29 @@ export async function POST(request, { params }) {
         throw new Error(`Penalties can only be applied to active loans (current status: '${loan.status}').`);
       }
 
-      const newBalance = parseFloat(loan.current_balance) + penaltyAmount;
+      // A penalty is neither principal nor recurring interest — it's folded
+      // into interest_balance (the "non-principal amount due" bucket) so it
+      // shows up as something the borrower must pay off, without touching
+      // principal_outstanding.
+      const newInterestBalance = parseFloat(loan.interest_balance) + penaltyAmount;
 
       await trx('ledger_entries').insert([
         { loan_id: id, account: 'loan_receivable', type: 'debit', amount: penaltyAmount },
         { loan_id: id, account: 'penalty_revenue', type: 'credit', amount: penaltyAmount }
       ]);
 
-      await trx('loans').where({ id }).update({ current_balance: newBalance, updated_at: trx.fn.now() });
+      await trx('loans').where({ id }).update({ interest_balance: newInterestBalance, updated_at: trx.fn.now() });
 
       await trx('audit_logs').insert({
         actor_id: authUser.id,
         action_type: 'APPLY_PENALTY',
-        description: `Applied penalty of LKR ${penaltyAmount.toLocaleString()} to loan ID ${id}${reason ? ` (${reason.trim()})` : ''}. New balance: LKR ${newBalance.toLocaleString()}.`
+        description: `Applied penalty of LKR ${penaltyAmount.toLocaleString()} to loan ID ${id}${reason ? ` (${reason.trim()})` : ''}. Interest/fees due: LKR ${newInterestBalance.toLocaleString()}.`
       });
 
-      return { newBalance };
+      return { newInterestBalance };
     });
 
-    return NextResponse.json({ message: 'Penalty applied and posted to ledger.', newBalance: result.newBalance });
+    return NextResponse.json({ message: 'Penalty applied and posted to ledger.', newInterestBalance: result.newInterestBalance });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Apply penalty error:', error);

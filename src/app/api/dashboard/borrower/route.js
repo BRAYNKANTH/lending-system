@@ -20,7 +20,9 @@ export async function GET(request) {
       .orderBy('transactions.payment_date', 'desc');
 
     const activeLoans = loans.filter((l) => l.status === 'active');
-    const totalOutstanding = activeLoans.reduce((sum, l) => sum + parseFloat(l.current_balance), 0);
+    const totalPrincipalOutstanding = activeLoans.reduce((sum, l) => sum + parseFloat(l.principal_outstanding), 0);
+    const totalInterestDue = activeLoans.reduce((sum, l) => sum + parseFloat(l.interest_balance), 0);
+    const totalOutstanding = totalPrincipalOutstanding + totalInterestDue;
     const totalPaid = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
     const interestByType = await db('interest_accruals')
@@ -38,7 +40,7 @@ export async function GET(request) {
       .limit(10);
 
     return NextResponse.json({
-      summary: { totalOutstanding, totalPaid, activeLoansCount: activeLoans.length },
+      summary: { totalOutstanding, totalPrincipalOutstanding, totalInterestDue, totalPaid, activeLoansCount: activeLoans.length },
       loans,
       payments,
       interestByType,

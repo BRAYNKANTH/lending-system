@@ -9,10 +9,13 @@ import { validateImageDataUrl } from '@/lib/services/image.js';
 export async function POST(request) {
   try {
     const authUser = requireAuth(request, ['agent', 'borrower']);
-    const { loan_id, amount, notes, proof_image_url, payment_method, idempotency_key } = await request.json();
+    const { loan_id, amount, payment_type, notes, proof_image_url, payment_method, idempotency_key } = await request.json();
 
     if (!loan_id || !amount || !idempotency_key) {
       return NextResponse.json({ message: 'Loan ID, payment amount, and idempotency key are required.' }, { status: 400 });
+    }
+    if (!['interest', 'principal'].includes(payment_type)) {
+      return NextResponse.json({ message: "Payment type is required and must be 'interest' or 'principal'." }, { status: 400 });
     }
 
     const payAmount = parseFloat(amount);
@@ -46,6 +49,7 @@ export async function POST(request) {
       loanId: loan_id,
       agentId,
       amount: payAmount,
+      paymentType: payment_type,
       notes,
       proofImageUrl: savedProofUrl,
       paymentMethod: payment_method || 'cash',
@@ -56,7 +60,9 @@ export async function POST(request) {
       borrower: result.borrower,
       admin: result.admin,
       amount: result.amount,
-      balance: result.newBalance
+      paymentType: result.paymentType,
+      principalOutstanding: result.newPrincipalOutstanding,
+      interestBalance: result.newInterestBalance
     }).catch((err) => console.error('Notification failed:', err));
 
     const detailedTx = await db('transactions')
@@ -72,7 +78,8 @@ export async function POST(request) {
         'loans.principal_amount as loan_principal',
         'loans.interest_rate as loan_interest_rate',
         'loans.interest_type as loan_interest_type',
-        'loans.current_balance as loan_current_balance',
+        'loans.principal_outstanding as loan_principal_outstanding',
+        'loans.interest_balance as loan_interest_balance',
         'loans.status as loan_status'
       )
       .where('transactions.id', result.transactionId)
@@ -81,14 +88,15 @@ export async function POST(request) {
     return NextResponse.json({
       message: 'Payment collection recorded and posted to ledger.',
       transactionId: result.transactionId,
-      newBalance: result.newBalance,
+      newPrincipalOutstanding: result.newPrincipalOutstanding,
+      newInterestBalance: result.newInterestBalance,
       status: result.status,
       transaction: detailedTx
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Payment collection error:', error);
-    if (error.message?.includes('exceeds outstanding balance') || error.message?.includes('already been fully paid') || error.message?.includes('defaulted')) {
+    if (error.message?.includes('exceeds outstanding') || error.message?.includes('already been fully paid') || error.message?.includes('defaulted') || error.message?.includes("must be 'interest' or 'principal'")) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }
     return NextResponse.json({ message: 'Internal server error while processing payment.' }, { status: 500 });

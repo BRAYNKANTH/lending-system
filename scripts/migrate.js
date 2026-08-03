@@ -25,6 +25,14 @@ async function addColumnIfMissing(tableName, columnName, buildColumn) {
   }
 }
 
+async function dropColumnIfPresent(tableName, columnName) {
+  const hasColumn = await db.schema.hasColumn(tableName, columnName);
+  if (hasColumn) {
+    await db.schema.alterTable(tableName, (table) => table.dropColumn(columnName));
+    console.log(`Migration: dropped column '${columnName}' from '${tableName}'.`);
+  }
+}
+
 async function runIncrementalMigrations() {
   await addColumnIfMissing('users', 'must_change_password', (t) => t.boolean('must_change_password').defaultTo(false));
   await addColumnIfMissing('users', 'failed_login_attempts', (t) => t.integer('failed_login_attempts').defaultTo(0));
@@ -32,23 +40,31 @@ async function runIncrementalMigrations() {
 
   await addColumnIfMissing('loans', 'default_reason', (t) => t.text('default_reason').nullable());
   await addColumnIfMissing('loans', 'defaulted_at', (t) => t.timestamp('defaulted_at').nullable());
-  await addColumnIfMissing('loans', 'num_installments', (t) => t.integer('num_installments').nullable());
-  await addColumnIfMissing('loans', 'installment_amount', (t) => t.decimal('installment_amount', 15, 2).nullable());
-  await addColumnIfMissing('loans', 'total_repayable', (t) => t.decimal('total_repayable', 15, 2).nullable());
 
-  if (!(await db.schema.hasTable('installments'))) {
-    await db.schema.createTable('installments', (table) => {
-      table.uuid('id').primary().defaultTo(db.fn.uuid());
-      table.uuid('loan_id').notNullable().references('id').inTable('loans').onDelete('CASCADE');
-      table.integer('installment_number').notNullable();
-      table.timestamp('due_date').notNullable();
-      table.decimal('expected_amount', 15, 2).notNullable();
-      table.decimal('paid_amount', 15, 2).notNullable().defaultTo(0);
-      table.timestamp('paid_at').nullable();
-      table.timestamp('created_at').defaultTo(db.fn.now());
-    });
-    console.log("Migration: created table 'installments'.");
+  // Interest-only loan model: principal_outstanding never grows from interest
+  // (only principal payments touch it); interest_balance tracks unpaid
+  // accrued interest separately, cleared by interest payments. Replaces the
+  // earlier combined current_balance field.
+  const hasOldBalanceCol = await db.schema.hasColumn('loans', 'current_balance');
+  const hasNewPrincipalCol = await db.schema.hasColumn('loans', 'principal_outstanding');
+  if (hasOldBalanceCol && !hasNewPrincipalCol) {
+    await db.schema.alterTable('loans', (table) => table.renameColumn('current_balance', 'principal_outstanding'));
+    console.log("Migration: renamed loans.current_balance -> loans.principal_outstanding.");
   }
+  await addColumnIfMissing('loans', 'interest_balance', (t) => t.decimal('interest_balance', 15, 2).notNullable().defaultTo(0));
+
+  // Installment-schedule feature removed — loans are interest-only now
+  // (fixed principal, recurring interest, principal repaid whenever ready).
+  await dropColumnIfPresent('loans', 'num_installments');
+  await dropColumnIfPresent('loans', 'installment_amount');
+  await dropColumnIfPresent('loans', 'total_repayable');
+  if (await db.schema.hasTable('installments')) {
+    await db.schema.dropTable('installments');
+    console.log("Migration: dropped table 'installments'.");
+  }
+
+  // Every payment must say whether it's paying off interest or principal.
+  await addColumnIfMissing('transactions', 'payment_type', (t) => t.string('payment_type', 20).notNullable().defaultTo('principal'));
 
   if (!(await db.schema.hasTable('remittances'))) {
     await db.schema.createTable('remittances', (table) => {
@@ -115,7 +131,11 @@ async function createSchemaAndSeed() {
     table.decimal('principal_amount', 15, 2).notNullable();
     table.decimal('interest_rate', 5, 2).notNullable();
     table.string('interest_type', 20).notNullable(); // 'daily', 'weekly', 'monthly'
-    table.decimal('current_balance', 15, 2).notNullable();
+    // Interest-only model: principal_outstanding only decreases via
+    // principal payments (never grows from interest); interest_balance is
+    // the running unpaid-interest amount, cleared by interest payments.
+    table.decimal('principal_outstanding', 15, 2).notNullable();
+    table.decimal('interest_balance', 15, 2).notNullable().defaultTo(0);
     table.string('status', 20).defaultTo('active'); // 'pending', 'active', 'fully_paid', 'defaulted'
     table.timestamp('last_accrual_date').defaultTo(db.fn.now());
     table.timestamp('next_accrual_date').notNullable();
@@ -123,21 +143,7 @@ async function createSchemaAndSeed() {
     table.text('nic_photo_url');
     table.text('default_reason').nullable();
     table.timestamp('defaulted_at').nullable();
-    table.integer('num_installments').nullable();
-    table.decimal('installment_amount', 15, 2).nullable();
-    table.decimal('total_repayable', 15, 2).nullable();
     table.timestamps(true, true);
-  });
-
-  await db.schema.createTable('installments', (table) => {
-    table.uuid('id').primary().defaultTo(db.fn.uuid());
-    table.uuid('loan_id').notNullable().references('id').inTable('loans').onDelete('CASCADE');
-    table.integer('installment_number').notNullable();
-    table.timestamp('due_date').notNullable();
-    table.decimal('expected_amount', 15, 2).notNullable();
-    table.decimal('paid_amount', 15, 2).notNullable().defaultTo(0);
-    table.timestamp('paid_at').nullable();
-    table.timestamp('created_at').defaultTo(db.fn.now());
   });
 
   await db.schema.createTable('transactions', (table) => {
@@ -146,6 +152,7 @@ async function createSchemaAndSeed() {
     table.uuid('agent_id').notNullable().references('id').inTable('users').onDelete('RESTRICT');
     table.uuid('borrower_id').notNullable().references('id').inTable('users').onDelete('RESTRICT');
     table.decimal('amount', 15, 2).notNullable();
+    table.string('payment_type', 20).notNullable().defaultTo('principal'); // 'interest' or 'principal'
     table.timestamp('payment_date').defaultTo(db.fn.now());
     table.text('notes');
     table.text('proof_image_url');
@@ -240,7 +247,9 @@ async function createSchemaAndSeed() {
       lender_id: 'a1111111-1111-1111-1111-111111111111',
       assigned_agent_id: 'a2222222-2222-2222-2222-222222222222',
       principal_amount: 100000.00, interest_rate: 2.00, interest_type: 'daily',
-      current_balance: 87000.00, status: 'active',
+      // 100k principal untouched by interest; borrower has paid off 2,000 of
+      // the 2,000 interest accrued so far, and made a 15,000 principal payment.
+      principal_outstanding: 85000.00, interest_balance: 0.00, status: 'active',
       last_accrual_date: lastAccrualDaily, next_accrual_date: nextAccrualDaily,
       created_at: new Date(baseDate.getTime() - 3 * 24 * 60 * 60 * 1000)
     },
@@ -250,24 +259,41 @@ async function createSchemaAndSeed() {
       lender_id: 'a1111111-1111-1111-1111-111111111111',
       assigned_agent_id: 'a2222222-2222-2222-2222-222222222222',
       principal_amount: 250000.00, interest_rate: 5.00, interest_type: 'weekly',
-      current_balance: 262500.00, status: 'active',
+      // 250k principal untouched; the 12,500 interest accrued so far is
+      // still unpaid.
+      principal_outstanding: 250000.00, interest_balance: 12500.00, status: 'active',
       last_accrual_date: lastAccrualWeekly, next_accrual_date: nextAccrualWeekly,
       created_at: new Date(baseDate.getTime() - 10 * 24 * 60 * 60 * 1000)
     }
   ]);
   console.log('Loans seeded.');
 
-  await db('transactions').insert({
-    id: 'c1111111-1111-1111-1111-111111111111',
-    loan_id: 'b1111111-1111-1111-1111-111111111111',
-    agent_id: 'a2222222-2222-2222-2222-222222222222',
-    borrower_id: 'a3333333-3333-3333-3333-333333333333',
-    amount: 15000.00,
-    payment_date: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000),
-    notes: 'Partial repayment in cash',
-    idempotency_key: 'idemp_sample_123',
-    created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000)
-  });
+  await db('transactions').insert([
+    {
+      id: 'c1111111-1111-1111-1111-111111111111',
+      loan_id: 'b1111111-1111-1111-1111-111111111111',
+      agent_id: 'a2222222-2222-2222-2222-222222222222',
+      borrower_id: 'a3333333-3333-3333-3333-333333333333',
+      amount: 15000.00,
+      payment_type: 'principal',
+      payment_date: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000),
+      notes: 'Partial principal repayment in cash',
+      idempotency_key: 'idemp_sample_123',
+      created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000)
+    },
+    {
+      id: 'c2222222-2222-2222-2222-222222222222',
+      loan_id: 'b1111111-1111-1111-1111-111111111111',
+      agent_id: 'a2222222-2222-2222-2222-222222222222',
+      borrower_id: 'a3333333-3333-3333-3333-333333333333',
+      amount: 2000.00,
+      payment_type: 'interest',
+      payment_date: lastAccrualDaily,
+      notes: 'Daily interest payment',
+      idempotency_key: 'idemp_sample_124',
+      created_at: lastAccrualDaily
+    }
+  ]);
   console.log('Transactions seeded.');
 
   await db('interest_accruals').insert([
@@ -281,6 +307,8 @@ async function createSchemaAndSeed() {
     { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'cash_office', type: 'credit', amount: 100000.00, created_at: new Date(baseDate.getTime() - 3 * 24 * 60 * 60 * 1000) },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'loan_receivable', type: 'debit', amount: 2000.00, created_at: lastAccrualDaily },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'interest_revenue', type: 'credit', amount: 2000.00, created_at: lastAccrualDaily },
+    { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c2222222-2222-2222-2222-222222222222', account: 'cash_agent', type: 'debit', amount: 2000.00, created_at: lastAccrualDaily },
+    { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c2222222-2222-2222-2222-222222222222', account: 'loan_receivable', type: 'credit', amount: 2000.00, created_at: lastAccrualDaily },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c1111111-1111-1111-1111-111111111111', account: 'cash_agent', type: 'debit', amount: 15000.00, created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000) },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c1111111-1111-1111-1111-111111111111', account: 'loan_receivable', type: 'credit', amount: 15000.00, created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000) },
     { loan_id: 'b2222222-2222-2222-2222-222222222222', account: 'loan_receivable', type: 'debit', amount: 250000.00, created_at: new Date(baseDate.getTime() - 10 * 24 * 60 * 60 * 1000) },
@@ -293,7 +321,7 @@ async function createSchemaAndSeed() {
   await db('audit_logs').insert([
     { actor_id: 'a1111111-1111-1111-1111-111111111111', action_type: 'CREATE_LOAN', description: 'Lender Admin created a Daily loan of 100,000 LKR for Borrower Bandara.', created_at: new Date(baseDate.getTime() - 3 * 24 * 60 * 60 * 1000) },
     { actor_id: 'a1111111-1111-1111-1111-111111111111', action_type: 'CREATE_LOAN', description: 'Lender Admin created a Weekly loan of 250,000 LKR for Borrower Chandana.', created_at: new Date(baseDate.getTime() - 10 * 24 * 60 * 60 * 1000) },
-    { actor_id: 'a2222222-2222-2222-2222-222222222222', action_type: 'RECORD_PAYMENT', description: 'Agent Amal collected 15,000 LKR for Borrower Bandara.', created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000) }
+    { actor_id: 'a2222222-2222-2222-2222-222222222222', action_type: 'RECORD_PAYMENT', description: 'Agent Amal collected 15,000 LKR principal repayment for Borrower Bandara.', created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000) }
   ]);
   console.log('Audit logs seeded.');
 }

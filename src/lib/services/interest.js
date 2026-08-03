@@ -28,13 +28,16 @@ export async function runInterestAccruals() {
           return { loanId: loan.id, status: 'skipped' };
         }
 
-        // Calculate interest: principal * (rate / 100)
+        // Calculate interest: principal * (rate / 100). Interest-only model —
+        // this adds to interest_balance (a separate, recurring obligation),
+        // never to principal_outstanding. The borrower keeps paying this
+        // periodic interest for as long as the loan is open; principal is
+        // only ever reduced by an explicit principal payment.
         const principal = parseFloat(dbLoan.principal_amount);
         const rate = parseFloat(dbLoan.interest_rate);
         const interestAmount = principal * (rate / 100);
 
-        const currentBalance = parseFloat(dbLoan.current_balance);
-        const newBalance = currentBalance + interestAmount;
+        const newInterestBalance = parseFloat(dbLoan.interest_balance) + interestAmount;
 
         // Calculate next accrual date based on type
         const nextDate = new Date(dbLoan.next_accrual_date);
@@ -76,7 +79,7 @@ export async function runInterestAccruals() {
         await trx('loans')
           .where({ id: dbLoan.id })
           .update({
-            current_balance: newBalance,
+            interest_balance: newInterestBalance,
             last_accrual_date: db.fn.now(),
             next_accrual_date: nextDate,
             updated_at: db.fn.now()
@@ -86,7 +89,7 @@ export async function runInterestAccruals() {
         await trx('audit_logs').insert({
           actor_id: dbLoan.lender_id, // Assigned to Lender Admin
           action_type: 'ACCRUE_INTEREST',
-          description: `Accrued interest of LKR ${interestAmount.toLocaleString()} on loan of LKR ${principal.toLocaleString()} for Borrower. New balance: LKR ${newBalance.toLocaleString()}.`
+          description: `Accrued interest of LKR ${interestAmount.toLocaleString()} on loan of LKR ${principal.toLocaleString()} for Borrower. Outstanding interest due: LKR ${newInterestBalance.toLocaleString()}.`
         });
 
         return { loanId: dbLoan.id, accruedAmount: interestAmount, status: 'accrued' };

@@ -31,7 +31,7 @@ export async function POST(request, { params }) {
     await db('audit_logs').insert({
       actor_id: authUser.id,
       action_type: 'MARK_DEFAULTED',
-      description: `Marked loan ID ${id} as defaulted. Reason: ${reason.trim()}. Outstanding balance: LKR ${parseFloat(loan.current_balance).toLocaleString()}.`
+      description: `Marked loan ID ${id} as defaulted. Reason: ${reason.trim()}. Outstanding principal: LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}, interest due: LKR ${parseFloat(loan.interest_balance).toLocaleString()}.`
     });
 
     return NextResponse.json({ message: 'Loan marked as defaulted.' });

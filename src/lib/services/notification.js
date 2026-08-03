@@ -57,13 +57,18 @@ export async function notifyLoanCreation({ borrower, principal, interestType, te
 }
 
 /**
- * Triggers alerts for collections
+ * Triggers alerts for collections. paymentType distinguishes an interest
+ * payment (recurring, doesn't close the loan) from a principal payment
+ * (reduces the fixed loan amount, closes the loan at zero).
  */
-export async function notifyPaymentReceived({ borrower, admin, amount, balance }) {
+export async function notifyPaymentReceived({ borrower, admin, amount, paymentType, principalOutstanding, interestBalance }) {
   const formattedAmount = Number(amount).toLocaleString();
-  const formattedBalance = Number(balance).toLocaleString();
+  const kind = paymentType === 'interest' ? 'interest' : 'principal';
+  const remainingMsg = paymentType === 'interest'
+    ? `Interest due: LKR ${Number(interestBalance).toLocaleString()}.`
+    : `Principal remaining: LKR ${Number(principalOutstanding).toLocaleString()}.`;
 
-  const borrowerMsg = `Payment of LKR ${formattedAmount} received. Remaining balance: LKR ${formattedBalance}.`;
+  const borrowerMsg = `${kind === 'interest' ? 'Interest' : 'Principal'} payment of LKR ${formattedAmount} received. ${remainingMsg}`;
 
   await sendNotification({
     recipientName: borrower.name,
@@ -73,7 +78,7 @@ export async function notifyPaymentReceived({ borrower, admin, amount, balance }
   });
 
   if (admin) {
-    const adminMsg = `Collection recorded: LKR ${formattedAmount} from ${borrower.name}. Outstanding balance: LKR ${formattedBalance}.`;
+    const adminMsg = `Collection recorded: LKR ${formattedAmount} (${kind}) from ${borrower.name}. ${remainingMsg}`;
     await sendNotification({
       recipientName: admin.name,
       phone: admin.phone,

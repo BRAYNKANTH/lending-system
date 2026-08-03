@@ -21,7 +21,8 @@ export async function GET(request) {
         'loans.principal_amount as loan_principal',
         'loans.interest_rate as loan_interest_rate',
         'loans.interest_type as loan_interest_type',
-        'loans.current_balance as loan_current_balance',
+        'loans.principal_outstanding as loan_principal_outstanding',
+        'loans.interest_balance as loan_interest_balance',
         'loans.status as loan_status'
       );
 
