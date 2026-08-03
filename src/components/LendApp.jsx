@@ -3,6 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
 
+function installmentStatus(inst) {
+  const expected = parseFloat(inst.expected_amount);
+  const paid = parseFloat(inst.paid_amount);
+  const isPaid = paid >= expected;
+  const isOverdue = !isPaid && new Date(inst.due_date) < new Date();
+  const status = isPaid ? 'Paid' : (paid > 0 ? 'Partial' : (isOverdue ? 'Overdue' : 'Pending'));
+  const statusClass = isPaid ? 'badge-active' : (isOverdue ? 'badge-defaulted' : 'badge-active');
+  return { status, statusClass, isOverdue };
+}
+
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('lend_user')));
@@ -1278,7 +1288,7 @@ export default function LendApp() {
 
                           <div>
                             <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
-                            <div className="form-grid-2-col" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                            <div className="form-grid-3-col">
                               <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorForm.monthly_income_business} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
                               <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorForm.monthly_income_agriculture} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
                               <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_income_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
@@ -1287,7 +1297,7 @@ export default function LendApp() {
 
                           <div>
                             <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
-                            <div className="form-grid-2-col" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                            <div className="form-grid-3-col">
                               <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorForm.monthly_expense_food} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
                               <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorForm.monthly_expense_rent} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
                               <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_expense_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
@@ -1476,30 +1486,52 @@ export default function LendApp() {
                   {!cashReconciliation || cashReconciliation.agents.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No agents found.</p>
                   ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                        <thead>
-                          <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border-light)' }}>
-                            <th style={{ padding: '8px' }}>Agent</th>
-                            <th style={{ padding: '8px' }}>Collected</th>
-                            <th style={{ padding: '8px' }}>Remitted</th>
-                            <th style={{ padding: '8px' }}>Cash in Hand</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {cashReconciliation.agents.map(a => (
-                            <tr key={a.agentId} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                              <td style={{ padding: '8px', fontWeight: 'bold' }}>{a.agentName}</td>
-                              <td style={{ padding: '8px' }}>LKR {a.totalCollected.toLocaleString()}</td>
-                              <td style={{ padding: '8px' }}>LKR {a.totalRemitted.toLocaleString()}</td>
-                              <td style={{ padding: '8px', fontWeight: 'bold', color: a.cashInHand > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                                LKR {a.cashInHand.toLocaleString()}
-                              </td>
+                    <>
+                      <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                        <table className="glass-table">
+                          <thead>
+                            <tr>
+                              <th>Agent</th>
+                              <th>Collected</th>
+                              <th>Remitted</th>
+                              <th>Cash in Hand</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody>
+                            {cashReconciliation.agents.map(a => (
+                              <tr key={a.agentId}>
+                                <td style={{ fontWeight: 'bold' }}>{a.agentName}</td>
+                                <td>LKR {a.totalCollected.toLocaleString()}</td>
+                                <td>LKR {a.totalRemitted.toLocaleString()}</td>
+                                <td style={{ fontWeight: 'bold', color: a.cashInHand > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                                  LKR {a.cashInHand.toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="mobile-only mobile-card-list">
+                        {cashReconciliation.agents.map(a => (
+                          <div key={a.agentId} className={`mobile-row-card ${a.cashInHand > 0 ? 'mobile-row-card-warning' : 'mobile-row-card-success'}`}>
+                            <div className="mobile-row-card-header">
+                              <span className="mobile-row-card-title">{a.agentName}</span>
+                              <span className="mobile-row-card-value" style={{ fontWeight: 'bold', color: a.cashInHand > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                                LKR {a.cashInHand.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="mobile-row-card-grid">
+                              <span className="mobile-row-card-label">Collected</span>
+                              <span className="mobile-row-card-value">LKR {a.totalCollected.toLocaleString()}</span>
+
+                              <span className="mobile-row-card-label">Remitted</span>
+                              <span className="mobile-row-card-value">LKR {a.totalRemitted.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
 
@@ -1540,65 +1572,101 @@ export default function LendApp() {
                   {!ledgerReport ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Loading ledger report...</p>
                   ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                        <thead>
-                          <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border-light)' }}>
-                            <th style={{ padding: '8px' }}>Account</th>
-                            <th style={{ padding: '8px' }}>Debit</th>
-                            <th style={{ padding: '8px' }}>Credit</th>
-                            <th style={{ padding: '8px' }}>Net</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ledgerReport.accounts.map(a => (
-                            <tr key={a.account} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                              <td style={{ padding: '8px', fontWeight: 'bold' }}>{a.label}</td>
-                              <td style={{ padding: '8px' }}>LKR {a.debit.toLocaleString()}</td>
-                              <td style={{ padding: '8px' }}>LKR {a.credit.toLocaleString()}</td>
-                              <td style={{ padding: '8px' }}>LKR {a.net.toLocaleString()}</td>
+                    <>
+                      <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                        <table className="glass-table">
+                          <thead>
+                            <tr>
+                              <th>Account</th>
+                              <th>Debit</th>
+                              <th>Credit</th>
+                              <th>Net</th>
                             </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr style={{ borderTop: '2px solid var(--border-light)', fontWeight: 'bold' }}>
-                            <td style={{ padding: '8px' }}>Totals</td>
-                            <td style={{ padding: '8px' }}>LKR {ledgerReport.totals.debit.toLocaleString()}</td>
-                            <td style={{ padding: '8px' }}>LKR {ledgerReport.totals.credit.toLocaleString()}</td>
-                            <td style={{ padding: '8px', color: ledgerReport.totals.balanced ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                          </thead>
+                          <tbody>
+                            {ledgerReport.accounts.map(a => (
+                              <tr key={a.account}>
+                                <td style={{ fontWeight: 'bold' }}>{a.label}</td>
+                                <td>LKR {a.debit.toLocaleString()}</td>
+                                <td>LKR {a.credit.toLocaleString()}</td>
+                                <td>LKR {a.net.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ borderTop: '2px solid var(--border-light)', fontWeight: 'bold' }}>
+                              <td>Totals</td>
+                              <td>LKR {ledgerReport.totals.debit.toLocaleString()}</td>
+                              <td>LKR {ledgerReport.totals.credit.toLocaleString()}</td>
+                              <td style={{ color: ledgerReport.totals.balanced ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                                {ledgerReport.totals.balanced ? '✓ Balanced' : '✗ Out of balance'}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+
+                      <div className="mobile-only mobile-card-list">
+                        {ledgerReport.accounts.map(a => (
+                          <div key={a.account} className="mobile-row-card">
+                            <div className="mobile-row-card-header">
+                              <span className="mobile-row-card-title">{a.label}</span>
+                              <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}>Net: LKR {a.net.toLocaleString()}</span>
+                            </div>
+                            <div className="mobile-row-card-grid">
+                              <span className="mobile-row-card-label">Debit</span>
+                              <span className="mobile-row-card-value">LKR {a.debit.toLocaleString()}</span>
+
+                              <span className="mobile-row-card-label">Credit</span>
+                              <span className="mobile-row-card-value">LKR {a.credit.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                        <div className={`mobile-row-card ${ledgerReport.totals.balanced ? 'mobile-row-card-success' : 'mobile-row-card-danger'}`}>
+                          <div className="mobile-row-card-header">
+                            <span className="mobile-row-card-title">Totals</span>
+                            <span className="mobile-row-card-value" style={{ fontWeight: 'bold', color: ledgerReport.totals.balanced ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
                               {ledgerReport.totals.balanced ? '✓ Balanced' : '✗ Out of balance'}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+                            </span>
+                          </div>
+                          <div className="mobile-row-card-grid">
+                            <span className="mobile-row-card-label">Debit</span>
+                            <span className="mobile-row-card-value">LKR {ledgerReport.totals.debit.toLocaleString()}</span>
+
+                            <span className="mobile-row-card-label">Credit</span>
+                            <span className="mobile-row-card-value">LKR {ledgerReport.totals.credit.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
 
                 {/* User management */}
                 <div className="glass-card">
                   <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>👤 User Management</h3>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+
+                  <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                    <table className="glass-table">
                       <thead>
-                        <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border-light)' }}>
-                          <th style={{ padding: '8px' }}>Name</th>
-                          <th style={{ padding: '8px' }}>Role</th>
-                          <th style={{ padding: '8px' }}>Contact</th>
-                          <th style={{ padding: '8px' }}>Status</th>
-                          <th style={{ padding: '8px' }}>Actions</th>
+                        <tr>
+                          <th>Name</th>
+                          <th>Role</th>
+                          <th>Contact</th>
+                          <th>Status</th>
+                          <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {adminUsers.map(u => (
-                          <tr key={u.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                            <td style={{ padding: '8px', fontWeight: 'bold' }}>{u.name}</td>
-                            <td style={{ padding: '8px', textTransform: 'capitalize' }}>{u.role}</td>
-                            <td style={{ padding: '8px', fontSize: '12px' }}>{u.email}<br />{u.phone}</td>
-                            <td style={{ padding: '8px' }}>
+                          <tr key={u.id}>
+                            <td style={{ fontWeight: 'bold' }}>{u.name}</td>
+                            <td style={{ textTransform: 'capitalize' }}>{u.role}</td>
+                            <td style={{ fontSize: '12px' }}>{u.email}<br />{u.phone}</td>
+                            <td>
                               <span className={`badge ${u.is_active ? 'badge-active' : 'badge-defaulted'}`}>{u.is_active ? 'Active' : 'Inactive'}</span>
                             </td>
-                            <td style={{ padding: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <td style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleToggleUserStatus(u)} disabled={loading || u.id === user.id}>
                                 {u.is_active ? 'Deactivate' : 'Activate'}
                               </button>
@@ -1610,6 +1678,35 @@ export default function LendApp() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  <div className="mobile-only mobile-card-list">
+                    {adminUsers.map(u => (
+                      <div key={u.id} className="mobile-row-card">
+                        <div className="mobile-row-card-header">
+                          <span className="mobile-row-card-title">{u.name}</span>
+                          <span className={`badge ${u.is_active ? 'badge-active' : 'badge-defaulted'}`}>{u.is_active ? 'Active' : 'Inactive'}</span>
+                        </div>
+                        <div className="mobile-row-card-grid">
+                          <span className="mobile-row-card-label">Role</span>
+                          <span className="mobile-row-card-value" style={{ textTransform: 'capitalize' }}>{u.role}</span>
+
+                          <span className="mobile-row-card-label">Email</span>
+                          <span className="mobile-row-card-value">{u.email}</span>
+
+                          <span className="mobile-row-card-label">Phone</span>
+                          <span className="mobile-row-card-value">{u.phone}</span>
+                        </div>
+                        <div className="mobile-row-card-actions">
+                          <button className="glass-btn glass-btn-secondary" onClick={() => handleToggleUserStatus(u)} disabled={loading || u.id === user.id}>
+                            {u.is_active ? 'Deactivate' : 'Activate'}
+                          </button>
+                          <button className="glass-btn glass-btn-secondary" onClick={() => handleResetUserPassword(u)} disabled={loading}>
+                            Reset Password
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2479,7 +2576,7 @@ export default function LendApp() {
                       LKR {parseFloat(loanStatement.loan.installment_amount).toLocaleString()} × {loanStatement.loan.num_installments} ({loanStatement.loan.interest_type}) — Total Repayable: LKR {parseFloat(loanStatement.loan.total_repayable).toLocaleString()}
                     </span>
                   </div>
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="desktop-only" style={{ overflowX: 'auto' }}>
                     <table className="glass-table">
                       <thead>
                         <tr>
@@ -2493,18 +2590,13 @@ export default function LendApp() {
                       </thead>
                       <tbody>
                         {loanStatement.installments.map(inst => {
-                          const expected = parseFloat(inst.expected_amount);
-                          const paid = parseFloat(inst.paid_amount);
-                          const isPaid = paid >= expected;
-                          const isOverdue = !isPaid && new Date(inst.due_date) < new Date();
-                          const status = isPaid ? 'Paid' : (paid > 0 ? 'Partial' : (isOverdue ? 'Overdue' : 'Pending'));
-                          const statusClass = isPaid ? 'badge-active' : (isOverdue ? 'badge-defaulted' : 'badge-active');
+                          const { status, statusClass, isOverdue } = installmentStatus(inst);
                           return (
                             <tr key={inst.id}>
                               <td>{inst.installment_number}</td>
                               <td>{new Date(inst.due_date).toLocaleDateString()}</td>
-                              <td>LKR {expected.toLocaleString()}</td>
-                              <td>LKR {paid.toLocaleString()}</td>
+                              <td>LKR {parseFloat(inst.expected_amount).toLocaleString()}</td>
+                              <td>LKR {parseFloat(inst.paid_amount).toLocaleString()}</td>
                               <td>{inst.paid_at ? new Date(inst.paid_at).toLocaleDateString() : '-'}</td>
                               <td><span className={`badge ${statusClass}`} style={isOverdue ? { color: 'var(--accent-rose)' } : undefined}>{status}</span></td>
                             </tr>
@@ -2512,6 +2604,35 @@ export default function LendApp() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Mobile View Cards */}
+                  <div className="mobile-only mobile-card-list">
+                    {loanStatement.installments.map(inst => {
+                      const { status, statusClass, isOverdue } = installmentStatus(inst);
+                      const cardVariant = status === 'Paid' ? 'mobile-row-card-success' : isOverdue ? 'mobile-row-card-danger' : status === 'Partial' ? 'mobile-row-card-warning' : '';
+                      return (
+                        <div key={inst.id} className={`mobile-row-card ${cardVariant}`}>
+                          <div className="mobile-row-card-header">
+                            <span className="mobile-row-card-title">Installment #{inst.installment_number}</span>
+                            <span className={`badge ${statusClass}`} style={isOverdue ? { color: 'var(--accent-rose)' } : undefined}>{status}</span>
+                          </div>
+                          <div className="mobile-row-card-grid">
+                            <span className="mobile-row-card-label">Due Date</span>
+                            <span className="mobile-row-card-value">{new Date(inst.due_date).toLocaleDateString()}</span>
+
+                            <span className="mobile-row-card-label">Expected</span>
+                            <span className="mobile-row-card-value">LKR {parseFloat(inst.expected_amount).toLocaleString()}</span>
+
+                            <span className="mobile-row-card-label">Paid</span>
+                            <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}>LKR {parseFloat(inst.paid_amount).toLocaleString()}</span>
+
+                            <span className="mobile-row-card-label">Paid Date</span>
+                            <span className="mobile-row-card-value">{inst.paid_at ? new Date(inst.paid_at).toLocaleDateString() : '-'}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
