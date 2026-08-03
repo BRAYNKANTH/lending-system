@@ -1,0 +1,44 @@
+import { NextResponse } from 'next/server';
+import db from '@/lib/db.js';
+import { requireAuth, AuthError } from '@/lib/auth.js';
+import { getAgentCashInHand } from '@/lib/services/remittance.js';
+
+export async function GET(request) {
+  try {
+    const authUser = requireAuth(request, ['agent']);
+    const agentId = authUser.id;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const collectionsTodayResult = await db('transactions')
+      .where({ agent_id: agentId })
+      .andWhere('payment_date', '>=', todayStart)
+      .sum('amount as total');
+    const collectionsToday = parseFloat(collectionsTodayResult[0].total) || 0;
+
+    const assignedLoans = await db('loans')
+      .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
+      .where({ assigned_agent_id: agentId, 'loans.status': 'active' })
+      .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone')
+      .orderBy('loans.current_balance', 'desc');
+
+    const collectionHistory = await db('transactions')
+      .join('users as borrowers', 'transactions.borrower_id', 'borrowers.id')
+      .where({ agent_id: agentId })
+      .select('transactions.*', 'borrowers.name as borrower_name')
+      .orderBy('transactions.payment_date', 'desc')
+      .limit(10);
+
+    const cashInHand = await getAgentCashInHand(agentId);
+
+    return NextResponse.json({
+      summary: { collectionsToday, assignedCount: assignedLoans.length, ...cashInHand },
+      assignedLoans,
+      collectionHistory
+    });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Agent dashboard error:', error);
+    return NextResponse.json({ message: 'Failed to build agent dashboard statistics.' }, { status: 500 });
+  }
+}

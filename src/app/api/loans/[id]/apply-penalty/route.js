@@ -1,0 +1,53 @@
+import { NextResponse } from 'next/server';
+import db from '@/lib/db.js';
+import { requireAuth, AuthError } from '@/lib/auth.js';
+
+// Apply a manual penalty / late fee to an active loan (Admin only)
+export async function POST(request, { params }) {
+  try {
+    const authUser = requireAuth(request, ['admin']);
+    const { id } = params;
+    const { amount, reason } = await request.json();
+
+    const penaltyAmount = parseFloat(amount);
+    if (isNaN(penaltyAmount) || penaltyAmount <= 0) {
+      return NextResponse.json({ message: 'Penalty amount must be a positive number.' }, { status: 400 });
+    }
+
+    const result = await db.transaction(async (trx) => {
+      const loan = await trx('loans').where({ id }).first().forUpdate();
+      if (!loan) {
+        throw new Error('Loan not found.');
+      }
+      if (loan.status !== 'active') {
+        throw new Error(`Penalties can only be applied to active loans (current status: '${loan.status}').`);
+      }
+
+      const newBalance = parseFloat(loan.current_balance) + penaltyAmount;
+
+      await trx('ledger_entries').insert([
+        { loan_id: id, account: 'loan_receivable', type: 'debit', amount: penaltyAmount },
+        { loan_id: id, account: 'penalty_revenue', type: 'credit', amount: penaltyAmount }
+      ]);
+
+      await trx('loans').where({ id }).update({ current_balance: newBalance, updated_at: trx.fn.now() });
+
+      await trx('audit_logs').insert({
+        actor_id: authUser.id,
+        action_type: 'APPLY_PENALTY',
+        description: `Applied penalty of LKR ${penaltyAmount.toLocaleString()} to loan ID ${id}${reason ? ` (${reason.trim()})` : ''}. New balance: LKR ${newBalance.toLocaleString()}.`
+      });
+
+      return { newBalance };
+    });
+
+    return NextResponse.json({ message: 'Penalty applied and posted to ledger.', newBalance: result.newBalance });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Apply penalty error:', error);
+    if (error.message?.includes('not found') || error.message?.includes('active loans')) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ message: 'Internal server error while applying penalty.' }, { status: 500 });
+  }
+}
