@@ -8,7 +8,7 @@ import {
   Printer, FileText, TrendingUp, Bell, BarChart3, Zap, AlertTriangle,
   Briefcase, Truck, BookOpen, ArrowDown, User, Settings, Ban, Receipt,
   Search, CreditCard, Smartphone, PiggyBank, UserPlus, Trash2, ClipboardCheck,
-  CircleCheck, CircleAlert, RefreshCcw
+  CircleCheck, CircleAlert, RefreshCcw, Download, ChevronRight
 } from 'lucide-react';
 
 export default function LendApp() {
@@ -1417,7 +1417,7 @@ export default function LendApp() {
                         {newLoan.nic_photo && (
                           <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                             <img src={newLoan.nic_photo} alt="NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                            <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}>✓ Photo Attached</span>
+                            <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
                           </div>
                         )}
                       </div>
@@ -1457,7 +1457,7 @@ export default function LendApp() {
                     <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '14px' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
                         <input type="checkbox" checked={includeGuarantor} onChange={e => setIncludeGuarantor(e.target.checked)} />
-                        🛡️ ADD GUARANTOR DETAILS (optional)
+                        <ShieldCheck className="icon" /> ADD GUARANTOR DETAILS (optional)
                       </label>
 
                       {includeGuarantor && (
@@ -1544,7 +1544,7 @@ export default function LendApp() {
                     <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '14px' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
                         <input type="checkbox" checked={includeBorrowerProfile} onChange={e => setIncludeBorrowerProfile(e.target.checked)} />
-                        📋 ADD BORROWER PROFILE DETAILS (optional)
+                        <ClipboardList className="icon" /> ADD BORROWER PROFILE DETAILS (optional)
                       </label>
 
                       {includeBorrowerProfile && (
@@ -1675,7 +1675,7 @@ export default function LendApp() {
                             <span className="mobile-row-card-title">{loan.borrower_name}</span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <span className="badge badge-defaulted">Overdue</span>
-                              <span style={{ color: 'var(--text-muted)', fontWeight: 'bold', fontSize: '16px' }}>➔</span>
+                              <span style={{ color: 'var(--text-muted)', display: 'flex' }}><ChevronRight /></span>
                             </div>
                           </div>
                           <div className="mobile-row-card-grid-compact">
@@ -1848,7 +1848,7 @@ export default function LendApp() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
                     <h3 style={{ fontSize: '22px' }}><BookOpen className="icon" /> Ledger / Trial Balance</h3>
                     <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={downloadLedgerCsv} disabled={!ledgerReport}>
-                      ⬇️ Export CSV
+                      <Download className="icon" /> Export CSV
                     </button>
                   </div>
                   {!ledgerReport ? (
@@ -2142,7 +2142,7 @@ export default function LendApp() {
                         <input type="file" accept="image/*" className="glass-input" onChange={handleFileChange} />
                         {paymentForm.proof_image && (
                           <div style={{ marginTop: '10px' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}>✓ Photo attached.</span>
+                            <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo attached.</span>
                           </div>
                         )}
                       </div>
@@ -2174,7 +2174,7 @@ export default function LendApp() {
                           <div key={loan.id} style={{ padding: '16px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                               <strong style={{ display: 'block', fontSize: '15px' }}>{loan.borrower_name}</strong>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>📞 {loan.borrower_phone}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
                               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
                                 Type: <span style={{ textTransform: 'capitalize' }}>{loan.interest_type} ({loan.interest_rate}%)</span>
                               </div>
@@ -2549,7 +2549,7 @@ export default function LendApp() {
                       {borrowerPayment.proof_image && (
                         <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                           <img src={borrowerPayment.proof_image} alt="Receipt preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                          <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}>✓ Slip Attached</span>
+                          <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Slip Attached</span>
                         </div>
                       )}
                     </div>
@@ -2832,7 +2832,7 @@ export default function LendApp() {
                     Interest Due: <strong style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString()}</strong>
                   </p>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '10px', margin: '0' }}>
-                    <span>🪪 NIC Number: <strong>{loanStatement.loan.nic_number || 'N/A'}</strong></span>
+                    <span><IdCard className="icon" /> NIC Number: <strong>{loanStatement.loan.nic_number || 'N/A'}</strong></span>
                     {loanStatement.loan.nic_photo_url && (
                       <>
                         <span>•</span>
@@ -3320,8 +3320,8 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                     <td>{new Date(loan.created_at).toLocaleDateString()}</td>
                     <td>
                       <strong style={{ display: 'block' }}>{loan.borrower_name}</strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}>📞 {loan.borrower_phone}</span>
-                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>🪪 NIC: {loan.nic_number}</span>}
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}><IdCard className="icon" /> NIC: {loan.nic_number}</span>}
                     </td>
                     <td>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
                     <td style={{ textTransform: 'capitalize' }}>{loan.interest_type}</td>
@@ -3357,14 +3357,14 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                 <div className="mobile-row-card-header">
                   <div>
                     <strong className="mobile-row-card-title" style={{ display: 'block' }}>{loan.borrower_name}</strong>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}>📞 {loan.borrower_phone}</span>
-                    {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🪪 NIC: {loan.nic_number}</span>}
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                    {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}><IdCard className="icon" /> NIC: {loan.nic_number}</span>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className={`badge ${loan.status === 'active' ? 'badge-active' : loan.status === 'fully_paid' ? 'badge-paid' : 'badge-defaulted'}`}>
                       {loan.status === 'active' ? 'Unpaid' : loan.status === 'fully_paid' ? 'Paid' : loan.status}
                     </span>
-                    <span style={{ color: 'var(--text-muted)', fontWeight: 'bold', fontSize: '16px' }}>➔</span>
+                    <span style={{ color: 'var(--text-muted)', display: 'flex' }}><ChevronRight /></span>
                   </div>
                 </div>
                 <div className="mobile-row-card-grid-compact">
