@@ -863,6 +863,7 @@ table.desktop-only {
   .dashboard-container,
   .bottom-nav-bar,
   .receipt-modal-overlay,
+  .agreement-modal-overlay,
   header,
   main,
   footer,
@@ -942,6 +943,55 @@ table.desktop-only {
 /* Hide the print layout container in screen media */
 @media screen {
   .receipt-print-only {
+    display: none !important;
+  }
+}
+
+/* --- FULL-PAGE PRINTABLE DOCUMENTS (e.g. Loan Agreement) --- */
+@media print {
+  .agreement-print-only {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 20mm;
+    background: #ffffff;
+    color: #000000;
+    font-family: var(--font-body, Georgia, serif);
+    font-size: 11pt;
+    line-height: 1.6;
+  }
+
+  .agreement-print-only h1 {
+    font-size: 16pt;
+    text-align: center;
+    margin-bottom: 4mm;
+  }
+
+  .agreement-print-only h2 {
+    font-size: 12pt;
+    margin: 6mm 0 2mm;
+  }
+
+  .agreement-print-only .agreement-signature-block {
+    margin-top: 14mm;
+    display: flex;
+    justify-content: space-between;
+    gap: 10mm;
+  }
+
+  .agreement-print-only .agreement-signature-line {
+    flex: 1;
+    border-top: 1px solid #000;
+    padding-top: 2mm;
+    text-align: center;
+    font-size: 10pt;
+  }
+}
+
+@media screen {
+  .agreement-print-only {
     display: none !important;
   }
 }

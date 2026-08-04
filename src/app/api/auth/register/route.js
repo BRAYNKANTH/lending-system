@@ -3,14 +3,15 @@ import bcrypt from 'bcryptjs';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { generateTempPassword } from '@/lib/tempPassword.js';
+import { normalizePhone } from '@/lib/phone.js';
 
 export async function POST(request) {
   try {
     const user = requireAuth(request, ['admin']);
-    const { name, email, phone, password, role } = await request.json();
+    const { name, phone, password, role } = await request.json();
 
-    if (!name || !email || !phone || !role) {
-      return NextResponse.json({ message: 'Name, email, phone, and role are required.' }, { status: 400 });
+    if (!name || !phone || !role) {
+      return NextResponse.json({ message: 'Name, phone, and role are required.' }, { status: 400 });
     }
     if (role !== 'borrower' && !password) {
       return NextResponse.json({ message: 'Password is required for administrators and collection agents.' }, { status: 400 });
@@ -19,12 +20,10 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Invalid role specified.' }, { status: 400 });
     }
 
-    const existingUser = await db('users').where({ email }).orWhere({ phone }).first();
+    const normalized = normalizePhone(phone);
+    const existingUser = await db('users').whereRaw('phone LIKE ?', [`%${normalized}`]).first();
     if (existingUser) {
-      return NextResponse.json(
-        { message: existingUser.email === email ? 'Email is already registered.' : 'Phone number is already registered.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ message: 'Phone number is already registered.' }, { status: 400 });
     }
 
     let passwordHash;
@@ -43,7 +42,7 @@ export async function POST(request) {
     }
 
     const [userId] = await db('users').insert({
-      name, email, phone,
+      name, phone,
       password_hash: passwordHash,
       role,
       is_active: true,

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import db from '@/lib/db.js';
 import { JWT_SECRET } from '@/lib/jwt.js';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit.js';
+import { normalizePhone } from '@/lib/phone.js';
 
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
@@ -19,15 +20,23 @@ export async function POST(request) {
       );
     }
 
-    const { email, password } = await request.json();
+    const { phone, password } = await request.json();
 
-    if (!email || !password) {
-      return NextResponse.json({ message: 'Email and password are required.' }, { status: 400 });
+    if (!phone || !password) {
+      return NextResponse.json({ message: 'Phone number and password are required.' }, { status: 400 });
     }
 
-    const user = await db('users').where({ email }).first();
+    const normalized = normalizePhone(phone);
+    if (normalized.length < 9) {
+      return NextResponse.json({ message: 'Invalid phone number.' }, { status: 400 });
+    }
+
+    // Phone numbers are stored as typed (with or without +94/leading 0), so
+    // match on the last 9 significant digits rather than requiring an exact
+    // string match.
+    const user = await db('users').whereRaw('phone LIKE ?', [`%${normalized}`]).first();
     if (!user || !user.is_active) {
-      return NextResponse.json({ message: 'Invalid email or inactive account.' }, { status: 401 });
+      return NextResponse.json({ message: 'Invalid phone number or inactive account.' }, { status: 401 });
     }
 
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
@@ -59,7 +68,7 @@ export async function POST(request) {
     }
 
     const token = jwt.sign(
-      { id: user.id, name: user.name, email: user.email, role: user.role },
+      { id: user.id, name: user.name, phone: user.phone, role: user.role },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -75,7 +84,6 @@ export async function POST(request) {
       user: {
         id: user.id,
         name: user.name,
-        email: user.email,
         role: user.role,
         phone: user.phone,
         mustChangePassword: !!user.must_change_password

@@ -24,6 +24,7 @@ export default function LendApp() {
   const [selectedLoanId, setSelectedLoanId] = useState(null);
   const [loanStatement, setLoanStatement] = useState(null);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [showLoanAgreement, setShowLoanAgreement] = useState(false);
 
   // Admin: Cash & Tools view data (users, remittances, ledger report)
   const [adminUsers, setAdminUsers] = useState([]);
@@ -44,8 +45,11 @@ export default function LendApp() {
   const [penaltyForm, setPenaltyForm] = useState({ amount: '', reason: '' });
 
   // Form states
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotIdentifier, setForgotIdentifier] = useState('');
+  const [forgotMessage, setForgotMessage] = useState('');
   const [newLoan, setNewLoan] = useState({
     borrower_name: '',
     borrower_phone: '',
@@ -65,6 +69,13 @@ export default function LendApp() {
     monthly_expense_food: '', monthly_expense_rent: '', monthly_expense_other: ''
   };
   const [guarantorForm, setGuarantorForm] = useState(emptyGuarantor);
+
+  const [includeBorrowerProfile, setIncludeBorrowerProfile] = useState(false);
+  const emptyBorrowerProfile = {
+    loan_purpose: '', dependents_count: '', monthly_income: '',
+    spouse_name: '', spouse_nic: '', spouse_occupation: ''
+  };
+  const [borrowerProfileForm, setBorrowerProfileForm] = useState(emptyBorrowerProfile);
 
   // Collection payment form
   const [paymentForm, setPaymentForm] = useState({
@@ -384,7 +395,7 @@ export default function LendApp() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.post('/auth/login', { email: loginEmail, password: loginPassword });
+      const data = await api.post('/auth/login', { phone: loginPhone, password: loginPassword });
       localStorage.setItem('lend_token', data.token);
       localStorage.setItem('lend_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -394,6 +405,21 @@ export default function LendApp() {
       if (data.user.mustChangePassword) {
         setShowChangePassword(true);
       }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setForgotMessage('');
+    try {
+      const data = await api.post('/auth/forgot-password', { identifier: forgotIdentifier });
+      setForgotMessage(data.message);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -418,7 +444,11 @@ export default function LendApp() {
     setLoading(true);
     setError('');
     try {
-      const payload = { ...newLoan, guarantor: includeGuarantor ? guarantorForm : null };
+      const payload = {
+        ...newLoan,
+        guarantor: includeGuarantor ? guarantorForm : null,
+        borrower_profile: includeBorrowerProfile ? borrowerProfileForm : null
+      };
       const response = await api.post('/loans', payload);
       showToast(`Loan disbursed to ${newLoan.borrower_name} successfully! Notification sent.`);
       if (response.borrowerTemporaryPassword) {
@@ -436,6 +466,8 @@ export default function LendApp() {
       });
       setIncludeGuarantor(false);
       setGuarantorForm(emptyGuarantor);
+      setIncludeBorrowerProfile(false);
+      setBorrowerProfileForm(emptyBorrowerProfile);
       fetchDashboardData();
     } catch (err) {
       setError(err.message);
@@ -641,8 +673,8 @@ export default function LendApp() {
   };
 
   // Quick fill credential helper
-  const fillCredentials = (email, password) => {
-    setLoginEmail(email);
+  const fillCredentials = (phone, password) => {
+    setLoginPhone(phone);
     setLoginPassword(password);
   };
 
@@ -870,6 +902,127 @@ export default function LendApp() {
         </div>
       )}
 
+      {/* Loan Agreement Modal (Screen View) */}
+      {showLoanAgreement && loanStatement && (
+        <div className="agreement-modal-overlay receipt-modal-overlay" onClick={() => setShowLoanAgreement(false)}>
+          <div className="receipt-modal-card" style={{ maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="receipt-header">
+              <div className="receipt-header-icon">📄</div>
+              <div className="receipt-title">Loan Agreement</div>
+              <div className="receipt-subtitle">Reference: {loanStatement.loan.id}</div>
+            </div>
+
+            <p style={{ fontSize: '14px', lineHeight: 1.6 }}>
+              This agreement is entered into on <strong>{new Date(loanStatement.loan.created_at).toLocaleDateString()}</strong> between the
+              Lender and <strong>{loanStatement.loan.borrower_name}</strong> (NIC: {loanStatement.loan.nic_number || 'N/A'}), the Borrower.
+            </p>
+
+            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>1. Loan Amount</h4>
+            <p style={{ fontSize: '14px' }}>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>.</p>
+
+            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>2. Interest & Repayment</h4>
+            <p style={{ fontSize: '14px' }}>
+              Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
+              The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
+              settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
+              interest payment schedule.
+            </p>
+
+            {loanStatement.loan.loan_purpose && (
+              <>
+                <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>3. Purpose of Loan</h4>
+                <p style={{ fontSize: '14px' }}>{loanStatement.loan.loan_purpose}</p>
+              </>
+            )}
+
+            {loanStatement.guarantor && (
+              <>
+                <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>4. Guarantor</h4>
+                <p style={{ fontSize: '14px' }}>
+                  <strong>{loanStatement.guarantor.full_name}</strong> (NIC: {loanStatement.guarantor.nic_number}), residing at {loanStatement.guarantor.address},
+                  stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.
+                </p>
+              </>
+            )}
+
+            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>{loanStatement.guarantor ? '5' : loanStatement.loan.loan_purpose ? '4' : '3'}. Default</h4>
+            <p style={{ fontSize: '14px' }}>If the Borrower fails to pay interest or repay the principal as agreed, the Lender has the right to take legal action to recover the outstanding amount.</p>
+
+            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>{loanStatement.guarantor ? '6' : loanStatement.loan.loan_purpose ? '5' : '4'}. Declaration</h4>
+            <p style={{ fontSize: '14px' }}>Both parties confirm they have read, understood, and agree to all the terms stated above.</p>
+
+            <div className="receipt-actions">
+              <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowLoanAgreement(false)}>
+                Close
+              </button>
+              <button type="button" className="glass-btn glass-btn-emerald" onClick={() => window.print()}>
+                🖨️ Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Print Container (Loan Agreement Print View) */}
+      {showLoanAgreement && loanStatement && (
+        <div className="agreement-print-only">
+          <h1>Loan Agreement</h1>
+          <p style={{ textAlign: 'center', fontSize: '9pt', color: '#444' }}>Reference: {loanStatement.loan.id}</p>
+
+          <p>
+            This agreement is entered into on <strong>{new Date(loanStatement.loan.created_at).toLocaleDateString()}</strong> between the
+            Lender and <strong>{loanStatement.loan.borrower_name}</strong> (NIC: {loanStatement.loan.nic_number || 'N/A'}), the Borrower.
+          </p>
+
+          <h2>1. Loan Amount</h2>
+          <p>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>.</p>
+
+          <h2>2. Interest & Repayment</h2>
+          <p>
+            Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every{' '}
+            <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
+            The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
+            settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
+            interest payment schedule.
+          </p>
+
+          {loanStatement.loan.loan_purpose && (
+            <>
+              <h2>3. Purpose of Loan</h2>
+              <p>{loanStatement.loan.loan_purpose}</p>
+            </>
+          )}
+
+          {loanStatement.guarantor && (
+            <>
+              <h2>{loanStatement.loan.loan_purpose ? '4' : '3'}. Guarantor</h2>
+              <p>
+                <strong>{loanStatement.guarantor.full_name}</strong> (NIC: {loanStatement.guarantor.nic_number}), residing at {loanStatement.guarantor.address},
+                stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.
+              </p>
+            </>
+          )}
+
+          <h2>{loanStatement.guarantor ? '5' : loanStatement.loan.loan_purpose ? '4' : '3'}. Default</h2>
+          <p>If the Borrower fails to pay interest or repay the principal as agreed, the Lender has the right to take legal action to recover the outstanding amount.</p>
+
+          <h2>{loanStatement.guarantor ? '6' : loanStatement.loan.loan_purpose ? '5' : '4'}. Declaration</h2>
+          <p>Both parties confirm they have read, understood, and agree to all the terms stated above.</p>
+
+          <div className="agreement-signature-block">
+            <div className="agreement-signature-line">Lender</div>
+            <div className="agreement-signature-line">Borrower ({loanStatement.loan.borrower_name})</div>
+            {loanStatement.guarantor && (
+              <div className="agreement-signature-line">Guarantor ({loanStatement.guarantor.full_name})</div>
+            )}
+          </div>
+          <div className="agreement-signature-block">
+            <div className="agreement-signature-line">Witness 1</div>
+            <div className="agreement-signature-line">Witness 2</div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Alert overlay */}
       <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '380px' }}>
         {toastAlerts.map(toast => (
@@ -985,25 +1138,49 @@ export default function LendApp() {
               <h2 style={{ fontSize: '28px', textAlign: 'center', marginBottom: '8px' }}>Cash Lending Manager</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center', marginBottom: '24px' }}>Easy loan tracking and collections</p>
 
-              <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>EMAIL ADDRESS</label>
-                  <input type="email" required className="glass-input" placeholder="e.g. name@company.com" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PASSWORD</label>
-                  <input type="password" required className="glass-input" placeholder="••••••••" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
-                </div>
-                <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%', marginTop: '8px' }}>
-                  {loading ? 'Loading...' : 'Login'}
-                </button>
-              </form>
+              {!showForgotPassword ? (
+                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
+                    <input type="tel" required className="glass-input" placeholder="e.g. 0771234567" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PASSWORD</label>
+                    <input type="password" required className="glass-input" placeholder="••••••••" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
+                  </div>
+                  <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%', marginTop: '8px' }}>
+                    {loading ? 'Loading...' : 'Login'}
+                  </button>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }} onClick={() => { setShowForgotPassword(true); setError(''); setForgotMessage(''); }}>
+                    Forgot password?
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+                    Enter your registered phone number. A temporary password will be sent via SMS.
+                  </p>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
+                    <input type="tel" required className="glass-input" placeholder="e.g. 0771234567" value={forgotIdentifier} onChange={e => setForgotIdentifier(e.target.value)} />
+                  </div>
+                  {forgotMessage && (
+                    <p style={{ fontSize: '13px', color: 'var(--accent-emerald)', margin: 0 }}>{forgotMessage}</p>
+                  )}
+                  <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%' }}>
+                    {loading ? 'Sending...' : 'Send Temporary Password'}
+                  </button>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }} onClick={() => { setShowForgotPassword(false); setError(''); setForgotMessage(''); setForgotIdentifier(''); }}>
+                    ⬅️ Back to Login
+                  </button>
+                </form>
+              )}
 
               <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '12px', fontWeight: 'bold' }}>DEMO QUICK-FILL CREDENTIALS</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 4px', fontSize: '11px' }} onClick={() => fillCredentials('admin@lend.com', 'password123')}>Admin</button>
-                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 4px', fontSize: '11px' }} onClick={() => fillCredentials('agent@lend.com', 'password123')}>Agent</button>
+                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 4px', fontSize: '11px' }} onClick={() => fillCredentials('0774048194', 'password123')}>Admin</button>
+                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 4px', fontSize: '11px' }} onClick={() => fillCredentials('+94777654321', 'password123')}>Agent</button>
                 </div>
               </div>
             </div>
@@ -1306,6 +1483,49 @@ export default function LendApp() {
                               <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorForm.monthly_expense_rent} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
                               <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_expense_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
                             </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '14px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={includeBorrowerProfile} onChange={e => setIncludeBorrowerProfile(e.target.checked)} />
+                        📋 ADD BORROWER PROFILE DETAILS (optional)
+                      </label>
+
+                      {includeBorrowerProfile && (
+                        <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan</label>
+                            <input type="text" className="glass-input" placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value }))} />
+                          </div>
+
+                          <div className="form-grid-2-col">
+                            <div>
+                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Number of Dependents</label>
+                              <input type="number" min="0" className="glass-input" value={borrowerProfileForm.dependents_count} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR)</label>
+                              <input type="number" min="0" className="glass-input" value={borrowerProfileForm.monthly_income} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value }))} />
+                            </div>
+                          </div>
+
+                          <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Spouse Details (if applicable)</p>
+                          <div className="form-grid-2-col">
+                            <div>
+                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Name</label>
+                              <input type="text" className="glass-input" value={borrowerProfileForm.spouse_name} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_name: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse NIC Number</label>
+                              <input type="text" className="glass-input" value={borrowerProfileForm.spouse_nic} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_nic: e.target.value }))} />
+                            </div>
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Occupation</label>
+                            <input type="text" className="glass-input" value={borrowerProfileForm.spouse_occupation} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_occupation: e.target.value }))} />
                           </div>
                         </div>
                       )}
@@ -1671,7 +1891,7 @@ export default function LendApp() {
                           <tr key={u.id}>
                             <td style={{ fontWeight: 'bold' }}>{u.name}</td>
                             <td style={{ textTransform: 'capitalize' }}>{u.role}</td>
-                            <td style={{ fontSize: '12px' }}>{u.email}<br />{u.phone}</td>
+                            <td style={{ fontSize: '12px' }}>{u.phone}</td>
                             <td>
                               <span className={`badge ${u.is_active ? 'badge-active' : 'badge-defaulted'}`}>{u.is_active ? 'Active' : 'Inactive'}</span>
                             </td>
@@ -1699,9 +1919,6 @@ export default function LendApp() {
                         <div className="mobile-row-card-grid">
                           <span className="mobile-row-card-label">Role</span>
                           <span className="mobile-row-card-value" style={{ textTransform: 'capitalize' }}>{u.role}</span>
-
-                          <span className="mobile-row-card-label">Email</span>
-                          <span className="mobile-row-card-value">{u.email}</span>
 
                           <span className="mobile-row-card-label">Phone</span>
                           <span className="mobile-row-card-value">{u.phone}</span>
@@ -2530,10 +2747,7 @@ export default function LendApp() {
                           onClick={(e) => {
                             e.preventDefault();
                             const win = window.open();
-                            const fullUrl = loanStatement.loan.nic_photo_url.startsWith('http') 
-                              ? loanStatement.loan.nic_photo_url 
-                              : `http://localhost:5000${loanStatement.loan.nic_photo_url}`;
-                            win.document.write(`<img src="${fullUrl}" style="max-width:100%; height:auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 8px;" />`);
+                            win.document.write(`<img src="${loanStatement.loan.nic_photo_url}" style="max-width:100%; height:auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 8px;" />`);
                           }}
                         >
                           View NIC Photo
@@ -2542,9 +2756,14 @@ export default function LendApp() {
                     )}
                   </p>
                 </div>
-                <button className="glass-btn" onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                  ⬅️ Go Back
-                </button>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button className="glass-btn glass-btn-secondary" onClick={() => setShowLoanAgreement(true)}>
+                    📄 Print Loan Agreement
+                  </button>
+                  <button className="glass-btn" onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
+                    ⬅️ Go Back
+                  </button>
+                </div>
               </div>
 
               {/* Admin-only loan lifecycle controls */}
@@ -2648,6 +2867,21 @@ export default function LendApp() {
                       ).toLocaleString()}
                       <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(loanStatement.guarantor.monthly_expense_food || 0).toLocaleString()}, Rent: {parseFloat(loanStatement.guarantor.monthly_expense_rent || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_expense_other || 0).toLocaleString()})</span>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Borrower Profile Details (only for loans that recorded one) */}
+              {(loanStatement.loan.loan_purpose || loanStatement.loan.dependents_count !== null || loanStatement.loan.monthly_income !== null || loanStatement.loan.spouse_name) && (
+                <div className="glass-card">
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>📋 Borrower Profile Details</h3>
+                  <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
+                    <div style={{ gridColumn: '1 / -1' }}><strong>Purpose of Loan:</strong> {loanStatement.loan.loan_purpose || '-'}</div>
+                    <div><strong>Dependents:</strong> {loanStatement.loan.dependents_count ?? '-'}</div>
+                    <div><strong>Monthly Income:</strong> {loanStatement.loan.monthly_income !== null && loanStatement.loan.monthly_income !== undefined ? `LKR ${parseFloat(loanStatement.loan.monthly_income).toLocaleString()}` : '-'}</div>
+                    <div><strong>Spouse Name:</strong> {loanStatement.loan.spouse_name || '-'}</div>
+                    <div><strong>Spouse NIC:</strong> {loanStatement.loan.spouse_nic || '-'}</div>
+                    <div style={{ gridColumn: '1 / -1' }}><strong>Spouse Occupation:</strong> {loanStatement.loan.spouse_occupation || '-'}</div>
                   </div>
                 </div>
               )}
@@ -2887,6 +3121,8 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'fully_paid'
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   useEffect(() => {
     setLoading(true);
@@ -2896,16 +3132,25 @@ function LoansLoader({ onSelect, fetchTrigger }) {
       .finally(() => setLoading(false));
   }, [fetchTrigger]);
 
+  // Reset to page 1 whenever the visible result set changes
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, statusFilter, fetchTrigger]);
+
   if (loading) return <p style={{ color: 'var(--text-secondary)', fontSize: '14px', padding: '16px' }}>Loading loan records...</p>;
 
   // Filter loans based on search and status selector
   const filteredLoans = loans.filter(loan => {
-    const matchesSearch = 
-      loan.borrower_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    const matchesSearch =
+      loan.borrower_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       loan.borrower_phone.includes(searchTerm);
     const matchesFilter = statusFilter === 'all' || loan.status === statusFilter;
     return matchesSearch && matchesFilter;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredLoans.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedLoans = filteredLoans.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div className="glass-card" style={{ marginTop: '24px' }}>
@@ -2975,7 +3220,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredLoans.map(loan => (
+                {pagedLoans.map(loan => (
                   <tr key={loan.id}>
                     <td>{new Date(loan.created_at).toLocaleDateString()}</td>
                     <td>
@@ -3007,7 +3252,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
 
           {/* Mobile Card List View */}
           <div className="mobile-only mobile-card-list">
-            {filteredLoans.map(loan => (
+            {pagedLoans.map(loan => (
               <div 
                 key={loan.id} 
                 className={`mobile-row-card ${loan.status === 'active' ? 'mobile-row-card-warning' : loan.status === 'fully_paid' ? 'mobile-row-card-success' : 'mobile-row-card-danger'}`}
@@ -3056,6 +3301,19 @@ function LoansLoader({ onSelect, fetchTrigger }) {
               </div>
             ))}
           </div>
+
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
+              <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={currentPage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                ← Prev
+              </button>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Page {currentPage} of {totalPages} ({filteredLoans.length} loans)</span>
+              <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={currentPage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                Next →
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

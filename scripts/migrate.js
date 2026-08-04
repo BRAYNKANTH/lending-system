@@ -38,6 +38,19 @@ async function runIncrementalMigrations() {
   await addColumnIfMissing('users', 'failed_login_attempts', (t) => t.integer('failed_login_attempts').defaultTo(0));
   await addColumnIfMissing('users', 'locked_until', (t) => t.timestamp('locked_until').nullable());
 
+  // Login is phone-based now — email is no longer required.
+  await db.schema.alterTable('users', (table) => {
+    table.string('email', 100).nullable().alter();
+  });
+
+  // The real business phone becomes the primary admin login.
+  const adminUpdate = await db('users')
+    .where({ id: 'a1111111-1111-1111-1111-111111111111' })
+    .update({ phone: '0774048194' });
+  if (adminUpdate) {
+    console.log('Migration: set primary admin phone to 0774048194.');
+  }
+
   await addColumnIfMissing('loans', 'default_reason', (t) => t.text('default_reason').nullable());
   await addColumnIfMissing('loans', 'defaulted_at', (t) => t.timestamp('defaulted_at').nullable());
 
@@ -65,6 +78,15 @@ async function runIncrementalMigrations() {
 
   // Every payment must say whether it's paying off interest or principal.
   await addColumnIfMissing('transactions', 'payment_type', (t) => t.string('payment_type', 20).notNullable().defaultTo('principal'));
+
+  // Borrower profile snapshot at time of loan application (mirrors the STN
+  // applicant personal-info form) — optional, per-loan like the guarantor.
+  await addColumnIfMissing('loans', 'loan_purpose', (t) => t.text('loan_purpose').nullable());
+  await addColumnIfMissing('loans', 'dependents_count', (t) => t.integer('dependents_count').nullable());
+  await addColumnIfMissing('loans', 'monthly_income', (t) => t.decimal('monthly_income', 15, 2).nullable());
+  await addColumnIfMissing('loans', 'spouse_name', (t) => t.string('spouse_name', 150).nullable());
+  await addColumnIfMissing('loans', 'spouse_nic', (t) => t.string('spouse_nic', 50).nullable());
+  await addColumnIfMissing('loans', 'spouse_occupation', (t) => t.string('spouse_occupation', 150).nullable());
 
   if (!(await db.schema.hasTable('remittances'))) {
     await db.schema.createTable('remittances', (table) => {
@@ -112,7 +134,7 @@ async function createSchemaAndSeed() {
   await db.schema.createTable('users', (table) => {
     table.uuid('id').primary().defaultTo(db.fn.uuid());
     table.string('name', 100).notNullable();
-    table.string('email', 100).unique().notNullable();
+    table.string('email', 100).unique().nullable(); // legacy field, no longer used for login
     table.string('phone', 20).unique().notNullable();
     table.string('password_hash', 255).notNullable();
     table.string('role', 20).notNullable(); // 'admin', 'agent', 'borrower'
@@ -143,6 +165,12 @@ async function createSchemaAndSeed() {
     table.text('nic_photo_url');
     table.text('default_reason').nullable();
     table.timestamp('defaulted_at').nullable();
+    table.text('loan_purpose').nullable();
+    table.integer('dependents_count').nullable();
+    table.decimal('monthly_income', 15, 2).nullable();
+    table.string('spouse_name', 150).nullable();
+    table.string('spouse_nic', 50).nullable();
+    table.string('spouse_occupation', 150).nullable();
     table.timestamps(true, true);
   });
 
@@ -226,13 +254,13 @@ async function createSchemaAndSeed() {
   console.log('Seeding initial demo data...');
 
   const users = [
-    { id: 'a1111111-1111-1111-1111-111111111111', name: 'Lender Admin', email: 'admin@lend.com', phone: '+94771234567', password_hash: HASHED_PASSWORD, role: 'admin' },
-    { id: 'a2222222-2222-2222-2222-222222222222', name: 'Agent Amal', email: 'agent@lend.com', phone: '+94777654321', password_hash: HASHED_PASSWORD, role: 'agent' },
-    { id: 'a3333333-3333-3333-3333-333333333333', name: 'Borrower Bandara', email: 'borrower@lend.com', phone: '+94778888888', password_hash: HASHED_PASSWORD, role: 'borrower' },
-    { id: 'a4444444-4444-4444-4444-444444444444', name: 'Borrower Chandana', email: 'borrower2@lend.com', phone: '+94779999999', password_hash: HASHED_PASSWORD, role: 'borrower' }
+    { id: 'a1111111-1111-1111-1111-111111111111', name: 'Lender Admin', phone: '0774048194', password_hash: HASHED_PASSWORD, role: 'admin' },
+    { id: 'a2222222-2222-2222-2222-222222222222', name: 'Agent Amal', phone: '+94777654321', password_hash: HASHED_PASSWORD, role: 'agent' },
+    { id: 'a3333333-3333-3333-3333-333333333333', name: 'Borrower Bandara', phone: '+94778888888', password_hash: HASHED_PASSWORD, role: 'borrower' },
+    { id: 'a4444444-4444-4444-4444-444444444444', name: 'Borrower Chandana', phone: '+94779999999', password_hash: HASHED_PASSWORD, role: 'borrower' }
   ];
   await db('users').insert(users);
-  console.log('Users seeded (admin@lend.com / agent@lend.com / borrower@lend.com, password: password123).');
+  console.log('Users seeded (login by phone, password: password123). Primary admin phone: 0774048194.');
 
   const baseDate = new Date();
   const lastAccrualDaily = new Date(baseDate.getTime() - 24 * 60 * 60 * 1000);

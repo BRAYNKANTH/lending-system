@@ -41,12 +41,24 @@ export async function sendNotification({ recipientName, phone, message, role }) 
 }
 
 /**
+ * Sends a temporary password to a user who requested a self-service reset.
+ */
+export async function notifyPasswordReset({ user, tempPassword }) {
+  await sendNotification({
+    recipientName: user.name,
+    phone: user.phone,
+    message: `Password reset requested. Your temporary password is: ${tempPassword} (you will be asked to change it on login).`,
+    role: user.role
+  });
+}
+
+/**
  * Triggers alerts for loan creation
  */
 export async function notifyLoanCreation({ borrower, principal, interestType, tempPassword }) {
   let borrowerMsg = `You received a loan of LKR ${Number(principal).toLocaleString()}. Interest type: ${interestType.toUpperCase()}.`;
   if (tempPassword) {
-    borrowerMsg += ` Your account login is ${borrower.phone}@lend.com with temporary password: ${tempPassword} (you will be asked to change it on first login).`;
+    borrowerMsg += ` Log in with your phone number ${borrower.phone} and temporary password: ${tempPassword} (you will be asked to change it on first login).`;
   }
   await sendNotification({
     recipientName: borrower.name,

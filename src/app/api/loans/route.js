@@ -6,6 +6,7 @@ import { generateTempPassword } from '@/lib/tempPassword.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
 import { notifyLoanCreation } from '@/lib/services/notification.js';
 import { isValidSriLankanNIC, addInterval } from '@/lib/loanSchedule.js';
+import { normalizePhone } from '@/lib/phone.js';
 
 // Create a new loan (Admin only)
 export async function POST(request) {
@@ -14,7 +15,7 @@ export async function POST(request) {
     const body = await request.json();
     const {
       borrower_name, borrower_phone, principal_amount, interest_rate, interest_type,
-      assigned_agent_id, nic_number, nic_photo, guarantor
+      assigned_agent_id, nic_number, nic_photo, guarantor, borrower_profile
     } = body;
 
     if (!borrower_name || !borrower_phone || !principal_amount || !interest_rate || !interest_type) {
@@ -72,6 +73,23 @@ export async function POST(request) {
       };
     }
 
+    // Borrower profile snapshot (optional) — mirrors the STN applicant
+    // personal-info form; a per-loan record like the guarantor, since these
+    // details (income, dependents) can shift loan to loan.
+    let borrowerProfileRecord = null;
+    if (borrower_profile) {
+      borrowerProfileRecord = {
+        loan_purpose: borrower_profile.loan_purpose?.trim() || null,
+        dependents_count: borrower_profile.dependents_count !== undefined && borrower_profile.dependents_count !== ''
+          ? parseInt(borrower_profile.dependents_count, 10) : null,
+        monthly_income: borrower_profile.monthly_income !== undefined && borrower_profile.monthly_income !== ''
+          ? parseFloat(borrower_profile.monthly_income) : null,
+        spouse_name: borrower_profile.spouse_name?.trim() || null,
+        spouse_nic: borrower_profile.spouse_nic?.trim().toUpperCase() || null,
+        spouse_occupation: borrower_profile.spouse_occupation?.trim() || null
+      };
+    }
+
     // NIC photo — stored directly as a base64 data URL in the database
     // (Vercel's serverless filesystem can't persist uploaded files).
     let nic_photo_url = null;
@@ -84,7 +102,10 @@ export async function POST(request) {
 
     const cleanPhone = borrower_phone.trim().replace(/\s+/g, '');
 
-    let borrower = await db('users').where({ phone: cleanPhone, role: 'borrower' }).first();
+    let borrower = await db('users')
+      .where({ role: 'borrower' })
+      .whereRaw('phone LIKE ?', [`%${normalizePhone(cleanPhone)}`])
+      .first();
     let borrowerTempPassword = null;
 
     if (!borrower) {
@@ -94,7 +115,6 @@ export async function POST(request) {
 
       const [newBorrowerId] = await db('users').insert({
         name: borrower_name.trim(),
-        email: `${cleanPhone}@lend.com`,
         phone: cleanPhone,
         password_hash: passwordHash,
         role: 'borrower',
@@ -137,7 +157,8 @@ export async function POST(request) {
         status: 'active',
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
-        nic_photo_url
+        nic_photo_url,
+        ...(borrowerProfileRecord || {})
       }).returning('*');
 
       const loanId = newLoan.id || newLoan;
