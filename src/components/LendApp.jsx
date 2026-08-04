@@ -2,6 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
+import {
+  Home, Banknote, ClipboardList, Users, Landmark, KeyRound, LogOut,
+  ArrowLeft, ArrowRight, ScrollText, Check, X, Phone, IdCard, ShieldCheck,
+  Printer, FileText, TrendingUp, Bell, BarChart3, Zap, AlertTriangle,
+  Briefcase, Truck, BookOpen, ArrowDown, User, Settings, Ban, Receipt,
+  Search, CreditCard, Smartphone, PiggyBank, UserPlus, Trash2, ClipboardCheck,
+  CircleCheck, CircleAlert, RefreshCcw
+} from 'lucide-react';
 
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
@@ -28,6 +36,8 @@ export default function LendApp() {
 
   // Admin: Cash & Tools view data (users, remittances, ledger report)
   const [adminUsers, setAdminUsers] = useState([]);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', role: 'agent', password: '' });
   const [remittances, setRemittances] = useState([]);
   const [ledgerReport, setLedgerReport] = useState(null);
   const [cashReconciliation, setCashReconciliation] = useState(null);
@@ -226,6 +236,49 @@ export default function LendApp() {
     try {
       const result = await api.post(`/users/${targetUser.id}/reset-password`, {});
       showToast(`Password reset for ${targetUser.name}. Temporary password: ${result.temporaryPassword}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api.post('/auth/register', {
+        name: newUserForm.name,
+        phone: newUserForm.phone,
+        role: newUserForm.role,
+        password: newUserForm.password || undefined
+      });
+      showToast(
+        result.temporaryPassword
+          ? `${newUserForm.name} added as ${newUserForm.role}. Temporary password: ${result.temporaryPassword}`
+          : `${newUserForm.name} added as ${newUserForm.role}.`
+      );
+      setNewUserForm({ name: '', phone: '', role: 'agent', password: '' });
+      setShowAddUser(false);
+      refreshAdminTools();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (targetUser) => {
+    if (!window.confirm(`Permanently delete ${targetUser.name}? This can't be undone. Users with loan/payment history can't be deleted — deactivate them instead.`)) {
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await api.delete(`/users/${targetUser.id}`);
+      showToast(`${targetUser.name} deleted.`);
+      refreshAdminTools();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -715,7 +768,7 @@ export default function LendApp() {
         <div className="receipt-modal-overlay" onClick={() => setSelectedReceipt(null)}>
           <div className="receipt-modal-card" onClick={e => e.stopPropagation()}>
             <div className="receipt-header">
-              <div className="receipt-header-icon">💵</div>
+              <div className="receipt-header-icon"><Banknote /></div>
               <div className="receipt-title">LendBuddy Ledger</div>
               <div className="receipt-subtitle">Official Payment Receipt</div>
             </div>
@@ -808,7 +861,7 @@ export default function LendApp() {
                 Close
               </button>
               <button type="button" className="glass-btn glass-btn-emerald" onClick={() => window.print()}>
-                🖨️ Print
+                <Printer className="icon" /> Print
               </button>
             </div>
           </div>
@@ -907,7 +960,7 @@ export default function LendApp() {
         <div className="agreement-modal-overlay receipt-modal-overlay" onClick={() => setShowLoanAgreement(false)}>
           <div className="receipt-modal-card" style={{ maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div className="receipt-header">
-              <div className="receipt-header-icon">📄</div>
+              <div className="receipt-header-icon"><FileText /></div>
               <div className="receipt-title">Loan Agreement</div>
               <div className="receipt-subtitle">Reference: {loanStatement.loan.id}</div>
             </div>
@@ -956,7 +1009,7 @@ export default function LendApp() {
                 Close
               </button>
               <button type="button" className="glass-btn glass-btn-emerald" onClick={() => window.print()}>
-                🖨️ Print
+                <Printer className="icon" /> Print
               </button>
             </div>
           </div>
@@ -1028,7 +1081,7 @@ export default function LendApp() {
         {toastAlerts.map(toast => (
           <div key={toast.id} className="animate-fade-in" style={{ padding: '16px', background: 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
             <div style={{ fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <span>🔔 SMS Notification sent</span>
+              <span><Bell className="icon" /> SMS Notification sent</span>
             </div>
             <p style={{ fontSize: '13px', lineHeight: '1.4' }}>{toast.message}</p>
           </div>
@@ -1039,8 +1092,8 @@ export default function LendApp() {
       {token && user && (
         <header className="app-header animate-fade-in">
           <div className="app-header-info">
-            <h1 style={{ fontSize: '26px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>💵</span> Cash Lending Manager
+            <h1 style={{ fontSize: '24px' }}>
+              <span className="app-brand-mark"><Banknote className="icon" /></span> Cash Lending Manager
             </h1>
             <span className="badge badge-active">{user.role}</span>
           </div>
@@ -1048,18 +1101,18 @@ export default function LendApp() {
           {/* Desktop Navigation Links */}
           {user.role === 'admin' && (
             <div className="desktop-header-nav">
-              <button className={`nav-link-btn ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>🏠 Home</button>
-              <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}>💵 Give Loan</button>
-              <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}>📋 Check Loans</button>
-              <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}>👥 Agent Route</button>
-              <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}>🏦 Cash & Tools</button>
+              <button className={`nav-link-btn ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}><Home className="icon" /> Home</button>
+              <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}><Banknote className="icon" /> Give Loan</button>
+              <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}><ClipboardList className="icon" /> Check Loans</button>
+              <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}><Users className="icon" /> Agent Route</button>
+              <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Cash & Tools</button>
             </div>
           )}
           {user.role === 'agent' && (
             <div className="desktop-header-nav">
-              <button className={`nav-link-btn ${agentSubView === 'collect' ? 'active' : ''}`} onClick={() => setAgentSubView('collect')}>💵 Collect Payments</button>
-              <button className={`nav-link-btn ${agentSubView === 'history' ? 'active' : ''}`} onClick={() => setAgentSubView('history')}>📜 Collection History</button>
-              <button className={`nav-link-btn ${agentSubView === 'remit' ? 'active' : ''}`} onClick={() => setAgentSubView('remit')}>🏦 Remit Cash</button>
+              <button className={`nav-link-btn ${agentSubView === 'collect' ? 'active' : ''}`} onClick={() => setAgentSubView('collect')}><Banknote className="icon" /> Collect Payments</button>
+              <button className={`nav-link-btn ${agentSubView === 'history' ? 'active' : ''}`} onClick={() => setAgentSubView('history')}><ScrollText className="icon" /> Collection History</button>
+              <button className={`nav-link-btn ${agentSubView === 'remit' ? 'active' : ''}`} onClick={() => setAgentSubView('remit')}><Landmark className="icon" /> Remit Cash</button>
             </div>
           )}
 
@@ -1068,10 +1121,10 @@ export default function LendApp() {
               User: <strong style={{ color: 'var(--text-primary)' }}>{user.name}</strong>
             </span>
             <button className="glass-btn glass-btn-secondary" style={{ padding: '10px 16px', fontSize: '14px' }} onClick={() => setShowChangePassword(true)}>
-              🔑 Password
+              <KeyRound className="icon" /> Password
             </button>
             <button className="glass-btn glass-btn-rose" style={{ padding: '10px 20px', fontSize: '15px' }} onClick={handleLogout}>
-              Logout
+              <LogOut className="icon" /> Logout
             </button>
           </div>
         </header>
@@ -1081,7 +1134,7 @@ export default function LendApp() {
       {showChangePassword && (
         <div className="receipt-modal-overlay" onClick={() => setShowChangePassword(false)}>
           <div className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontSize: '20px', marginBottom: '16px' }}>🔑 Change Password</h3>
+            <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><KeyRound className="icon" /> Change Password</h3>
             {user?.mustChangePassword && (
               <p style={{ fontSize: '13px', color: 'var(--accent-rose)', marginBottom: '12px' }}>
                 You're using a temporary password. Please set a new one to continue.
@@ -1171,7 +1224,7 @@ export default function LendApp() {
                     {loading ? 'Sending...' : 'Send Temporary Password'}
                   </button>
                   <button type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }} onClick={() => { setShowForgotPassword(false); setError(''); setForgotMessage(''); setForgotIdentifier(''); }}>
-                    ⬅️ Back to Login
+                    <ArrowLeft className="icon" /> Back to Login
                   </button>
                 </form>
               )}
@@ -1217,7 +1270,7 @@ export default function LendApp() {
                 <div className="menu-card-grid">
                   
                   <div className="menu-card menu-card-give" onClick={() => setView('create-loan')}>
-                    <span className="menu-card-icon">💵</span>
+                    <span className="menu-card-icon"><Banknote /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-emerald)' }}>Give New Loan</h3>
                       <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: '1.5' }}>Type borrower name and phone number to disburse cash instantly</p>
@@ -1225,7 +1278,7 @@ export default function LendApp() {
                   </div>
 
                   <div className="menu-card menu-card-check" onClick={() => setView('loans')}>
-                    <span className="menu-card-icon">📋</span>
+                    <span className="menu-card-icon"><ClipboardList /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-blue)' }}>Check Loans & Payments</h3>
                       <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: '1.5' }}>Search and view customer accounts, balances, and ledger sheets</p>
@@ -1233,7 +1286,7 @@ export default function LendApp() {
                   </div>
 
                   <div className="menu-card menu-card-agent" onClick={() => setView('agents')}>
-                    <span className="menu-card-icon">👥</span>
+                    <span className="menu-card-icon"><Users /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: '#7c3aed' }}>Agent Route Progress</h3>
                       <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: '1.5' }}>Check cash collections collected by your agents today</p>
@@ -1245,7 +1298,7 @@ export default function LendApp() {
                 {/* Interest Accrual & Formula Dashboard */}
                 <div className="glass-card" style={{ marginTop: '16px' }}>
                   <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>📈</span> Interest Accrual & Calculations Center
+                    <TrendingUp className="icon" /> Interest Accrual & Calculations Center
                   </h2>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '24px' }}>
                     Tracking automated interest accrued on active loans based on compounding frequencies.
@@ -1277,7 +1330,7 @@ export default function LendApp() {
 
                     {/* How Calculations Work */}
                     <div style={{ padding: '16px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px' }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '12px' }}>📊 Interest Posting Formulas</h3>
+                      <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '12px' }}><BarChart3 className="icon" /> Interest Posting Formulas</h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', lineHeight: '1.4' }}>
                         <div>
                           <strong style={{ color: 'var(--accent-blue)', display: 'block', marginBottom: '4px' }}>Daily Accrual Formula:</strong>
@@ -1334,12 +1387,12 @@ export default function LendApp() {
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
-                    ⬅️ Back to Main Menu
+                    <ArrowLeft className="icon" /> Back to Main Menu
                   </button>
                 </div>
 
                 <div className="glass-card" style={{ maxWidth: '600px', margin: '0 auto', width: '100%' }}>
-                  <h3 style={{ fontSize: '28px', marginBottom: '8px' }}>💵 Give New Loan</h3>
+                  <h3 style={{ fontSize: '28px', marginBottom: '8px' }}><Banknote className="icon" /> Give New Loan</h3>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '24px' }}>Type customer details to start a loan. Borrower registration happens automatically.</p>
                   
                   <form onSubmit={handleCreateLoan} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1554,19 +1607,19 @@ export default function LendApp() {
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
-                    ⬅️ Back to Main Menu
+                    <ArrowLeft className="icon" /> Back to Main Menu
                   </button>
                   
                   {/* Small, non-intrusive Manual Accrual button trigger */}
                   <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }} onClick={handleForceAccrue} disabled={loading}>
-                    ⚡ Update Interest Now
+                    <RefreshCcw className="icon" /> Update Interest Now
                   </button>
                 </div>
 
                 {/* Overdue loans card */}
                 {adminData.overdueLoans.length > 0 && (
                   <div className="glass-card" style={{ borderLeft: '4px solid var(--accent-rose)' }}>
-                    <h3 style={{ fontSize: '24px', marginBottom: '16px', color: 'var(--accent-rose)' }}>⚠️ Overdue Accounts</h3>
+                    <h3 style={{ fontSize: '24px', marginBottom: '16px', color: 'var(--accent-rose)' }}><AlertTriangle className="icon" /> Overdue Accounts</h3>
                     
                     {/* Desktop View Table */}
                     <div className="desktop-only" style={{ overflowX: 'auto' }}>
@@ -1668,12 +1721,12 @@ export default function LendApp() {
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
-                    ⬅️ Back to Main Menu
+                    <ArrowLeft className="icon" /> Back to Main Menu
                   </button>
                 </div>
 
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '26px', marginBottom: '20px' }}>🏃 Agent Collections Today</h3>
+                  <h3 style={{ fontSize: '26px', marginBottom: '20px' }}><TrendingUp className="icon" /> Agent Collections Today</h3>
                   {adminData.agentPerformance.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>No collections posted by agents today.</p>
                   ) : (
@@ -1705,13 +1758,13 @@ export default function LendApp() {
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
-                    ⬅️ Back to Main Menu
+                    <ArrowLeft className="icon" /> Back to Main Menu
                   </button>
                 </div>
 
                 {/* Agent cash-in-hand reconciliation */}
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>💼 Agent Cash-in-Hand Reconciliation</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Briefcase className="icon" /> Agent Cash-in-Hand Reconciliation</h3>
                   {!cashReconciliation || cashReconciliation.agents.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No agents found.</p>
                   ) : (
@@ -1766,7 +1819,7 @@ export default function LendApp() {
 
                 {/* Pending / recent remittances */}
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>🚚 Cash Remittances</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Truck className="icon" /> Cash Remittances</h3>
                   {remittances.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No remittances submitted yet.</p>
                   ) : (
@@ -1793,7 +1846,7 @@ export default function LendApp() {
                 {/* Ledger / trial balance report */}
                 <div className="glass-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-                    <h3 style={{ fontSize: '22px' }}>📒 Ledger / Trial Balance</h3>
+                    <h3 style={{ fontSize: '22px' }}><BookOpen className="icon" /> Ledger / Trial Balance</h3>
                     <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={downloadLedgerCsv} disabled={!ledgerReport}>
                       ⬇️ Export CSV
                     </button>
@@ -1828,7 +1881,7 @@ export default function LendApp() {
                               <td>LKR {ledgerReport.totals.debit.toLocaleString()}</td>
                               <td>LKR {ledgerReport.totals.credit.toLocaleString()}</td>
                               <td style={{ color: ledgerReport.totals.balanced ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
-                                {ledgerReport.totals.balanced ? '✓ Balanced' : '✗ Out of balance'}
+                                {ledgerReport.totals.balanced ? <><CircleCheck className="icon" /> Balanced</> : <><CircleAlert className="icon" /> Out of balance</>}
                               </td>
                             </tr>
                           </tfoot>
@@ -1855,7 +1908,7 @@ export default function LendApp() {
                           <div className="mobile-row-card-header">
                             <span className="mobile-row-card-title">Totals</span>
                             <span className="mobile-row-card-value" style={{ fontWeight: 'bold', color: ledgerReport.totals.balanced ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
-                              {ledgerReport.totals.balanced ? '✓ Balanced' : '✗ Out of balance'}
+                              {ledgerReport.totals.balanced ? <><CircleCheck className="icon" /> Balanced</> : <><CircleAlert className="icon" /> Out of balance</>}
                             </span>
                           </div>
                           <div className="mobile-row-card-grid">
@@ -1873,7 +1926,43 @@ export default function LendApp() {
 
                 {/* User management */}
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>👤 User Management</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+                    <h3 style={{ fontSize: '22px', margin: 0 }}><User className="icon" /> User Management</h3>
+                    <button type="button" className="glass-btn" style={{ padding: '10px 18px', fontSize: '14px' }} onClick={() => setShowAddUser(v => !v)}>
+                      <UserPlus className="icon" /> {showAddUser ? 'Cancel' : 'Add User'}
+                    </button>
+                  </div>
+
+                  {showAddUser && (
+                    <form onSubmit={handleAddUser} style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px', padding: '18px', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', background: 'var(--bg-tertiary)' }}>
+                      <div className="form-grid-2-col">
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>FULL NAME</label>
+                          <input required type="text" className="glass-input" value={newUserForm.name} onChange={e => setNewUserForm(prev => ({ ...prev, name: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
+                          <input required type="tel" className="glass-input" placeholder="e.g. 0771234567" value={newUserForm.phone} onChange={e => setNewUserForm(prev => ({ ...prev, phone: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="form-grid-2-col">
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ROLE</label>
+                          <select className="glass-input" value={newUserForm.role} onChange={e => setNewUserForm(prev => ({ ...prev, role: e.target.value }))}>
+                            <option value="agent">Agent</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PASSWORD</label>
+                          <input required type="text" className="glass-input" placeholder="Set an initial password" value={newUserForm.password} onChange={e => setNewUserForm(prev => ({ ...prev, password: e.target.value }))} />
+                        </div>
+                      </div>
+                      <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ alignSelf: 'flex-start', padding: '10px 24px' }}>
+                        <ClipboardCheck className="icon" /> Create User
+                      </button>
+                    </form>
+                  )}
 
                   <div className="desktop-only" style={{ overflowX: 'auto' }}>
                     <table className="glass-table">
@@ -1902,6 +1991,9 @@ export default function LendApp() {
                               <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleResetUserPassword(u)} disabled={loading}>
                                 Reset Password
                               </button>
+                              <button className="glass-btn glass-btn-rose" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleDeleteUser(u)} disabled={loading || u.id === user.id}>
+                                <Trash2 className="icon" /> Delete
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -1929,6 +2021,9 @@ export default function LendApp() {
                           </button>
                           <button className="glass-btn glass-btn-secondary" onClick={() => handleResetUserPassword(u)} disabled={loading}>
                             Reset Password
+                          </button>
+                          <button className="glass-btn glass-btn-rose" onClick={() => handleDeleteUser(u)} disabled={loading || u.id === user.id}>
+                            <Trash2 className="icon" /> Delete
                           </button>
                         </div>
                       </div>
@@ -1968,7 +2063,7 @@ export default function LendApp() {
                   
                   {/* Collection Submission Form */}
                   <div className="glass-card">
-                    <h3 style={{ fontSize: '26px', marginBottom: '8px' }}>💵 Record Payment</h3>
+                    <h3 style={{ fontSize: '26px', marginBottom: '8px' }}><Banknote className="icon" /> Record Payment</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }}>Select a customer and enter the cash collected from them.</p>
                     
                     <form onSubmit={handleCollectPayment} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2035,10 +2130,10 @@ export default function LendApp() {
                       <div>
                         <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PAYMENT METHOD</label>
                         <select required className="glass-input" value={paymentForm.payment_method} onChange={e => setPaymentForm(prev => ({ ...prev, payment_method: e.target.value }))}>
-                          <option value="cash">💵 Cash Collection</option>
-                          <option value="bank_transfer">🏦 Bank Deposit / Transfer</option>
-                          <option value="mobile_wallet">📱 Mobile Wallet (eZ Cash / mCash)</option>
-                          <option value="card">💳 Card Payment</option>
+                          <option value="cash">Cash Collection</option>
+                          <option value="bank_transfer">Bank Deposit / Transfer</option>
+                          <option value="mobile_wallet">Mobile Wallet (eZ Cash / mCash)</option>
+                          <option value="card">Card Payment</option>
                         </select>
                       </div>
 
@@ -2070,7 +2165,7 @@ export default function LendApp() {
 
                   {/* Assigned Borrowers balance list */}
                   <div className="glass-card">
-                    <h3 style={{ fontSize: '24px', marginBottom: '16px' }}>👥 Customer List</h3>
+                    <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><Users className="icon" /> Customer List</h3>
                     {agentData.assignedLoans.length === 0 ? (
                       <p style={{ color: 'var(--text-muted)' }}>No assigned customers.</p>
                     ) : (
@@ -2108,7 +2203,7 @@ export default function LendApp() {
             {agentSubView === 'history' && (
               /* Agent Collection log */
               <div className="glass-card">
-                <h3 style={{ fontSize: '24px', marginBottom: '16px' }}>📜 Saved Collections Today</h3>
+                <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><ScrollText className="icon" /> Saved Collections Today</h3>
                 {agentData.collectionHistory.length === 0 ? (
                   <p style={{ color: 'var(--text-muted)' }}>No payments saved today.</p>
                 ) : (
@@ -2146,7 +2241,7 @@ export default function LendApp() {
                                     loanInterestBalance: loan?.interest_balance
                                   });
                                 }}>
-                                  📄 Receipt
+                                  <FileText className="icon" /> Receipt
                                 </button>
                               </td>
                             </tr>
@@ -2187,7 +2282,7 @@ export default function LendApp() {
                                 loanInterestBalance: loan?.interest_balance
                               });
                             }}>
-                              📄 Print Receipt
+                              <FileText className="icon" /> Print Receipt
                             </button>
                           </div>
                         </div>
@@ -2213,7 +2308,7 @@ export default function LendApp() {
                 </div>
 
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>🏦 Remit Cash to Office</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Landmark className="icon" /> Remit Cash to Office</h3>
                   <form onSubmit={handleSubmitRemittance} style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '420px' }}>
                     <div>
                       <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Amount (LKR)</label>
@@ -2232,7 +2327,7 @@ export default function LendApp() {
                 </div>
 
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>📜 My Remittance History</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ScrollText className="icon" /> My Remittance History</h3>
                   {remittances.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No remittances submitted yet.</p>
                   ) : (
@@ -2275,7 +2370,7 @@ export default function LendApp() {
 
             {/* List of active loans */}
             <div className="glass-card">
-              <h3 style={{ fontSize: '24px', marginBottom: '16px' }}>💰 Your Loan Accounts</h3>
+              <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><PiggyBank className="icon" /> Your Loan Accounts</h3>
               {borrowerData.loans.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)' }}>You do not have any active loans.</p>
               ) : (
@@ -2369,7 +2464,7 @@ export default function LendApp() {
             {/* Borrower Self-Payment Portal */}
             {borrowerData.loans.filter(l => l.status === 'active').length > 0 && (
               <div className="glass-card">
-                <h3 style={{ fontSize: '24px', marginBottom: '8px' }}>💸 Submit Digital Repayment</h3>
+                <h3 style={{ fontSize: '24px', marginBottom: '8px' }}><CreditCard className="icon" /> Submit Digital Repayment</h3>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }}>
                   Made a digital payment? Submit your bank transfer, mobile wallet, or card payment receipt details below for confirmation.
                 </p>
@@ -2401,9 +2496,9 @@ export default function LendApp() {
                         value={borrowerPayment.payment_method} 
                         onChange={e => setBorrowerPayment(prev => ({ ...prev, payment_method: e.target.value }))}
                       >
-                        <option value="bank_transfer">🏦 Bank Transfer / Deposit</option>
-                        <option value="mobile_wallet">📱 Mobile Wallet (eZ Cash / mCash)</option>
-                        <option value="card">💳 Debit or Credit Card</option>
+                        <option value="bank_transfer">Bank Transfer / Deposit</option>
+                        <option value="mobile_wallet">Mobile Wallet (eZ Cash / mCash)</option>
+                        <option value="card">Debit or Credit Card</option>
                       </select>
                     </div>
                   </div>
@@ -2484,7 +2579,7 @@ export default function LendApp() {
 
             {/* Repayments History ledger */}
             <div className="glass-card">
-              <h3 style={{ fontSize: '24px', marginBottom: '16px' }}>📜 Repayments Ledger History</h3>
+              <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><ScrollText className="icon" /> Repayments Ledger History</h3>
               {borrowerData.payments.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)' }}>No repayments recorded yet.</p>
               ) : (
@@ -2528,7 +2623,7 @@ export default function LendApp() {
                                 loanInterestBalance: loan?.interest_balance
                               });
                             }}>
-                              📄 Receipt
+                              <FileText className="icon" /> Receipt
                             </button>
                           </td>
                         </tr>
@@ -2576,7 +2671,7 @@ export default function LendApp() {
                             loanInterestBalance: loan?.interest_balance
                           });
                         }}>
-                          📄 Print Receipt
+                          <FileText className="icon" /> Print Receipt
                         </button>
                       </div>
                     </div>
@@ -2589,7 +2684,7 @@ export default function LendApp() {
             {/* Borrower Interest Accrual History */}
             <div className="glass-card">
               <h3 style={{ fontSize: '24px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>📈</span> Your Interest Accrual Log
+                <TrendingUp className="icon" /> Your Interest Accrual Log
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }}>
                 Interest additions posted to your loan balance.
@@ -2758,10 +2853,10 @@ export default function LendApp() {
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   <button className="glass-btn glass-btn-secondary" onClick={() => setShowLoanAgreement(true)}>
-                    📄 Print Loan Agreement
+                    <FileText className="icon" /> Print Loan Agreement
                   </button>
                   <button className="glass-btn" onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                    ⬅️ Go Back
+                    <ArrowLeft className="icon" /> Go Back
                   </button>
                 </div>
               </div>
@@ -2769,7 +2864,7 @@ export default function LendApp() {
               {/* Admin-only loan lifecycle controls */}
               {user.role === 'admin' && loanStatement.loan.status === 'active' && (
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>⚙️ Loan Management</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Settings className="icon" /> Loan Management</h3>
                   <div className="responsive-grid-2-col" style={{ gap: '20px' }}>
                     <div>
                       <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Edit Terms</h4>
@@ -2816,7 +2911,7 @@ export default function LendApp() {
                             handleMarkDefaulted();
                           }
                         }}>
-                          🚫 Mark Defaulted
+                          <Ban className="icon" /> Mark Defaulted
                         </button>
                       </div>
                     </div>
@@ -2827,7 +2922,7 @@ export default function LendApp() {
               {/* Guarantor Details (only for loans that recorded one) */}
               {loanStatement.guarantor && (
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>🛡️ Guarantor Details</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ShieldCheck className="icon" /> Guarantor Details</h3>
                   <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
                     <div><strong>Name:</strong> {loanStatement.guarantor.full_name}</div>
                     <div><strong>NIC:</strong> {loanStatement.guarantor.nic_number}</div>
@@ -2874,7 +2969,7 @@ export default function LendApp() {
               {/* Borrower Profile Details (only for loans that recorded one) */}
               {(loanStatement.loan.loan_purpose || loanStatement.loan.dependents_count !== null || loanStatement.loan.monthly_income !== null || loanStatement.loan.spouse_name) && (
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>📋 Borrower Profile Details</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ClipboardList className="icon" /> Borrower Profile Details</h3>
                   <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
                     <div style={{ gridColumn: '1 / -1' }}><strong>Purpose of Loan:</strong> {loanStatement.loan.loan_purpose || '-'}</div>
                     <div><strong>Dependents:</strong> {loanStatement.loan.dependents_count ?? '-'}</div>
@@ -2891,7 +2986,7 @@ export default function LendApp() {
 
                 {/* Passbook Statement History */}
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>🧾 Passbook Statement (Activity Log)</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Receipt className="icon" /> Passbook Statement (Activity Log)</h3>
                   
                   {/* Desktop View Table */}
                   <div className="desktop-only" style={{ overflowX: 'auto' }}>
@@ -2981,7 +3076,7 @@ export default function LendApp() {
                   
                   {/* Collection Receipts ledger */}
                   <div className="glass-card">
-                    <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>💵 Payments Received</h3>
+                    <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Banknote className="icon" /> Payments Received</h3>
                     {loanStatement.payments.length === 0 ? (
                       <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No payments collected yet.</p>
                     ) : (
@@ -3006,7 +3101,7 @@ export default function LendApp() {
                                     loanInterestBalance: loanStatement.loan.interest_balance
                                   });
                                 }}>
-                                  🖨️ Print
+                                  <Printer className="icon" /> Print
                                 </button>
                                 {p.proof_image_url && (
                                   <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => {
@@ -3027,7 +3122,7 @@ export default function LendApp() {
 
                   {/* Accrued Interest list */}
                   <div className="glass-card">
-                    <h3 style={{ fontSize: '22px', marginBottom: '16px' }}>📈 Interest Charged History</h3>
+                    <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><TrendingUp className="icon" /> Interest Charged History</h3>
                     {loanStatement.accruals.length === 0 ? (
                       <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No interest accrued yet.</p>
                     ) : (
@@ -3064,23 +3159,23 @@ export default function LendApp() {
           {user.role === 'admin' && (
             <>
               <button className={`bottom-nav-item ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                <span className="bottom-nav-icon">🏠</span>
+                <span className="bottom-nav-icon"><Home /></span>
                 <span className="bottom-nav-label">Home</span>
               </button>
               <button className={`bottom-nav-item ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                <span className="bottom-nav-icon">💵</span>
+                <span className="bottom-nav-icon"><Banknote /></span>
                 <span className="bottom-nav-label">Give Loan</span>
               </button>
               <button className={`bottom-nav-item ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                <span className="bottom-nav-icon">📋</span>
+                <span className="bottom-nav-icon"><ClipboardList /></span>
                 <span className="bottom-nav-label">Check Loans</span>
               </button>
               <button className={`bottom-nav-item ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                <span className="bottom-nav-icon">👥</span>
+                <span className="bottom-nav-icon"><Users /></span>
                 <span className="bottom-nav-label">Agent Route</span>
               </button>
               <button className={`bottom-nav-item ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}>
-                <span className="bottom-nav-icon">🏦</span>
+                <span className="bottom-nav-icon"><Landmark /></span>
                 <span className="bottom-nav-label">Cash & Tools</span>
               </button>
             </>
@@ -3088,15 +3183,15 @@ export default function LendApp() {
           {user.role === 'agent' && (
             <>
               <button className={`bottom-nav-item ${agentSubView === 'collect' ? 'active' : ''}`} onClick={() => setAgentSubView('collect')}>
-                <span className="bottom-nav-icon">💵</span>
+                <span className="bottom-nav-icon"><Banknote /></span>
                 <span className="bottom-nav-label">Collect</span>
               </button>
               <button className={`bottom-nav-item ${agentSubView === 'history' ? 'active' : ''}`} onClick={() => setAgentSubView('history')}>
-                <span className="bottom-nav-icon">📜</span>
+                <span className="bottom-nav-icon"><ScrollText /></span>
                 <span className="bottom-nav-label">History</span>
               </button>
               <button className={`bottom-nav-item ${agentSubView === 'remit' ? 'active' : ''}`} onClick={() => setAgentSubView('remit')}>
-                <span className="bottom-nav-icon">🏦</span>
+                <span className="bottom-nav-icon"><Landmark /></span>
                 <span className="bottom-nav-label">Remit</span>
               </button>
             </>
@@ -3104,7 +3199,7 @@ export default function LendApp() {
           {user.role === 'borrower' && (
             <>
               <button className="bottom-nav-item active">
-                <span className="bottom-nav-icon">💰</span>
+                <span className="bottom-nav-icon"><PiggyBank /></span>
                 <span className="bottom-nav-label">My Loans</span>
               </button>
             </>
@@ -3155,14 +3250,14 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   return (
     <div className="glass-card" style={{ marginTop: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '24px' }}>📋 Loan List</h3>
+        <h3 style={{ fontSize: '24px' }}><ClipboardList className="icon" /> Loan List</h3>
         
         {/* Simple Search Input */}
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%', maxWidth: '300px' }}>
           <input 
             type="text" 
             className="glass-input" 
-            placeholder="🔍 Search name or phone..." 
+            placeholder="Search name or phone..." 
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             style={{ padding: '8px 12px' }}

@@ -18,7 +18,13 @@ const nextConfig = {
   // these external makes Next.js use Node's require at runtime instead,
   // which resolves fine since knex only actually loads the 'pg' dialect.
   experimental: {
-    serverComponentsExternalPackages: ['knex', 'pg']
+    serverComponentsExternalPackages: ['knex', 'pg'],
+    // Reduces parallel build-worker processes during static-page generation
+    // — each worker is a separate Node process with its own heap, and on a
+    // memory-constrained machine spinning up several at once causes OOM
+    // crashes mid-build. Harmless on Vercel's build infra (plenty of RAM),
+    // just makes local builds slightly more sequential.
+    cpus: 1
   }
 };
 
