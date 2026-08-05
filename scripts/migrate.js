@@ -126,6 +126,26 @@ async function runIncrementalMigrations() {
     });
     console.log("Migration: created table 'guarantors'.");
   }
+
+  // Day-by-day collection log (mirrors the physical passbook: did the
+  // borrower pay today or not). 'paid'/'partial' rows are linked to a real
+  // transaction so the log stays consistent with the ledger — it's a view
+  // on top of real payments, not a separate source of truth.
+  if (!(await db.schema.hasTable('daily_collections'))) {
+    await db.schema.createTable('daily_collections', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.uuid('loan_id').notNullable().references('id').inTable('loans').onDelete('CASCADE');
+      table.date('collection_date').notNullable();
+      table.string('status', 20).notNullable(); // 'paid', 'partial', 'not_paid'
+      table.decimal('amount', 15, 2).nullable();
+      table.uuid('transaction_id').references('id').inTable('transactions').onDelete('SET NULL');
+      table.uuid('marked_by').references('id').inTable('users').onDelete('SET NULL');
+      table.text('notes').nullable();
+      table.timestamp('created_at').defaultTo(db.fn.now());
+      table.unique(['loan_id', 'collection_date']);
+    });
+    console.log("Migration: created table 'daily_collections'.");
+  }
 }
 
 async function createSchemaAndSeed() {
@@ -248,6 +268,19 @@ async function createSchemaAndSeed() {
     table.decimal('monthly_expense_rent', 15, 2).defaultTo(0);
     table.decimal('monthly_expense_other', 15, 2).defaultTo(0);
     table.timestamp('created_at').defaultTo(db.fn.now());
+  });
+
+  await db.schema.createTable('daily_collections', (table) => {
+    table.uuid('id').primary().defaultTo(db.fn.uuid());
+    table.uuid('loan_id').notNullable().references('id').inTable('loans').onDelete('CASCADE');
+    table.date('collection_date').notNullable();
+    table.string('status', 20).notNullable(); // 'paid', 'partial', 'not_paid'
+    table.decimal('amount', 15, 2).nullable();
+    table.uuid('transaction_id').references('id').inTable('transactions').onDelete('SET NULL');
+    table.uuid('marked_by').references('id').inTable('users').onDelete('SET NULL');
+    table.text('notes').nullable();
+    table.timestamp('created_at').defaultTo(db.fn.now());
+    table.unique(['loan_id', 'collection_date']);
   });
 
   console.log('Database tables created successfully.');

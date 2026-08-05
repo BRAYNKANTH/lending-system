@@ -32,7 +32,13 @@ export async function GET(request, { params }) {
     const ledger = await db('ledger_entries').where({ loan_id: id }).orderBy('created_at', 'asc');
     const guarantor = await db('guarantors').where({ loan_id: id }).first();
 
-    return NextResponse.json({ loan, payments, accruals, ledger, guarantor: guarantor || null });
+    const dailyCollections = await db('daily_collections')
+      .leftJoin('users as markers', 'daily_collections.marked_by', 'markers.id')
+      .where({ loan_id: id })
+      .select('daily_collections.*', 'markers.name as marked_by_name')
+      .orderBy('collection_date', 'desc');
+
+    return NextResponse.json({ loan, payments, accruals, ledger, guarantor: guarantor || null, dailyCollections });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Fetch loan details error:', error);

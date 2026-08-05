@@ -22,6 +22,18 @@ export async function GET(request) {
       .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone')
       .orderBy('loans.principal_outstanding', 'desc');
 
+    // Today's collection-tracker status per loan, for the daily checklist
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayMarks = assignedLoans.length
+      ? await db('daily_collections')
+        .whereIn('loan_id', assignedLoans.map((l) => l.id))
+        .andWhere('collection_date', todayStr)
+      : [];
+    const todayMarkByLoanId = Object.fromEntries(todayMarks.map((m) => [m.loan_id, m]));
+    for (const loan of assignedLoans) {
+      loan.today_collection_status = todayMarkByLoanId[loan.id]?.status || null;
+    }
+
     const collectionHistory = await db('transactions')
       .join('users as borrowers', 'transactions.borrower_id', 'borrowers.id')
       .where({ agent_id: agentId })

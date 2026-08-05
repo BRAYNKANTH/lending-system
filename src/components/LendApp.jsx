@@ -33,6 +33,7 @@ export default function LendApp() {
   const [loanStatement, setLoanStatement] = useState(null);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [showLoanAgreement, setShowLoanAgreement] = useState(false);
+  const [backfillDate, setBackfillDate] = useState('');
 
   // Admin: Cash & Tools view data (users, remittances, ledger report)
   const [adminUsers, setAdminUsers] = useState([]);
@@ -412,6 +413,34 @@ export default function LendApp() {
       showToast('Penalty applied and posted to the ledger.');
       setPenaltyForm({ amount: '', reason: '' });
       viewStatement(selectedLoanId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Quick daily collection mark — mirrors the physical passbook's per-day
+  // paid/not-paid checkbox. 'paid'/'partial' actually records a real
+  // interest payment (asks for the amount); 'not_paid' is just a log entry.
+  const handleMarkDailyCollection = async (loanId, status, date = null) => {
+    let amount = null;
+    if (status === 'paid' || status === 'partial') {
+      const input = window.prompt(`Enter the amount collected (${status === 'partial' ? 'partial payment' : 'full payment'}):`);
+      if (input === null) return; // cancelled
+      amount = parseFloat(input);
+      if (isNaN(amount) || amount <= 0) {
+        setError('Please enter a valid positive amount.');
+        return;
+      }
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await api.post(`/loans/${loanId}/daily-collection`, { date, status, amount });
+      showToast(status === 'not_paid' ? 'Marked as not paid today.' : `Marked as ${status} — LKR ${amount.toLocaleString()} recorded.`);
+      fetchDashboardData();
+      if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -2163,35 +2192,61 @@ export default function LendApp() {
                     </form>
                   </div>
 
-                  {/* Assigned Borrowers balance list */}
+                  {/* Assigned Borrowers balance list + today's collection checklist */}
                   <div className="glass-card">
-                    <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><Users className="icon" /> Customer List</h3>
+                    <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><ClipboardCheck className="icon" /> Today's Collection Checklist</h3>
                     {agentData.assignedLoans.length === 0 ? (
                       <p style={{ color: 'var(--text-muted)' }}>No assigned customers.</p>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {agentData.assignedLoans.map(loan => (
-                          <div key={loan.id} style={{ padding: '16px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <strong style={{ display: 'block', fontSize: '15px' }}>{loan.borrower_name}</strong>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                Type: <span style={{ textTransform: 'capitalize' }}>{loan.interest_type} ({loan.interest_rate}%)</span>
+                        {agentData.assignedLoans.map(loan => {
+                          const status = loan.today_collection_status;
+                          const statusBadge = status === 'paid'
+                            ? <span className="badge badge-active">Paid Today</span>
+                            : status === 'partial'
+                              ? <span className="badge badge-pending">Partial</span>
+                              : status === 'not_paid'
+                                ? <span className="badge badge-defaulted">Missed</span>
+                                : <span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>Not Marked</span>;
+                          return (
+                            <div key={loan.id} style={{ padding: '16px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                                <div>
+                                  <strong style={{ display: 'block', fontSize: '15px' }}>{loan.borrower_name}</strong>
+                                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                    Type: <span style={{ textTransform: 'capitalize' }}>{loan.interest_type} ({loan.interest_rate}%)</span>
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <span style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-rose)' }}>
+                                    Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString()}
+                                  </span>
+                                  <span style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-rose)' }}>
+                                    Interest: LKR {parseFloat(loan.interest_balance).toLocaleString()}
+                                  </span>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border-light)' }}>
+                                {statusBadge}
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  <button className="glass-btn glass-btn-emerald" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loan.id, 'paid')} disabled={loading}>
+                                    <Check className="icon" /> Paid
+                                  </button>
+                                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loan.id, 'partial')} disabled={loading}>
+                                    Partial
+                                  </button>
+                                  <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loan.id, 'not_paid')} disabled={loading}>
+                                    <X className="icon" /> Missed
+                                  </button>
+                                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => resetPaymentForm(loan.id)}>
+                                    Full Form
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-rose)' }}>
-                                Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString()}
-                              </span>
-                              <span style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-rose)' }}>
-                                Interest: LKR {parseFloat(loan.interest_balance).toLocaleString()}
-                              </span>
-                              <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', marginTop: '6px', borderRadius: '4px' }} onClick={() => resetPaymentForm(loan.id)}>
-                                Collect
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -2978,6 +3033,60 @@ export default function LendApp() {
                     <div><strong>Spouse NIC:</strong> {loanStatement.loan.spouse_nic || '-'}</div>
                     <div style={{ gridColumn: '1 / -1' }}><strong>Spouse Occupation:</strong> {loanStatement.loan.spouse_occupation || '-'}</div>
                   </div>
+                </div>
+              )}
+
+              {/* Daily Collection Tracker — mirrors the physical passbook */}
+              {user.role !== 'borrower' && loanStatement.loan.status === 'active' && (
+                <div className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+                    <h3 style={{ fontSize: '22px' }}><ClipboardCheck className="icon" /> Daily Collection Tracker</h3>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <button className="glass-btn glass-btn-emerald" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loanStatement.loan.id, 'paid', backfillDate || null)} disabled={loading}>
+                        <Check className="icon" /> Paid
+                      </button>
+                      <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loanStatement.loan.id, 'partial', backfillDate || null)} disabled={loading}>
+                        Partial
+                      </button>
+                      <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loanStatement.loan.id, 'not_paid', backfillDate || null)} disabled={loading}>
+                        <X className="icon" /> Missed
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 'bold', marginRight: '8px' }}>Date (defaults to today):</label>
+                    <input type="date" className="glass-input" style={{ maxWidth: '200px', display: 'inline-block', padding: '8px 12px' }} max={new Date().toISOString().slice(0, 10)} value={backfillDate} onChange={e => setBackfillDate(e.target.value)} />
+                  </div>
+                  {loanStatement.dailyCollections.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No days marked yet.</p>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="glass-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Amount</th>
+                            <th>Marked By</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {loanStatement.dailyCollections.map(dc => (
+                            <tr key={dc.id}>
+                              <td>{new Date(dc.collection_date).toLocaleDateString()}</td>
+                              <td>
+                                <span className={`badge ${dc.status === 'paid' ? 'badge-active' : dc.status === 'partial' ? 'badge-pending' : 'badge-defaulted'}`}>
+                                  {dc.status === 'not_paid' ? 'Missed' : dc.status}
+                                </span>
+                              </td>
+                              <td>{dc.amount ? `LKR ${parseFloat(dc.amount).toLocaleString()}` : '-'}</td>
+                              <td>{dc.marked_by_name || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
 

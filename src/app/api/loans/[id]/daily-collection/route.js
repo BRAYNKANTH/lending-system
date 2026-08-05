@@ -1,0 +1,111 @@
+import { NextResponse } from 'next/server';
+import crypto from 'crypto';
+import db from '@/lib/db.js';
+import { requireAuth, AuthError } from '@/lib/auth.js';
+import { recordPaymentCollection } from '@/lib/services/ledger.js';
+import { notifyPaymentReceived } from '@/lib/services/notification.js';
+
+// Mark a single day's collection status for a loan — mirrors the physical
+// passbook (did the borrower pay today or not). 'paid'/'partial' actually
+// records a real interest payment (through the same path as the normal
+// payment form) so the log stays consistent with the ledger; 'not_paid' is
+// just a log entry, no money moves.
+export async function POST(request, { params }) {
+  try {
+    const authUser = requireAuth(request, ['admin', 'agent']);
+    const { id: loanId } = params;
+    const { date, status, amount, notes } = await request.json();
+
+    if (!['paid', 'partial', 'not_paid'].includes(status)) {
+      return NextResponse.json({ message: "Status must be 'paid', 'partial', or 'not_paid'." }, { status: 400 });
+    }
+
+    const collectionDate = date ? new Date(date) : new Date();
+    if (isNaN(collectionDate.getTime())) {
+      return NextResponse.json({ message: 'Invalid date.' }, { status: 400 });
+    }
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (collectionDate > today) {
+      return NextResponse.json({ message: 'Cannot mark a future date.' }, { status: 400 });
+    }
+    const dateStr = collectionDate.toISOString().slice(0, 10);
+
+    const loan = await db('loans').where({ id: loanId }).first();
+    if (!loan) {
+      return NextResponse.json({ message: 'Loan not found.' }, { status: 404 });
+    }
+
+    let transactionId = null;
+    let paymentResult = null;
+
+    if (status === 'paid' || status === 'partial') {
+      const payAmount = parseFloat(amount);
+      if (isNaN(payAmount) || payAmount <= 0) {
+        return NextResponse.json({ message: 'A positive amount is required to mark a day as paid or partially paid.' }, { status: 400 });
+      }
+
+      try {
+        paymentResult = await recordPaymentCollection({
+          loanId,
+          agentId: authUser.id,
+          amount: payAmount,
+          paymentType: 'interest',
+          notes: notes || `Daily collection for ${dateStr}`,
+          idempotencyKey: `daily_${loanId}_${dateStr}_${crypto.randomBytes(4).toString('hex')}`
+        });
+      } catch (err) {
+        return NextResponse.json({ message: err.message }, { status: 400 });
+      }
+      transactionId = paymentResult.transactionId;
+
+      notifyPaymentReceived({
+        borrower: paymentResult.borrower,
+        admin: paymentResult.admin,
+        amount: paymentResult.amount,
+        paymentType: 'interest',
+        principalOutstanding: paymentResult.newPrincipalOutstanding,
+        interestBalance: paymentResult.newInterestBalance
+      }).catch((err) => console.error('Notification failed:', err));
+    }
+
+    const existing = await db('daily_collections').where({ loan_id: loanId, collection_date: dateStr }).first();
+    let row;
+    if (existing) {
+      [row] = await db('daily_collections')
+        .where({ id: existing.id })
+        .update({
+          status,
+          amount: status === 'not_paid' ? null : parseFloat(amount),
+          transaction_id: transactionId,
+          marked_by: authUser.id,
+          notes: notes || null
+        })
+        .returning('*');
+    } else {
+      [row] = await db('daily_collections')
+        .insert({
+          loan_id: loanId,
+          collection_date: dateStr,
+          status,
+          amount: status === 'not_paid' ? null : parseFloat(amount),
+          transaction_id: transactionId,
+          marked_by: authUser.id,
+          notes: notes || null
+        })
+        .returning('*');
+    }
+
+    await db('audit_logs').insert({
+      actor_id: authUser.id,
+      action_type: 'DAILY_COLLECTION_MARK',
+      description: `Marked ${dateStr} as '${status}' for loan ID ${loanId}${transactionId ? ` (LKR ${parseFloat(amount).toLocaleString()} collected)` : ''}.`
+    });
+
+    return NextResponse.json({ message: 'Daily collection status saved.', dailyCollection: row, payment: paymentResult });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Daily collection mark error:', error);
+    return NextResponse.json({ message: 'Internal server error while marking daily collection.' }, { status: 500 });
+  }
+}
