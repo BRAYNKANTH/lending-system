@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { recordPaymentCollection } from '@/lib/services/ledger.js';
-import { notifyPaymentReceived } from '@/lib/services/notification.js';
+import { notifyPaymentReceived, notifyMissedPayment } from '@/lib/services/notification.js';
 
 // Mark a single day's collection status for a loan — mirrors the physical
 // passbook (did the borrower pay today or not). 'paid'/'partial' actually
@@ -67,6 +67,13 @@ export async function POST(request, { params }) {
         principalOutstanding: paymentResult.newPrincipalOutstanding,
         interestBalance: paymentResult.newInterestBalance
       }).catch((err) => console.error('Notification failed:', err));
+    }
+
+    if (status === 'not_paid') {
+      const borrower = await db('users').where({ id: loan.borrower_id }).first();
+      const admin = await db('users').where({ id: loan.lender_id }).first();
+      notifyMissedPayment({ borrower, admin, collectionDate: dateStr })
+        .catch((err) => console.error('Notification failed:', err));
     }
 
     const existing = await db('daily_collections').where({ loan_id: loanId, collection_date: dateStr }).first();

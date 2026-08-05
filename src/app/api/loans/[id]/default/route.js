@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { notifyLoanDefaulted } from '@/lib/services/notification.js';
 
 // Mark a loan as defaulted (Admin only) — blocks further payment collection
 export async function POST(request, { params }) {
@@ -33,6 +34,15 @@ export async function POST(request, { params }) {
       action_type: 'MARK_DEFAULTED',
       description: `Marked loan ID ${id} as defaulted. Reason: ${reason.trim()}. Outstanding principal: LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}, interest due: LKR ${parseFloat(loan.interest_balance).toLocaleString()}.`
     });
+
+    const borrower = await db('users').where({ id: loan.borrower_id }).first();
+    const admin = await db('users').where({ id: loan.lender_id }).first();
+    notifyLoanDefaulted({
+      borrower,
+      admin,
+      reason: reason.trim(),
+      principalOutstanding: loan.principal_outstanding
+    }).catch((err) => console.error('Notification failed:', err));
 
     return NextResponse.json({ message: 'Loan marked as defaulted.' });
   } catch (error) {

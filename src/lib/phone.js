@@ -7,3 +7,10 @@
 export function normalizePhone(phone) {
   return (phone || '').replace(/\D/g, '').slice(-9);
 }
+
+// Text.lk (and most SMS gateways) expect the full international number with
+// no '+' and no leading 0, e.g. "94774048194".
+export function toTextLkFormat(phone) {
+  const last9 = normalizePhone(phone);
+  return last9 ? `94${last9}` : '';
+}

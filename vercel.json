@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/accrue-interest",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/payment-reminders",
+      "schedule": "30 2 * * *"
     }
   ]
 }

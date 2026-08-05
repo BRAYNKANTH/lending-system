@@ -1,20 +1,22 @@
 import fs from 'fs';
 import path from 'path';
+import { sendSms } from './sms.js';
 
 const logFilePath = path.join(process.cwd(), 'notifications_log.txt');
 
 /**
- * Dispatches a notification to a specific phone number/user.
- * Logs to console (visible in Vercel function logs) and, in local dev only,
- * appends to a text file for quick inspection — Vercel's filesystem is
- * read-only outside /tmp, so file logging is skipped in production.
+ * Dispatches a notification to a specific phone number/user via Text.lk SMS
+ * (falls back to a console-only mock when TEXTLK_API_TOKEN isn't set — see
+ * sms.js). Also logs to console and, in local dev only, appends to a text
+ * file for quick inspection — Vercel's filesystem is read-only outside
+ * /tmp, so file logging is skipped in production.
  */
 export async function sendNotification({ recipientName, phone, message, role }) {
   const timestamp = new Date().toLocaleString();
   const logMessage = `[${timestamp}] TO: ${recipientName} (${phone}) [Role: ${role}]\nMSG: "${message}"\n---------------------------------------------\n`;
 
   console.log('\n======================================================');
-  console.log(`🔔 NOTIFICATION DISPATCHED [Channel: SMS/WhatsApp]`);
+  console.log(`🔔 NOTIFICATION DISPATCHED [Channel: SMS]`);
   console.log(`To: ${recipientName} (${phone})`);
   console.log(`Message: ${message}`);
   console.log('======================================================\n');
@@ -27,17 +29,9 @@ export async function sendNotification({ recipientName, phone, message, role }) 
     }
   }
 
-  // Twilio/WhatsApp integration placeholder:
-  /*
-  try {
-    // const client = new twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-    // await client.messages.create({ body: message, to: phone, from: process.env.TWILIO_PHONE });
-  } catch (apiError) {
-    console.error("Failed to send real SMS:", apiError);
-  }
-  */
+  const smsResult = await sendSms({ to: phone, message });
 
-  return { success: true, timestamp };
+  return { success: smsResult.success, mocked: smsResult.mocked, timestamp };
 }
 
 /**
@@ -95,6 +89,52 @@ export async function notifyPaymentReceived({ borrower, admin, amount, paymentTy
       recipientName: admin.name,
       phone: admin.phone,
       message: adminMsg,
+      role: 'admin'
+    });
+  }
+}
+
+/**
+ * Proactive daily reminder for an active loan's outstanding interest.
+ */
+export async function notifyPaymentReminder({ borrower, interestBalance, interestType }) {
+  await sendNotification({
+    recipientName: borrower.name,
+    phone: borrower.phone,
+    message: `Reminder: your ${interestType} interest payment of LKR ${Number(interestBalance).toLocaleString()} is due. Please arrange payment with your collection agent.`,
+    role: 'borrower'
+  });
+}
+
+/**
+ * Alerts the admin (and optionally the borrower) when a day is marked
+ * 'not_paid' on the daily collection tracker.
+ */
+export async function notifyMissedPayment({ borrower, admin, collectionDate }) {
+  const dateStr = new Date(collectionDate).toLocaleDateString();
+
+  if (admin) {
+    await sendNotification({
+      recipientName: admin.name,
+      phone: admin.phone,
+      message: `Missed collection: ${borrower.name} did not pay on ${dateStr}.`,
+      role: 'admin'
+    });
+  }
+}
+
+/**
+ * Alerts when a loan is marked as defaulted.
+ */
+export async function notifyLoanDefaulted({ borrower, admin, reason, principalOutstanding }) {
+  const msg = `Your loan has been marked as defaulted. Outstanding principal: LKR ${Number(principalOutstanding).toLocaleString()}. Please contact us immediately.`;
+  await sendNotification({ recipientName: borrower.name, phone: borrower.phone, message: msg, role: 'borrower' });
+
+  if (admin) {
+    await sendNotification({
+      recipientName: admin.name,
+      phone: admin.phone,
+      message: `Loan for ${borrower.name} marked defaulted. Reason: ${reason}. Outstanding principal: LKR ${Number(principalOutstanding).toLocaleString()}.`,
       role: 'admin'
     });
   }
