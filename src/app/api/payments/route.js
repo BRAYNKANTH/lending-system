@@ -5,10 +5,10 @@ import { recordPaymentCollection } from '@/lib/services/ledger.js';
 import { notifyPaymentReceived } from '@/lib/services/notification.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
 
-// Record payment collection (Agent or Borrower)
+// Record payment collection (Agent or Admin — borrowers have no login access)
 export async function POST(request) {
   try {
-    const authUser = requireAuth(request, ['agent', 'borrower']);
+    const authUser = requireAuth(request, ['agent', 'admin']);
     const { loan_id, amount, payment_type, notes, proof_image_url, payment_method, idempotency_key } = await request.json();
 
     if (!loan_id || !amount || !idempotency_key) {

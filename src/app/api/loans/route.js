@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
-import { generateTempPassword } from '@/lib/tempPassword.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
 import { notifyLoanCreation } from '@/lib/services/notification.js';
 import { isValidSriLankanNIC, addInterval } from '@/lib/loanSchedule.js';
@@ -14,7 +12,7 @@ export async function POST(request) {
     const authUser = requireAuth(request, ['admin']);
     const body = await request.json();
     const {
-      borrower_name, borrower_phone, principal_amount, interest_rate, interest_type,
+      borrower_name, borrower_phone, borrower_address, principal_amount, interest_rate, interest_type,
       assigned_agent_id, nic_number, nic_photo, guarantor, borrower_profile
     } = body;
 
@@ -23,6 +21,21 @@ export async function POST(request) {
     }
     if (!nic_number) {
       return NextResponse.json({ message: 'NIC number is required for loan disbursement.' }, { status: 400 });
+    }
+    if (!borrower_address || !borrower_address.trim()) {
+      return NextResponse.json({ message: "Borrower's address is required." }, { status: 400 });
+    }
+    if (!borrower_profile) {
+      return NextResponse.json({ message: 'Borrower profile details (loan purpose, dependents, monthly income) are required.' }, { status: 400 });
+    }
+    if (!borrower_profile.loan_purpose || !borrower_profile.loan_purpose.trim()) {
+      return NextResponse.json({ message: 'Purpose of loan is required.' }, { status: 400 });
+    }
+    if (borrower_profile.dependents_count === undefined || borrower_profile.dependents_count === '' || borrower_profile.dependents_count === null) {
+      return NextResponse.json({ message: 'Number of dependents is required.' }, { status: 400 });
+    }
+    if (borrower_profile.monthly_income === undefined || borrower_profile.monthly_income === '' || borrower_profile.monthly_income === null) {
+      return NextResponse.json({ message: 'Monthly income is required.' }, { status: 400 });
     }
 
     const cleanNIC = nic_number.trim().toUpperCase();
@@ -106,20 +119,18 @@ export async function POST(request) {
       .where({ role: 'borrower' })
       .whereRaw('phone LIKE ?', [`%${normalizePhone(cleanPhone)}`])
       .first();
-    let borrowerTempPassword = null;
 
     if (!borrower) {
-      borrowerTempPassword = generateTempPassword();
-      const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash(borrowerTempPassword, salt);
-
+      // Borrowers are records, not accounts — they never log in, so there's
+      // no real password to issue. 'NO_LOGIN_ACCESS' is a deliberately
+      // invalid bcrypt hash that bcrypt.compare() always rejects.
       const [newBorrowerId] = await db('users').insert({
         name: borrower_name.trim(),
         phone: cleanPhone,
-        password_hash: passwordHash,
+        password_hash: 'NO_LOGIN_ACCESS',
         role: 'borrower',
         is_active: true,
-        must_change_password: true
+        must_change_password: false
       }).returning('id');
 
       const bId = newBorrowerId.id || newBorrowerId;
@@ -158,6 +169,7 @@ export async function POST(request) {
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
         nic_photo_url,
+        borrower_address: borrower_address.trim(),
         ...(borrowerProfileRecord || {})
       }).returning('*');
 
@@ -181,13 +193,12 @@ export async function POST(request) {
       return newLoan;
     });
 
-    notifyLoanCreation({ borrower, principal, interestType: interest_type, tempPassword: borrowerTempPassword })
+    notifyLoanCreation({ borrower, principal, interestType: interest_type })
       .catch((err) => console.error('Failed to dispatch notification:', err));
 
     return NextResponse.json({
       message: 'Loan created successfully.',
-      loan: loanResult,
-      borrowerTemporaryPassword: borrowerTempPassword
+      loan: loanResult
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });

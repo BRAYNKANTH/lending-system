@@ -47,13 +47,11 @@ export async function notifyPasswordReset({ user, tempPassword }) {
 }
 
 /**
- * Triggers alerts for loan creation
+ * Triggers alerts for loan creation. Borrowers don't have login accounts —
+ * this is an informational SMS only, not a credential handoff.
  */
-export async function notifyLoanCreation({ borrower, principal, interestType, tempPassword }) {
-  let borrowerMsg = `You received a loan of LKR ${Number(principal).toLocaleString()}. Interest type: ${interestType.toUpperCase()}.`;
-  if (tempPassword) {
-    borrowerMsg += ` Log in with your phone number ${borrower.phone} and temporary password: ${tempPassword} (you will be asked to change it on first login).`;
-  }
+export async function notifyLoanCreation({ borrower, principal, interestType }) {
+  const borrowerMsg = `You received a loan of LKR ${Number(principal).toLocaleString()}. Interest type: ${interestType.toUpperCase()}.`;
   await sendNotification({
     recipientName: borrower.name,
     phone: borrower.phone,

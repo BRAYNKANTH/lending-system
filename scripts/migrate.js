@@ -146,6 +146,13 @@ async function runIncrementalMigrations() {
     });
     console.log("Migration: created table 'daily_collections'.");
   }
+
+  // Borrowers no longer log in — the app collects full KYC details
+  // (address, etc.) at loan disbursement instead of via a borrower
+  // self-service account. Address is captured per-loan, the same as
+  // nic_number, since it's part of the loan file the physical passbook
+  // records at disbursement time.
+  await addColumnIfMissing('loans', 'borrower_address', (t) => t.text('borrower_address').nullable());
 }
 
 async function createSchemaAndSeed() {
@@ -183,6 +190,7 @@ async function createSchemaAndSeed() {
     table.timestamp('next_accrual_date').notNullable();
     table.string('nic_number', 50);
     table.text('nic_photo_url');
+    table.text('borrower_address').nullable();
     table.text('default_reason').nullable();
     table.timestamp('defaulted_at').nullable();
     table.text('loan_purpose').nullable();

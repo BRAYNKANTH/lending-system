@@ -38,6 +38,9 @@ export async function POST(request) {
     if (!user || !user.is_active) {
       return NextResponse.json({ message: 'Invalid phone number or inactive account.' }, { status: 401 });
     }
+    if (user.role === 'borrower') {
+      return NextResponse.json({ message: 'Borrowers do not have login access. Please contact your loan officer.' }, { status: 403 });
+    }
 
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
       const minutesLeft = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);

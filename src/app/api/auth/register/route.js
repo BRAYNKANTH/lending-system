@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
-import { generateTempPassword } from '@/lib/tempPassword.js';
 import { normalizePhone } from '@/lib/phone.js';
 
 export async function POST(request) {
@@ -29,14 +28,14 @@ export async function POST(request) {
     let passwordHash;
     let tempPassword = null;
     let mustChangePassword = false;
-    if (password) {
+    if (role === 'borrower') {
+      // Borrowers don't log in — this is a deliberately invalid bcrypt hash
+      // that bcrypt.compare() always rejects, regardless of any password
+      // supplied in the request.
+      passwordHash = 'NO_LOGIN_ACCESS';
+    } else if (password) {
       const salt = await bcrypt.genSalt(10);
       passwordHash = await bcrypt.hash(password, salt);
-    } else if (role === 'borrower') {
-      tempPassword = generateTempPassword();
-      mustChangePassword = true;
-      const salt = await bcrypt.genSalt(10);
-      passwordHash = await bcrypt.hash(tempPassword, salt);
     } else {
       passwordHash = 'NO_LOGIN_ACCESS';
     }
