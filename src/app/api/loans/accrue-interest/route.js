@@ -5,7 +5,7 @@ import { runInterestAccruals } from '@/lib/services/interest.js';
 // Admin-only manual trigger to force-accrue interest for testing/demonstration
 export async function POST(request) {
   try {
-    requireAuth(request, ['admin']);
+    await requireAuth(request, ['admin']);
     const results = await runInterestAccruals();
     return NextResponse.json({ message: 'Manual interest accrual process completed.', results });
   } catch (error) {

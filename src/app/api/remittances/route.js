@@ -6,7 +6,7 @@ import { getAgentCashInHand } from '@/lib/services/remittance.js';
 // Agent submits cash collected in the field to the office (Agent only)
 export async function POST(request) {
   try {
-    const authUser = requireAuth(request, ['agent']);
+    const authUser = await requireAuth(request, ['agent']);
     const agentId = authUser.id;
     const { amount, notes } = await request.json();
 
@@ -30,8 +30,14 @@ export async function POST(request) {
 
       const remittanceId = inserted.id || inserted;
 
+      // Cash moves out of the agent's hands immediately (they no longer
+      // physically hold it), but it doesn't count as confirmed office cash
+      // until an admin verifies it actually arrived — it sits in
+      // cash_in_transit in between. Posting straight to cash_office here
+      // would let an agent's unverified claim inflate the office's reported
+      // cash before anyone checked it was true.
       await trx('ledger_entries').insert([
-        { account: 'cash_office', type: 'debit', amount: remitAmount },
+        { account: 'cash_in_transit', type: 'debit', amount: remitAmount },
         { account: 'cash_agent', type: 'credit', amount: remitAmount }
       ]);
 
@@ -55,7 +61,7 @@ export async function POST(request) {
 // List remittances (Admin sees all, Agent sees their own)
 export async function GET(request) {
   try {
-    const { role, id } = requireAuth(request, ['admin', 'agent']);
+    const { role, id } = await requireAuth(request, ['admin', 'agent']);
     const status = request.nextUrl.searchParams.get('status');
 
     let query = db('remittances')

@@ -6,7 +6,7 @@ import { normalizePhone } from '@/lib/phone.js';
 
 export async function POST(request) {
   try {
-    const user = requireAuth(request, ['admin']);
+    const user = await requireAuth(request, ['admin']);
     const { name, phone, password, role } = await request.json();
 
     if (!name || !phone || !role) {

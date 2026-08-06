@@ -9,7 +9,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 // this is only for removing accounts that were never really used.
 export async function DELETE(request, { params }) {
   try {
-    const authUser = requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
 
     if (id === authUser.id) {

@@ -6,7 +6,7 @@ import { notifyLoanDefaulted } from '@/lib/services/notification.js';
 // Mark a loan as defaulted (Admin only) — blocks further payment collection
 export async function POST(request, { params }) {
   try {
-    const authUser = requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
     const { reason } = await request.json();
 

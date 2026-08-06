@@ -153,6 +153,15 @@ async function runIncrementalMigrations() {
   // nic_number, since it's part of the loan file the physical passbook
   // records at disbursement time.
   await addColumnIfMissing('loans', 'borrower_address', (t) => t.text('borrower_address').nullable());
+
+  // Write-off support — previously a defaulted loan's balances sat on the
+  // books forever with no way to formally close them out as bad debt.
+  await addColumnIfMissing('loans', 'write_off_amount', (t) => t.decimal('write_off_amount', 15, 2).nullable());
+  await addColumnIfMissing('loans', 'write_off_reason', (t) => t.text('write_off_reason').nullable());
+  await addColumnIfMissing('loans', 'written_off_at', (t) => t.timestamp('written_off_at').nullable());
+
+  // Remittances can now be disputed/rejected, not just verified.
+  await addColumnIfMissing('remittances', 'rejection_reason', (t) => t.text('rejection_reason').nullable());
 }
 
 async function createSchemaAndSeed() {
@@ -185,7 +194,7 @@ async function createSchemaAndSeed() {
     // the running unpaid-interest amount, cleared by interest payments.
     table.decimal('principal_outstanding', 15, 2).notNullable();
     table.decimal('interest_balance', 15, 2).notNullable().defaultTo(0);
-    table.string('status', 20).defaultTo('active'); // 'pending', 'active', 'fully_paid', 'defaulted'
+    table.string('status', 20).defaultTo('active'); // 'pending', 'active', 'fully_paid', 'defaulted', 'written_off'
     table.timestamp('last_accrual_date').defaultTo(db.fn.now());
     table.timestamp('next_accrual_date').notNullable();
     table.string('nic_number', 50);
@@ -193,6 +202,9 @@ async function createSchemaAndSeed() {
     table.text('borrower_address').nullable();
     table.text('default_reason').nullable();
     table.timestamp('defaulted_at').nullable();
+    table.decimal('write_off_amount', 15, 2).nullable();
+    table.text('write_off_reason').nullable();
+    table.timestamp('written_off_at').nullable();
     table.text('loan_purpose').nullable();
     table.integer('dependents_count').nullable();
     table.decimal('monthly_income', 15, 2).nullable();
@@ -250,9 +262,10 @@ async function createSchemaAndSeed() {
     table.uuid('agent_id').notNullable().references('id').inTable('users').onDelete('RESTRICT');
     table.decimal('amount', 15, 2).notNullable();
     table.text('notes');
-    table.string('status', 20).notNullable().defaultTo('pending'); // 'pending', 'verified'
+    table.string('status', 20).notNullable().defaultTo('pending'); // 'pending', 'verified', 'rejected'
     table.uuid('verified_by').references('id').inTable('users').onDelete('SET NULL');
     table.timestamp('verified_at').nullable();
+    table.text('rejection_reason').nullable();
     table.timestamp('created_at').defaultTo(db.fn.now());
   });
 

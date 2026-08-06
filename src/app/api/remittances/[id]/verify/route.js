@@ -5,32 +5,45 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 // Admin confirms a remittance was physically received/reconciled
 export async function PATCH(request, { params }) {
   try {
-    const authUser = requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
 
-    const remittance = await db('remittances').where({ id }).first();
-    if (!remittance) {
-      return NextResponse.json({ message: 'Remittance not found.' }, { status: 404 });
-    }
-    if (remittance.status === 'verified') {
-      return NextResponse.json({ message: 'This remittance has already been verified.' }, { status: 400 });
-    }
+    await db.transaction(async (trx) => {
+      const remittance = await trx('remittances').where({ id }).first().forUpdate();
+      if (!remittance) {
+        throw new Error('Remittance not found.');
+      }
+      if (remittance.status !== 'pending') {
+        throw new Error(`Only pending remittances can be verified (current status: '${remittance.status}').`);
+      }
 
-    await db('remittances').where({ id }).update({
-      status: 'verified',
-      verified_by: authUser.id,
-      verified_at: db.fn.now()
-    });
+      const amount = parseFloat(remittance.amount);
 
-    await db('audit_logs').insert({
-      actor_id: authUser.id,
-      action_type: 'VERIFY_REMITTANCE',
-      description: `Admin verified a cash remittance of LKR ${parseFloat(remittance.amount).toLocaleString()}.`
+      // Confirms the cash actually arrived: moves it out of the
+      // cash_in_transit holding account and into confirmed office cash.
+      await trx('ledger_entries').insert([
+        { account: 'cash_office', type: 'debit', amount },
+        { account: 'cash_in_transit', type: 'credit', amount }
+      ]);
+
+      await trx('remittances').where({ id }).update({
+        status: 'verified',
+        verified_by: authUser.id,
+        verified_at: trx.fn.now()
+      });
+
+      await trx('audit_logs').insert({
+        actor_id: authUser.id,
+        action_type: 'VERIFY_REMITTANCE',
+        description: `Admin verified a cash remittance of LKR ${amount.toLocaleString()}.`
+      });
     });
 
     return NextResponse.json({ message: 'Remittance verified.' });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    if (error.message === 'Remittance not found.') return NextResponse.json({ message: error.message }, { status: 404 });
+    if (error.message?.includes('can be verified')) return NextResponse.json({ message: error.message }, { status: 400 });
     console.error('Verify remittance error:', error);
     return NextResponse.json({ message: 'Failed to verify remittance.' }, { status: 500 });
   }

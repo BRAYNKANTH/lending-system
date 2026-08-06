@@ -4,16 +4,18 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 
 const ACCOUNT_LABELS = {
   cash_agent: 'Cash in Agent Hands',
+  cash_in_transit: 'Cash in Transit (Remitted, Unverified)',
   cash_office: 'Cash at Office',
   loan_receivable: 'Loans Receivable',
   interest_revenue: 'Interest Revenue',
-  penalty_revenue: 'Penalty Revenue'
+  penalty_revenue: 'Penalty Revenue',
+  bad_debt_expense: 'Bad Debt Written Off'
 };
 
 // Consolidated ledger / trial balance report (Admin only)
 export async function GET(request) {
   try {
-    requireAuth(request, ['admin']);
+    await requireAuth(request, ['admin']);
     const from = request.nextUrl.searchParams.get('from');
     const to = request.nextUrl.searchParams.get('to');
 

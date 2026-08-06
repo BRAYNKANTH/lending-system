@@ -5,7 +5,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 
 export async function POST(request) {
   try {
-    const authUser = requireAuth(request);
+    const authUser = await requireAuth(request);
     const { current_password, new_password } = await request.json();
 
     if (!current_password || !new_password) {

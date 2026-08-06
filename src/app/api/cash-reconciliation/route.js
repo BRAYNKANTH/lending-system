@@ -6,7 +6,7 @@ import { getAgentCashInHand } from '@/lib/services/remittance.js';
 // Cash-in-hand summary for the logged-in agent, or (Admin) for all agents
 export async function GET(request) {
   try {
-    const { role, id, name } = requireAuth(request, ['admin', 'agent']);
+    const { role, id, name } = await requireAuth(request, ['admin', 'agent']);
 
     if (role === 'agent') {
       const summary = await getAgentCashInHand(id);

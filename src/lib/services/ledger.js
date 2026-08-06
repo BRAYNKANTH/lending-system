@@ -25,8 +25,12 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
       throw new Error('This loan has already been fully paid.');
     }
 
+    if (loan.status === 'written_off') {
+      throw new Error('This loan has been written off as bad debt and no longer accepts payments.');
+    }
+
     if (loan.status === 'defaulted') {
-      throw new Error('This loan is defaulted. Payments cannot be posted directly without clearance.');
+      throw new Error("This loan is defaulted. Reinstate it first (Admin > Reinstate Loan) before recording a payment.");
     }
 
     const payAmount = parseFloat(amount);

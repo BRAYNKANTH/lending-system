@@ -4,7 +4,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 
 export async function GET(request) {
   try {
-    requireAuth(request, ['admin']);
+    await requireAuth(request, ['admin']);
     const agents = await db('users').where({ role: 'agent', is_active: true }).select('id', 'name', 'email', 'phone');
     return NextResponse.json(agents);
   } catch (error) {

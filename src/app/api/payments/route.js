@@ -8,7 +8,7 @@ import { validateImageDataUrl } from '@/lib/services/image.js';
 // Record payment collection (Agent or Admin — borrowers have no login access)
 export async function POST(request) {
   try {
-    const authUser = requireAuth(request, ['agent', 'admin']);
+    const authUser = await requireAuth(request, ['agent', 'admin']);
     const { loan_id, amount, payment_type, notes, proof_image_url, payment_method, idempotency_key } = await request.json();
 
     if (!loan_id || !amount || !idempotency_key) {
@@ -31,14 +31,21 @@ export async function POST(request) {
       );
     }
 
-    let agentId = authUser.id;
-    if (authUser.role === 'borrower') {
+    // An agent may only collect on loans assigned to them — otherwise any
+    // agent could post a payment against any loan_id, real money movement
+    // with no ownership check. Admin is unrestricted (covers self-collected
+    // loans with no assigned agent).
+    if (authUser.role === 'agent') {
       const loan = await db('loans').where({ id: loan_id }).first();
       if (!loan) {
         return NextResponse.json({ message: 'Loan not found.' }, { status: 404 });
       }
-      agentId = loan.assigned_agent_id || loan.lender_id;
+      if (loan.assigned_agent_id !== authUser.id) {
+        return NextResponse.json({ message: 'This loan is not assigned to you.' }, { status: 403 });
+      }
     }
+
+    const agentId = authUser.id;
 
     let savedProofUrl = null;
     if (proof_image_url) {

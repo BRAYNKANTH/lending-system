@@ -5,7 +5,7 @@ import { getAgentCashInHand } from '@/lib/services/remittance.js';
 
 export async function GET(request) {
   try {
-    const authUser = requireAuth(request, ['agent']);
+    const authUser = await requireAuth(request, ['agent']);
     const agentId = authUser.id;
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);

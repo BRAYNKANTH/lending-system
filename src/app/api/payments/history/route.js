@@ -4,7 +4,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 
 export async function GET(request) {
   try {
-    const { role, id } = requireAuth(request);
+    const { role, id } = await requireAuth(request);
     const borrowerId = request.nextUrl.searchParams.get('borrowerId');
     const agentId = request.nextUrl.searchParams.get('agentId');
     const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page'), 10) || 1);

@@ -5,7 +5,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 // Get detailed loan statement
 export async function GET(request, { params }) {
   try {
-    const { role, id: userId } = requireAuth(request);
+    const { role, id: userId } = await requireAuth(request);
     const { id } = params;
 
     const loan = await db('loans')
@@ -20,6 +20,9 @@ export async function GET(request, { params }) {
     }
     if (role === 'borrower' && loan.borrower_id !== userId) {
       return NextResponse.json({ message: 'Access denied to this loan file.' }, { status: 403 });
+    }
+    if (role === 'agent' && loan.assigned_agent_id !== userId) {
+      return NextResponse.json({ message: 'This loan is not assigned to you.' }, { status: 403 });
     }
 
     const payments = await db('transactions')
@@ -52,7 +55,7 @@ export async function GET(request, { params }) {
 // silently desync the ledger from the loan record. (Admin only)
 export async function PATCH(request, { params }) {
   try {
-    const authUser = requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
     const { interest_rate, assigned_agent_id } = await request.json();
 

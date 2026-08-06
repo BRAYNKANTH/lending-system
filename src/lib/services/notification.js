@@ -137,3 +137,45 @@ export async function notifyLoanDefaulted({ borrower, admin, reason, principalOu
     });
   }
 }
+
+/**
+ * Alerts the borrower when a defaulted loan is reinstated back to active.
+ */
+export async function notifyLoanReinstated({ borrower, admin }) {
+  await sendNotification({
+    recipientName: borrower.name,
+    phone: borrower.phone,
+    message: `Your loan has been reinstated to active status. Please resume payments with your collection agent.`,
+    role: 'borrower'
+  });
+
+  if (admin) {
+    await sendNotification({
+      recipientName: admin.name,
+      phone: admin.phone,
+      message: `Loan for ${borrower.name} has been reinstated from defaulted to active.`,
+      role: 'admin'
+    });
+  }
+}
+
+/**
+ * Alerts the borrower when a penalty/late fee is added to their loan.
+ */
+export async function notifyPenaltyApplied({ borrower, admin, amount, reason, newInterestBalance }) {
+  await sendNotification({
+    recipientName: borrower.name,
+    phone: borrower.phone,
+    message: `A penalty of LKR ${Number(amount).toLocaleString()} has been added to your loan${reason ? ` (${reason})` : ''}. Total interest/fees due: LKR ${Number(newInterestBalance).toLocaleString()}.`,
+    role: 'borrower'
+  });
+
+  if (admin) {
+    await sendNotification({
+      recipientName: admin.name,
+      phone: admin.phone,
+      message: `Penalty of LKR ${Number(amount).toLocaleString()} applied to ${borrower.name}'s loan${reason ? ` (${reason})` : ''}.`,
+      role: 'admin'
+    });
+  }
+}

@@ -40,6 +40,8 @@ export default function LendApp() {
   const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', role: 'agent', password: '' });
   const [remittances, setRemittances] = useState([]);
   const [ledgerReport, setLedgerReport] = useState(null);
+  const [ledgerFrom, setLedgerFrom] = useState('');
+  const [ledgerTo, setLedgerTo] = useState('');
   const [cashReconciliation, setCashReconciliation] = useState(null);
 
   // Agent: cash remittance submission form
@@ -80,6 +82,11 @@ export default function LendApp() {
     monthly_expense_food: '', monthly_expense_rent: '', monthly_expense_other: ''
   };
   const [guarantorForm, setGuarantorForm] = useState(emptyGuarantor);
+
+  // Editing/adding a guarantor on an EXISTING loan (loan statement page),
+  // separate from the create-loan form above.
+  const [showGuarantorEditor, setShowGuarantorEditor] = useState(false);
+  const [guarantorEditForm, setGuarantorEditForm] = useState(emptyGuarantor);
 
   // Borrower profile details are collected for every loan now (not
   // optional) — loan purpose, dependents, and monthly income are required;
@@ -153,7 +160,7 @@ export default function LendApp() {
     setError('');
     try {
       const [users, remits, ledger, recon] = await Promise.all([
-        api.get('/users'),
+        api.get('/users?role=admin,agent'),
         api.get('/remittances'),
         api.get('/reports/ledger'),
         api.get('/cash-reconciliation')
@@ -172,7 +179,7 @@ export default function LendApp() {
   const refreshAdminTools = async () => {
     try {
       const [users, remits, ledger, recon] = await Promise.all([
-        api.get('/users'),
+        api.get('/users?role=admin,agent'),
         api.get('/remittances'),
         api.get('/reports/ledger'),
         api.get('/cash-reconciliation')
@@ -186,12 +193,54 @@ export default function LendApp() {
     }
   };
 
+  // Re-fetch just the ledger report with the selected date range — the API
+  // has always supported from/to, but the UI never exposed it, so admins
+  // could only ever see an all-time trial balance, never a monthly one.
+  const handleFetchLedgerReport = async (overrideFrom, overrideTo) => {
+    const from = overrideFrom !== undefined ? overrideFrom : ledgerFrom;
+    const to = overrideTo !== undefined ? overrideTo : ledgerTo;
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      const query = params.toString();
+      const ledger = await api.get(`/reports/ledger${query ? `?${query}` : ''}`);
+      setLedgerReport(ledger);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleVerifyRemittance = async (id) => {
     setLoading(true);
     setError('');
     try {
       await api.patch(`/remittances/${id}/verify`, {});
       showToast('Remittance verified.');
+      refreshAdminTools();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRejectRemittance = async (id) => {
+    const reason = window.prompt('Reason for rejecting this remittance (e.g. cash never arrived):');
+    if (reason === null) return; // cancelled
+    if (!reason.trim()) {
+      setError('A reason is required to reject a remittance.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await api.patch(`/remittances/${id}/reject`, { reason });
+      showToast('Remittance rejected — reversed onto the agent\'s outstanding cash-in-hand.');
       refreshAdminTools();
     } catch (err) {
       setError(err.message);
@@ -284,6 +333,23 @@ export default function LendApp() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadRemittancesCsv = () => {
+    if (!remittances.length) return;
+    downloadCsv(
+      `remittances-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Date', 'Agent', 'Amount', 'Status', 'Notes', 'Verified/Rejected By', 'Verified/Rejected At'],
+      remittances.map(r => [
+        new Date(r.created_at).toLocaleString(),
+        r.agent_name,
+        parseFloat(r.amount).toFixed(2),
+        r.status,
+        r.notes || '',
+        r.verified_by_name || '',
+        r.verified_at ? new Date(r.verified_at).toLocaleString() : ''
+      ])
+    );
+  };
+
   // Agent: submit a cash remittance to the office
   const handleSubmitRemittance = async (e) => {
     e.preventDefault();
@@ -370,6 +436,46 @@ export default function LendApp() {
       await api.post(`/loans/${selectedLoanId}/default`, { reason: defaultReason });
       showToast('Loan marked as defaulted.');
       setDefaultReason('');
+      viewStatement(selectedLoanId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Admin: reinstate a defaulted loan back to active so payments can be collected again
+  const handleReinstateLoan = async () => {
+    if (!selectedLoanId) return;
+    if (!window.confirm('Reinstate this loan to active? Payments can be collected on it again.')) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.post(`/loans/${selectedLoanId}/reinstate`, {});
+      showToast('Loan reinstated to active.');
+      viewStatement(selectedLoanId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Admin: write off a loan's remaining balance as unrecoverable bad debt
+  const handleWriteOffLoan = async () => {
+    if (!selectedLoanId) return;
+    const reason = window.prompt('Reason for writing off this loan as bad debt:');
+    if (reason === null) return; // cancelled
+    if (!reason.trim()) {
+      setError('A reason is required to write off a loan.');
+      return;
+    }
+    if (!window.confirm('This permanently zeroes the loan\'s outstanding balance and posts it to the ledger as bad debt. Continue?')) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.post(`/loans/${selectedLoanId}/write-off`, { reason });
+      showToast('Loan written off as bad debt.');
       viewStatement(selectedLoanId);
     } catch (err) {
       setError(err.message);
@@ -641,10 +747,65 @@ export default function LendApp() {
   const viewStatement = async (loanId) => {
     setSelectedLoanId(loanId);
     setView('ledger');
+    setShowGuarantorEditor(false);
     setLoading(true);
     try {
       const details = await api.get(`/loans/${loanId}`);
       setLoanStatement(details);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Admin: add or edit the guarantor on an already-created loan.
+  const handleOpenGuarantorEditor = (existingGuarantor) => {
+    setGuarantorEditForm(existingGuarantor ? {
+      full_name: existingGuarantor.full_name || '',
+      nic_number: existingGuarantor.nic_number || '',
+      gender: existingGuarantor.gender || '',
+      ethnicity: existingGuarantor.ethnicity || '',
+      date_of_birth: existingGuarantor.date_of_birth ? existingGuarantor.date_of_birth.slice(0, 10) : '',
+      address: existingGuarantor.address || '',
+      phone: existingGuarantor.phone || '',
+      email: existingGuarantor.email || '',
+      protected_under_debt_act: !!existingGuarantor.protected_under_debt_act,
+      has_pending_court_cases: !!existingGuarantor.has_pending_court_cases,
+      monthly_income_business: existingGuarantor.monthly_income_business || '',
+      monthly_income_agriculture: existingGuarantor.monthly_income_agriculture || '',
+      monthly_income_other: existingGuarantor.monthly_income_other || '',
+      monthly_expense_food: existingGuarantor.monthly_expense_food || '',
+      monthly_expense_rent: existingGuarantor.monthly_expense_rent || '',
+      monthly_expense_other: existingGuarantor.monthly_expense_other || ''
+    } : emptyGuarantor);
+    setShowGuarantorEditor(true);
+  };
+
+  const handleSaveGuarantor = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      await api.put(`/loans/${loanStatement.loan.id}/guarantor`, guarantorEditForm);
+      showToast('Guarantor saved.');
+      setShowGuarantorEditor(false);
+      viewStatement(loanStatement.loan.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveGuarantor = async () => {
+    if (!window.confirm('Remove the guarantor from this loan?')) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.delete(`/loans/${loanStatement.loan.id}/guarantor`);
+      showToast('Guarantor removed.');
+      viewStatement(loanStatement.loan.id);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1069,6 +1230,8 @@ export default function LendApp() {
               <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}><ClipboardList className="icon" /> Check Loans</button>
               <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}><Users className="icon" /> Agent Route</button>
               <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Cash & Tools</button>
+              <button className={`nav-link-btn ${view === 'payment-history' ? 'active' : ''}`} onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); }}><Receipt className="icon" /> Payment History</button>
+              <button className={`nav-link-btn ${view === 'audit-log' ? 'active' : ''}`} onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); }}><ScrollText className="icon" /> Audit Log</button>
             </div>
           )}
           {user.role === 'agent' && (
@@ -1784,7 +1947,12 @@ export default function LendApp() {
 
                 {/* Pending / recent remittances */}
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Truck className="icon" /> Cash Remittances</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                    <h3 style={{ fontSize: '22px', margin: 0 }}><Truck className="icon" /> Cash Remittances</h3>
+                    <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={downloadRemittancesCsv} disabled={remittances.length === 0}>
+                      <Download className="icon" /> Export CSV
+                    </button>
+                  </div>
                   {remittances.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No remittances submitted yet.</p>
                   ) : (
@@ -1797,10 +1965,17 @@ export default function LendApp() {
                           </div>
                           {r.status === 'verified' ? (
                             <span className="badge badge-active">Verified</span>
+                          ) : r.status === 'rejected' ? (
+                            <span className="badge badge-defaulted" title={r.rejection_reason || ''}>Rejected</span>
                           ) : (
-                            <button className="glass-btn glass-btn-emerald" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => handleVerifyRemittance(r.id)} disabled={loading}>
-                              Verify
-                            </button>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button className="glass-btn glass-btn-emerald" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => handleVerifyRemittance(r.id)} disabled={loading}>
+                                Verify
+                              </button>
+                              <button className="glass-btn glass-btn-rose" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => handleRejectRemittance(r.id)} disabled={loading}>
+                                Reject
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))}
@@ -1815,6 +1990,24 @@ export default function LendApp() {
                     <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={downloadLedgerCsv} disabled={!ledgerReport}>
                       <Download className="icon" /> Export CSV
                     </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '16px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>From</label>
+                      <input type="date" className="glass-input" style={{ padding: '6px 10px' }} value={ledgerFrom} onChange={e => setLedgerFrom(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>To</label>
+                      <input type="date" className="glass-input" style={{ padding: '6px 10px' }} value={ledgerTo} onChange={e => setLedgerTo(e.target.value)} />
+                    </div>
+                    <button className="glass-btn glass-btn-secondary" style={{ padding: '7px 14px', fontSize: '12px' }} onClick={handleFetchLedgerReport} disabled={loading}>
+                      Apply Range
+                    </button>
+                    {(ledgerFrom || ledgerTo) && (
+                      <button className="glass-btn glass-btn-secondary" style={{ padding: '7px 14px', fontSize: '12px' }} onClick={() => { setLedgerFrom(''); setLedgerTo(''); handleFetchLedgerReport('', ''); }} disabled={loading}>
+                        Clear (All-Time)
+                      </button>
+                    )}
                   </div>
                   {!ledgerReport ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Loading ledger report...</p>
@@ -1995,6 +2188,28 @@ export default function LendApp() {
                     ))}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {view === 'audit-log' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                    <ArrowLeft className="icon" /> Back to Main Menu
+                  </button>
+                </div>
+                <AuditLogLoader />
+              </div>
+            )}
+
+            {view === 'payment-history' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                    <ArrowLeft className="icon" /> Back to Main Menu
+                  </button>
+                </div>
+                <PaymentHistoryLoader />
               </div>
             )}
 
@@ -2500,7 +2715,30 @@ export default function LendApp() {
                           <Ban className="icon" /> Mark Defaulted
                         </button>
                       </div>
+
+                      <h4 style={{ fontSize: '15px', margin: '16px 0 10px' }}>Write Off as Bad Debt</h4>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>Permanently closes this loan and posts the remaining balance to the ledger as unrecoverable. Use only when the debt will never be collected.</p>
+                      <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={handleWriteOffLoan} style={{ width: '100%' }}>
+                        <Ban className="icon" /> Write Off Loan
+                      </button>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {user.role === 'admin' && loanStatement.loan.status === 'defaulted' && (
+                <div className="glass-card">
+                  <h3 style={{ fontSize: '22px', marginBottom: '8px' }}><Settings className="icon" /> Loan Management</h3>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+                    This loan is defaulted (Reason: {loanStatement.loan.default_reason || 'N/A'}). No payments can be recorded until it's reinstated.
+                  </p>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button type="button" className="glass-btn glass-btn-emerald" disabled={loading} onClick={handleReinstateLoan}>
+                      <RefreshCcw className="icon" /> Reinstate to Active
+                    </button>
+                    <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={handleWriteOffLoan}>
+                      <Ban className="icon" /> Write Off as Bad Debt
+                    </button>
                   </div>
                 </div>
               )}
@@ -2508,7 +2746,19 @@ export default function LendApp() {
               {/* Guarantor Details (only for loans that recorded one) */}
               {loanStatement.guarantor && (
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ShieldCheck className="icon" /> Guarantor Details</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+                    <h3 style={{ fontSize: '22px', margin: 0 }}><ShieldCheck className="icon" /> Guarantor Details</h3>
+                    {user.role === 'admin' && (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleOpenGuarantorEditor(loanStatement.guarantor)}>
+                          Edit Guarantor
+                        </button>
+                        <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={handleRemoveGuarantor}>
+                          <Trash2 className="icon" /> Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
                     <div><strong>Name:</strong> {loanStatement.guarantor.full_name}</div>
                     <div><strong>NIC:</strong> {loanStatement.guarantor.nic_number}</div>
@@ -2549,6 +2799,93 @@ export default function LendApp() {
                       <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(loanStatement.guarantor.monthly_expense_food || 0).toLocaleString()}, Rent: {parseFloat(loanStatement.guarantor.monthly_expense_rent || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_expense_other || 0).toLocaleString()})</span>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {!loanStatement.guarantor && user.role === 'admin' && (
+                <div className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '22px', margin: '0 0 4px' }}><ShieldCheck className="icon" /> Guarantor Details</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>No guarantor is on file for this loan.</p>
+                    </div>
+                    <button className="glass-btn glass-btn-emerald" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => handleOpenGuarantorEditor(null)}>
+                      <ShieldCheck className="icon" /> Add Guarantor
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {showGuarantorEditor && (
+                <div className="glass-card">
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ShieldCheck className="icon" /> {loanStatement.guarantor ? 'Edit' : 'Add'} Guarantor</h3>
+                  <form onSubmit={handleSaveGuarantor} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="form-grid-2-col">
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                        <input required type="text" className="glass-input" value={guarantorEditForm.full_name} onChange={e => setGuarantorEditForm(prev => ({ ...prev, full_name: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
+                        <input required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div className="form-grid-2-col">
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gender</label>
+                        <select className="glass-input" value={guarantorEditForm.gender} onChange={e => setGuarantorEditForm(prev => ({ ...prev, gender: e.target.value }))}>
+                          <option value="">-- Select --</option>
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity</label>
+                        <input type="text" className="glass-input" value={guarantorEditForm.ethnicity} onChange={e => setGuarantorEditForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Date of Birth</label>
+                      <input type="date" className="glass-input" value={guarantorEditForm.date_of_birth} onChange={e => setGuarantorEditForm(prev => ({ ...prev, date_of_birth: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone *</label>
+                      <input required type="tel" className="glass-input" value={guarantorEditForm.phone} onChange={e => setGuarantorEditForm(prev => ({ ...prev, phone: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                      <input required type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Email</label>
+                      <input type="email" className="glass-input" value={guarantorEditForm.email} onChange={e => setGuarantorEditForm(prev => ({ ...prev, email: e.target.value }))} />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                      <input type="checkbox" checked={guarantorEditForm.protected_under_debt_act} onChange={e => setGuarantorEditForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
+                      Protected under debt-recovery act
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                      <input type="checkbox" checked={guarantorEditForm.has_pending_court_cases} onChange={e => setGuarantorEditForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
+                      Has pending court cases
+                    </label>
+                    <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Monthly Income (LKR)</p>
+                    <div className="form-grid-2-col">
+                      <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorEditForm.monthly_income_business} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
+                      <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorEditForm.monthly_income_agriculture} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
+                    </div>
+                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorEditForm.monthly_income_other} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
+                    <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Monthly Expense (LKR)</p>
+                    <div className="form-grid-2-col">
+                      <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorEditForm.monthly_expense_food} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
+                      <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorEditForm.monthly_expense_rent} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
+                    </div>
+                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorEditForm.monthly_expense_other} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                      <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ flex: 1 }}>Save Guarantor</button>
+                      <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowGuarantorEditor(false)}>Cancel</button>
+                    </div>
+                  </form>
                 </div>
               )}
 
@@ -2885,21 +3222,44 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const currentPage = Math.min(page, totalPages);
   const pagedLoans = filteredLoans.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  const handleExportCsv = () => {
+    downloadCsv(
+      `loans-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Principal Outstanding', 'Interest Due', 'Agent', 'Status'],
+      filteredLoans.map(loan => [
+        new Date(loan.created_at).toLocaleDateString(),
+        loan.borrower_name,
+        loan.borrower_phone,
+        loan.nic_number || '',
+        parseFloat(loan.principal_amount).toFixed(2),
+        loan.interest_type,
+        loan.interest_rate,
+        parseFloat(loan.principal_outstanding).toFixed(2),
+        parseFloat(loan.interest_balance).toFixed(2),
+        loan.agent_name || 'Self-Collect',
+        loan.status
+      ])
+    );
+  };
+
   return (
     <div className="glass-card" style={{ marginTop: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <h3 style={{ fontSize: '24px' }}><ClipboardList className="icon" /> Loan List</h3>
-        
-        {/* Simple Search Input */}
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%', maxWidth: '300px' }}>
-          <input 
-            type="text" 
-            className="glass-input" 
-            placeholder="Search name or phone..." 
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Simple Search Input */}
+          <input
+            type="text"
+            className="glass-input"
+            placeholder="Search name or phone..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             style={{ padding: '8px 12px' }}
           />
+          <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '8px 14px', fontSize: '12px' }} onClick={handleExportCsv} disabled={filteredLoans.length === 0}>
+            <Download className="icon" /> Export CSV
+          </button>
         </div>
       </div>
 
@@ -3056,4 +3416,202 @@ function LoansLoader({ onSelect, fetchTrigger }) {
 // Quick placeholder lists
 function AllLoansTable() {
   return null;
+}
+
+// Full, paginated audit trail — every mutating action in the app writes to
+// audit_logs, but until this there was no page to actually browse it.
+function AuditLogLoader() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [actionType, setActionType] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), limit: '25' });
+    if (search) params.set('search', search);
+    if (actionType) params.set('actionType', actionType);
+    api.get(`/audit-logs?${params.toString()}`)
+      .then(res => setData(res))
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false));
+  }, [page, search, actionType]);
+
+  // Reset to page 1 whenever the filters change
+  useEffect(() => {
+    setPage(1);
+  }, [search, actionType]);
+
+  return (
+    <div className="glass-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <h3 style={{ fontSize: '24px' }}><ScrollText className="icon" /> Audit Log</h3>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            className="glass-input"
+            placeholder="Search description..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ padding: '8px 12px', maxWidth: '220px' }}
+          />
+          <select className="glass-input" style={{ padding: '8px 12px' }} value={actionType} onChange={e => setActionType(e.target.value)}>
+            <option value="">All Action Types</option>
+            {(data?.actionTypes || []).map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {loading && !data ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', padding: '16px 0' }}>Loading audit log...</p>
+      ) : !data || data.data.length === 0 ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', padding: '16px 0' }}>No matching audit log entries found.</p>
+      ) : (
+        <>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="glass-table">
+              <thead>
+                <tr>
+                  <th>Date/Time</th>
+                  <th>Actor</th>
+                  <th>Action</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.data.map(log => (
+                  <tr key={log.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString()}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{log.actor_name || 'System'}{log.actor_role ? ` (${log.actor_role})` : ''}</td>
+                    <td><span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>{log.action_type}</span></td>
+                    <td style={{ fontSize: '13px' }}>{log.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
+            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={page === 1 || loading} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              ← Prev
+            </button>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Page {data.page} of {data.totalPages} ({data.total} entries)</span>
+            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={page === data.totalPages || loading} onClick={() => setPage(p => Math.min(data.totalPages, p + 1))}>
+              Next →
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Shared CSV download helper — same pattern the ledger report export uses.
+function downloadCsv(filename, headerCols, rows) {
+  const escape = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = headerCols.map(escape).join(',') + '\n';
+  const body = rows.map((row) => row.map(escape).join(',')).join('\n');
+  const blob = new Blob([header + body], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// Full, paginated payment history across all agents/borrowers — the backend
+// endpoint (/api/payments/history) already supported this with pagination,
+// but nothing in the UI ever called it.
+function PaymentHistoryLoader() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setLoading(true);
+    api.get(`/payments/history?page=${page}&limit=25`)
+      .then(res => setData(res))
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false));
+  }, [page]);
+
+  const handleExportCsv = () => {
+    if (!data) return;
+    downloadCsv(
+      `payment-history-page-${data.page}-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Date', 'Borrower', 'Agent', 'Type', 'Amount', 'Method', 'Notes'],
+      data.data.map(tx => [
+        new Date(tx.payment_date).toLocaleString(),
+        tx.borrower_name,
+        tx.agent_name,
+        tx.payment_type,
+        parseFloat(tx.amount).toFixed(2),
+        tx.payment_method,
+        tx.notes || ''
+      ])
+    );
+  };
+
+  return (
+    <div className="glass-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <h3 style={{ fontSize: '24px' }}><Receipt className="icon" /> Payment History</h3>
+        <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={handleExportCsv} disabled={!data || data.data.length === 0}>
+          <Download className="icon" /> Export CSV (this page)
+        </button>
+      </div>
+
+      {loading && !data ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', padding: '16px 0' }}>Loading payment history...</p>
+      ) : !data || data.data.length === 0 ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', padding: '16px 0' }}>No payments recorded yet.</p>
+      ) : (
+        <>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="glass-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Borrower</th>
+                  <th>Agent</th>
+                  <th>Type</th>
+                  <th>Amount</th>
+                  <th>Method</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.data.map(tx => (
+                  <tr key={tx.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{new Date(tx.payment_date).toLocaleString()}</td>
+                    <td>{tx.borrower_name}</td>
+                    <td>{tx.agent_name}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{tx.payment_type}</td>
+                    <td style={{ fontWeight: 'bold' }}>LKR {parseFloat(tx.amount).toLocaleString()}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{(tx.payment_method || '').replace('_', ' ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
+            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={page === 1 || loading} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              ← Prev
+            </button>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Page {data.page} of {data.totalPages} ({data.total} payments)</span>
+            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={page === data.totalPages || loading} onClick={() => setPage(p => Math.min(data.totalPages, p + 1))}>
+              Next →
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }

@@ -7,12 +7,15 @@ import { generateTempPassword } from '@/lib/tempPassword.js';
 // Admin-triggered password reset for any user
 export async function POST(request, { params }) {
   try {
-    const authUser = requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
 
     const targetUser = await db('users').where({ id }).first();
     if (!targetUser) {
       return NextResponse.json({ message: 'User not found.' }, { status: 404 });
+    }
+    if (targetUser.role === 'borrower') {
+      return NextResponse.json({ message: 'Borrowers have no login access, so there is no password to reset.' }, { status: 400 });
     }
 
     const tempPassword = generateTempPassword();

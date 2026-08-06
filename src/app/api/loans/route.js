@@ -9,7 +9,7 @@ import { normalizePhone } from '@/lib/phone.js';
 // Create a new loan (Admin only)
 export async function POST(request) {
   try {
-    const authUser = requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin']);
     const body = await request.json();
     const {
       borrower_name, borrower_phone, borrower_address, principal_amount, interest_rate, interest_type,
@@ -120,6 +120,32 @@ export async function POST(request) {
       .whereRaw('phone LIKE ?', [`%${normalizePhone(cleanPhone)}`])
       .first();
 
+    // No phone match — before creating a new borrower record, check whether
+    // this NIC already belongs to someone in the system (a past loan). A
+    // phone number changing is common; without this, the same real person
+    // ends up as two disconnected borrower records with split loan history.
+    if (!borrower) {
+      const priorLoanForNIC = await db('loans')
+        .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
+        .where('loans.nic_number', cleanNIC)
+        .andWhere('borrowers.role', 'borrower')
+        .select('borrowers.*')
+        .first();
+
+      if (priorLoanForNIC) {
+        borrower = priorLoanForNIC;
+        const oldPhone = borrower.phone;
+        await db('users').where({ id: borrower.id }).update({ phone: cleanPhone, name: borrower_name.trim(), updated_at: db.fn.now() });
+        borrower = { ...borrower, phone: cleanPhone, name: borrower_name.trim() };
+
+        await db('audit_logs').insert({
+          actor_id: authUser.id,
+          action_type: 'BORROWER_PHONE_UPDATED',
+          description: `Matched new loan to existing borrower '${borrower.name}' (NIC: ${cleanNIC}) by NIC — no phone match, but a prior loan under this NIC exists. Updated phone from '${oldPhone}' to '${cleanPhone}'.`
+        });
+      }
+    }
+
     if (!borrower) {
       // Borrowers are records, not accounts — they never log in, so there's
       // no real password to issue. 'NO_LOGIN_ACCESS' is a deliberately
@@ -210,7 +236,7 @@ export async function POST(request) {
 // Get all loans (Filtered by user role)
 export async function GET(request) {
   try {
-    const { role, id } = requireAuth(request);
+    const { role, id } = await requireAuth(request);
     const status = request.nextUrl.searchParams.get('status');
     const borrowerId = request.nextUrl.searchParams.get('borrowerId');
 

@@ -4,7 +4,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 
 export async function GET(request) {
   try {
-    requireAuth(request, ['admin']);
+    await requireAuth(request, ['admin']);
     const now = new Date();
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);

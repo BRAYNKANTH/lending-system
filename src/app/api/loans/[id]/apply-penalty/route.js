@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { notifyPenaltyApplied } from '@/lib/services/notification.js';
 
 // Apply a manual penalty / late fee to an active loan (Admin only)
 export async function POST(request, { params }) {
   try {
-    const authUser = requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
     const { amount, reason } = await request.json();
 
@@ -42,8 +43,13 @@ export async function POST(request, { params }) {
         description: `Applied penalty of LKR ${penaltyAmount.toLocaleString()} to loan ID ${id}${reason ? ` (${reason.trim()})` : ''}. Interest/fees due: LKR ${newInterestBalance.toLocaleString()}.`
       });
 
-      return { newInterestBalance };
+      return { newInterestBalance, loan };
     });
+
+    const borrower = await db('users').where({ id: result.loan.borrower_id }).first();
+    const admin = await db('users').where({ id: result.loan.lender_id }).first();
+    notifyPenaltyApplied({ borrower, admin, amount: penaltyAmount, reason: reason?.trim(), newInterestBalance: result.newInterestBalance })
+      .catch((err) => console.error('Notification failed:', err));
 
     return NextResponse.json({ message: 'Penalty applied and posted to ledger.', newInterestBalance: result.newInterestBalance });
   } catch (error) {

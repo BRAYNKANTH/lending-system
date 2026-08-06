@@ -12,7 +12,7 @@ import { notifyPaymentReceived, notifyMissedPayment } from '@/lib/services/notif
 // just a log entry, no money moves.
 export async function POST(request, { params }) {
   try {
-    const authUser = requireAuth(request, ['admin', 'agent']);
+    const authUser = await requireAuth(request, ['admin', 'agent']);
     const { id: loanId } = params;
     const { date, status, amount, notes } = await request.json();
 
@@ -34,6 +34,9 @@ export async function POST(request, { params }) {
     const loan = await db('loans').where({ id: loanId }).first();
     if (!loan) {
       return NextResponse.json({ message: 'Loan not found.' }, { status: 404 });
+    }
+    if (authUser.role === 'agent' && loan.assigned_agent_id !== authUser.id) {
+      return NextResponse.json({ message: 'This loan is not assigned to you.' }, { status: 403 });
     }
 
     let transactionId = null;
