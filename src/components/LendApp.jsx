@@ -87,6 +87,16 @@ export default function LendApp() {
   };
   const [guarantorForm, setGuarantorForm] = useState(emptyGuarantor);
   const [giveLoanStep, setGiveLoanStep] = useState(1);
+  const [validationErrors, setValidationErrors] = useState({});
+
+  const clearFieldError = (field) => {
+    if (validationErrors[field]) {
+      setValidationErrors(prev => ({
+        ...prev,
+        [field]: null
+      }));
+    }
+  };
 
   // Editing/adding a guarantor on an EXISTING loan (loan statement page),
   // separate from the create-loan form above.
@@ -719,45 +729,103 @@ export default function LendApp() {
     return true;
   };
 
-  const handleNextStep = () => {
-    setError('');
+  const runStep1Validation = () => {
+    const errors = {};
+    let firstErrorField = null;
+
     if (!newLoan.borrower_name || !newLoan.borrower_name.trim()) {
-      setError("Borrower name is required.");
-      return;
+      errors.borrower_name = "Borrower name is required.";
+      if (!firstErrorField) firstErrorField = "borrower_name";
     }
     if (!newLoan.borrower_phone || !newLoan.borrower_phone.trim()) {
-      setError("Borrower phone number is required.");
-      return;
+      errors.borrower_phone = "Borrower phone number is required.";
+      if (!firstErrorField) firstErrorField = "borrower_phone";
     }
     if (!newLoan.borrower_address || !newLoan.borrower_address.trim()) {
-      setError("Borrower address is required.");
-      return;
+      errors.borrower_address = "Borrower address is required.";
+      if (!firstErrorField) firstErrorField = "borrower_address";
     }
     if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) {
-      setError("A valid Sri Lankan NIC number is required.");
-      return;
+      errors.nic_number = "A valid Sri Lankan NIC number is required.";
+      if (!firstErrorField) firstErrorField = "nic_number";
     }
     if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) {
-      setError("Principal amount must be a positive number.");
-      return;
+      errors.principal_amount = "Principal amount must be a positive number.";
+      if (!firstErrorField) firstErrorField = "principal_amount";
     }
     if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) {
-      setError("Interest rate must be a non-negative number.");
-      return;
+      errors.interest_rate = "Interest rate must be a non-negative number.";
+      if (!firstErrorField) firstErrorField = "interest_rate";
     }
     if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) {
-      setError("Purpose of loan is required.");
-      return;
+      errors.loan_purpose = "Purpose of loan is required.";
+      if (!firstErrorField) firstErrorField = "loan_purpose";
     }
     if (borrowerProfileForm.dependents_count === undefined || borrowerProfileForm.dependents_count === '' || borrowerProfileForm.dependents_count === null) {
-      setError("Number of dependents is required.");
-      return;
+      errors.dependents_count = "Number of dependents is required.";
+      if (!firstErrorField) firstErrorField = "dependents_count";
     }
     if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '' || borrowerProfileForm.monthly_income === null) {
-      setError("Monthly income is required.");
-      return;
+      errors.monthly_income = "Monthly income is required.";
+      if (!firstErrorField) firstErrorField = "monthly_income";
     }
-    setGiveLoanStep(2);
+
+    setValidationErrors(errors);
+
+    if (firstErrorField) {
+      setTimeout(() => {
+        const element = document.getElementById(firstErrorField);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
+      }, 50);
+      return false;
+    }
+    return true;
+  };
+
+  const runStep2Validation = () => {
+    const errors = {};
+    let firstErrorField = null;
+
+    if (!guarantorForm.full_name || !guarantorForm.full_name.trim()) {
+      errors.guarantor_full_name = "Guarantor full name is required.";
+      if (!firstErrorField) firstErrorField = "guarantor_full_name";
+    }
+    if (!guarantorForm.nic_number || !isValidNIC(guarantorForm.nic_number)) {
+      errors.guarantor_nic_number = "A valid Sri Lankan NIC number is required for the guarantor.";
+      if (!firstErrorField) firstErrorField = "guarantor_nic_number";
+    }
+    if (!guarantorForm.phone || !guarantorForm.phone.trim()) {
+      errors.guarantor_phone = "Guarantor phone number is required.";
+      if (!firstErrorField) firstErrorField = "guarantor_phone";
+    }
+    if (!guarantorForm.address || !guarantorForm.address.trim()) {
+      errors.guarantor_address = "Guarantor address is required.";
+      if (!firstErrorField) firstErrorField = "guarantor_address";
+    }
+
+    setValidationErrors(errors);
+
+    if (firstErrorField) {
+      setTimeout(() => {
+        const element = document.getElementById(firstErrorField);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
+      }, 50);
+      return false;
+    }
+    return true;
+  };
+
+  const handleNextStep = () => {
+    setError('');
+    if (runStep1Validation()) {
+      setGiveLoanStep(2);
+    }
   };
 
   const handleFormSubmit = (e) => {
@@ -771,7 +839,18 @@ export default function LendApp() {
 
   // Admin: Create new loan
   const handleCreateLoan = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    setError('');
+    
+    if (!runStep1Validation()) {
+      setGiveLoanStep(1);
+      return;
+    }
+    if (includeGuarantor && !runStep2Validation()) {
+      setGiveLoanStep(2);
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -801,6 +880,7 @@ export default function LendApp() {
       setIncludeGuarantor(false);
       setGuarantorForm(emptyGuarantor);
       setBorrowerProfileForm(emptyBorrowerProfile);
+      setValidationErrors({});
       fetchDashboardData();
     } catch (err) {
       setError(err.message);
@@ -1774,7 +1854,7 @@ export default function LendApp() {
                         }
                       </p>
 
-                      <form onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <form noValidate onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                         {giveLoanStep === 1 && (
                           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             {/* --- SECTION 1: BORROWER DETAILS --- */}
@@ -1785,17 +1865,20 @@ export default function LendApp() {
                               
                               <div>
                                 <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER NAME *</label>
-                                <input type="text" required className="glass-input" placeholder="e.g. Bandara Perera" value={newLoan.borrower_name} onChange={e => setNewLoan(prev => ({ ...prev, borrower_name: e.target.value }))} />
+                                <input id="borrower_name" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_name ? '2px' : '' }} placeholder="e.g. Bandara Perera" value={newLoan.borrower_name} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_name: e.target.value })); clearFieldError('borrower_name'); }} />
+                                {validationErrors.borrower_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_name}</span>}
                               </div>
 
                               <div>
                                 <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER MOBILE NUMBER (SRI LANKA) *</label>
-                                <input type="tel" required className="glass-input" placeholder="e.g. 0771234567 or +94771234567" value={newLoan.borrower_phone} onChange={e => setNewLoan(prev => ({ ...prev, borrower_phone: e.target.value }))} />
+                                <input id="borrower_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.borrower_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_phone ? '2px' : '' }} placeholder="e.g. 0771234567 or +94771234567" value={newLoan.borrower_phone} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_phone: e.target.value })); clearFieldError('borrower_phone'); }} />
+                                {validationErrors.borrower_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_phone}</span>}
                               </div>
 
                               <div>
                                 <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER ADDRESS *</label>
-                                <input type="text" required className="glass-input" placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => setNewLoan(prev => ({ ...prev, borrower_address: e.target.value }))} />
+                                <input id="borrower_address" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_address ? '2px' : '' }} placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_address: e.target.value })); clearFieldError('borrower_address'); }} />
+                                {validationErrors.borrower_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_address}</span>}
                               </div>
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1816,7 +1899,8 @@ export default function LendApp() {
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC NUMBER *</label>
-                                  <input type="text" required className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => setNewLoan(prev => ({ ...prev, nic_number: e.target.value }))} />
+                                  <input id="nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => { setNewLoan(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('nic_number'); }} />
+                                  {validationErrors.nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.nic_number}</span>}
                                 </div>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO</label>
@@ -1840,17 +1924,20 @@ export default function LendApp() {
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
-                                  <input required type="text" className="glass-input" placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value }))} />
+                                  <input id="loan_purpose" type="text" className="glass-input" style={{ borderColor: validationErrors.loan_purpose ? 'var(--accent-rose)' : '', borderWidth: validationErrors.loan_purpose ? '2px' : '' }} placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value })); clearFieldError('loan_purpose'); }} />
+                                  {validationErrors.loan_purpose && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.loan_purpose}</span>}
                                 </div>
 
                                 <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Number of Dependents *</label>
-                                    <input required type="number" min="0" className="glass-input" value={borrowerProfileForm.dependents_count} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value }))} />
+                                    <input id="dependents_count" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.dependents_count ? 'var(--accent-rose)' : '', borderWidth: validationErrors.dependents_count ? '2px' : '' }} value={borrowerProfileForm.dependents_count} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value })); clearFieldError('dependents_count'); }} />
+                                    {validationErrors.dependents_count && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.dependents_count}</span>}
                                   </div>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
-                                    <input required type="number" min="0" className="glass-input" value={borrowerProfileForm.monthly_income} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value }))} />
+                                    <input id="monthly_income" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.monthly_income ? 'var(--accent-rose)' : '', borderWidth: validationErrors.monthly_income ? '2px' : '' }} value={borrowerProfileForm.monthly_income} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value })); clearFieldError('monthly_income'); }} />
+                                    {validationErrors.monthly_income && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.monthly_income}</span>}
                                   </div>
                                 </div>
 
@@ -1880,13 +1967,15 @@ export default function LendApp() {
 
                               <div>
                                 <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PRINCIPAL AMOUNT (LKR) *</label>
-                                <input type="number" min="1" required className="glass-input" placeholder="e.g. 50000" value={newLoan.principal_amount} onChange={e => setNewLoan(prev => ({ ...prev, principal_amount: e.target.value }))} />
+                                <input id="principal_amount" type="number" min="1" className="glass-input" style={{ borderColor: validationErrors.principal_amount ? 'var(--accent-rose)' : '', borderWidth: validationErrors.principal_amount ? '2px' : '' }} placeholder="e.g. 50000" value={newLoan.principal_amount} onChange={e => { setNewLoan(prev => ({ ...prev, principal_amount: e.target.value })); clearFieldError('principal_amount'); }} />
+                                {validationErrors.principal_amount && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.principal_amount}</span>}
                               </div>
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>INTEREST RATE (%) *</label>
-                                  <input type="number" step="0.01" min="0" required className="glass-input" placeholder="2.00" value={newLoan.interest_rate} onChange={e => setNewLoan(prev => ({ ...prev, interest_rate: e.target.value }))} />
+                                  <input id="interest_rate" type="number" step="0.01" min="0" className="glass-input" style={{ borderColor: validationErrors.interest_rate ? 'var(--accent-rose)' : '', borderWidth: validationErrors.interest_rate ? '2px' : '' }} placeholder="2.00" value={newLoan.interest_rate} onChange={e => { setNewLoan(prev => ({ ...prev, interest_rate: e.target.value })); clearFieldError('interest_rate'); }} />
+                                  {validationErrors.interest_rate && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.interest_rate}</span>}
                                 </div>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ACCRUAL FREQUENCY</label>
@@ -1988,11 +2077,13 @@ export default function LendApp() {
                                 <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
-                                    <input required={includeGuarantor} type="text" className="glass-input" value={guarantorForm.full_name} onChange={e => setGuarantorForm(prev => ({ ...prev, full_name: e.target.value }))} />
+                                    <input id="guarantor_full_name" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_full_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_full_name ? '2px' : '' }} value={guarantorForm.full_name} onChange={e => { setGuarantorForm(prev => ({ ...prev, full_name: e.target.value })); clearFieldError('guarantor_full_name'); }} />
+                                    {validationErrors.guarantor_full_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_full_name}</span>}
                                   </div>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                                    <input required={includeGuarantor} type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorForm.nic_number} onChange={e => setGuarantorForm(prev => ({ ...prev, nic_number: e.target.value }))} />
+                                    <input id="guarantor_nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={guarantorForm.nic_number} onChange={e => { setGuarantorForm(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('guarantor_nic_number'); }} />
+                                    {validationErrors.guarantor_nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_nic_number}</span>}
                                   </div>
                                 </div>
 
@@ -2013,12 +2104,14 @@ export default function LendApp() {
 
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
-                                  <input required={includeGuarantor} type="tel" className="glass-input" value={guarantorForm.phone} onChange={e => setGuarantorForm(prev => ({ ...prev, phone: e.target.value }))} />
+                                  <input id="guarantor_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.guarantor_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_phone ? '2px' : '' }} value={guarantorForm.phone} onChange={e => { setGuarantorForm(prev => ({ ...prev, phone: e.target.value })); clearFieldError('guarantor_phone'); }} />
+                                  {validationErrors.guarantor_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_phone}</span>}
                                 </div>
 
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                                  <input required={includeGuarantor} type="text" className="glass-input" value={guarantorForm.address} onChange={e => setGuarantorForm(prev => ({ ...prev, address: e.target.value }))} />
+                                  <input id="guarantor_address" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_address ? '2px' : '' }} value={guarantorForm.address} onChange={e => { setGuarantorForm(prev => ({ ...prev, address: e.target.value })); clearFieldError('guarantor_address'); }} />
+                                  {validationErrors.guarantor_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_address}</span>}
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
