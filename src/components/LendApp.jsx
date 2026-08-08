@@ -524,10 +524,7 @@ export default function LendApp() {
     setLoading(true);
     setError('');
     try {
-      await api(`/users/${user.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(profileForm)
-      });
+      await api.patch(`/users/${user.id}`, profileForm);
       const updatedUser = { ...user, ...profileForm };
       localStorage.setItem('lend_user', JSON.stringify(updatedUser));
       setUser(updatedUser);
