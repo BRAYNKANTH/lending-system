@@ -7,5 +7,6 @@ export function addInterval(date, interestType, count = 1) {
   const result = new Date(date);
   const days = interestType === 'daily' ? 1 : interestType === 'weekly' ? 7 : 30;
   result.setDate(result.getDate() + days * count);
+  result.setHours(0, 0, 0, 0); // Align to midnight when the date changes
   return result;
 }

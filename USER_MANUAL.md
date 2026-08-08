@@ -256,6 +256,6 @@ Each activity triggers automatic offsetting debit and credit entries in the back
 ---
 
 ## 5. Operational Rules & Troubleshooting
-1. **Accrual Calculations:** If a daily interest borrower has `LKR 0` interest showing today, check the creation date. Interest is calculated in 24-hour periods. If the loan was created at 18:00 yesterday, interest will accrue at 18:00 today.
+1. **Accrual Calculations:** Interest calculations automatically trigger when the calendar date changes (at midnight 00:00:00). For example, if a loan is issued at 18:00 (6 PM) today, you do not have to wait 24 hours until 18:00 tomorrow for interest to accumulate; it will automatically accrue immediately when the date changes to tomorrow at midnight (00:00:00).
 2. **Double Disbursements:** The system has built-in idempotency protection. If you submit a loan or payment and the page hangs, do not refresh or double-click. Go to the history logs to confirm if the transaction was recorded.
 3. **Locked Accounts:** If an agent complains they cannot collect from a customer, verify if the loan has been marked as *Defaulted* under the Manage tab. Reinstating the loan unlocks collection options.

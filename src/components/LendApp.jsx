@@ -4831,6 +4831,7 @@ function projectCurrentInterestBalance(loan) {
     else if (loan.interest_type === 'weekly') cursor.setDate(cursor.getDate() + 7);
     else if (loan.interest_type === 'monthly') cursor.setDate(cursor.getDate() + 30);
     else break;
+    cursor.setHours(0, 0, 0, 0);
   }
 
   return stored + periods * interestPerPeriod;

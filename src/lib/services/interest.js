@@ -68,6 +68,7 @@ export async function runInterestAccruals() {
           } else {
             break; // unknown interest_type — avoid an infinite loop
           }
+          nextDate.setHours(0, 0, 0, 0); // Keep nextDate aligned to midnight
         }
 
         if (periodsAccrued === 0) {
