@@ -1417,7 +1417,7 @@ export default function LendApp() {
         <header className="app-header animate-fade-in">
           <div className="app-header-info">
             <h1 style={{ fontSize: '24px' }}>
-              <span className="app-brand-mark"><Banknote className="icon" /></span> Cash Lending Manager
+              <span className="app-brand-mark"><Banknote className="icon" /></span> STN MICRO CREDIT
             </h1>
             <span className="badge badge-active">{user.role}</span>
           </div>
@@ -1519,7 +1519,7 @@ export default function LendApp() {
         {!token && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
             <div className="glass-card" style={{ width: '100%', maxWidth: '400px' }}>
-              <h2 style={{ fontSize: '28px', textAlign: 'center', marginBottom: '8px' }}>Cash Lending Manager</h2>
+              <h2 style={{ fontSize: '28px', textAlign: 'center', marginBottom: '8px' }}>STN MICRO CREDIT</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center', marginBottom: '24px' }}>Easy loan tracking and collections</p>
 
               {!showForgotPassword ? (

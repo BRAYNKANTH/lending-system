@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Cash Lending Manager',
+  title: 'STN MICRO CREDIT',
   description: 'Cash Lending & Agent Collection Management System',
   manifest: '/manifest.webmanifest',
   icons: {
