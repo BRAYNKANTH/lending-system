@@ -53,7 +53,8 @@ export default function LendApp() {
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState('profile');
-  const [profileForm, setProfileForm] = useState({ name: '', phone: '', email: '', gender: '' });
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '', email: '' });
+  const [settingsError, setSettingsError] = useState('');
 
   // Admin: loan edit/default/penalty controls on the statement view
   const [loanEditForm, setLoanEditForm] = useState({ interest_rate: '', assigned_agent_id: '' });
@@ -513,6 +514,7 @@ export default function LendApp() {
       email: user?.email || ''
     });
     setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+    setSettingsError('');
     setSettingsTab('profile');
     setShowSettings(true);
   };
@@ -520,8 +522,8 @@ export default function LendApp() {
   // Submit profile self-updates
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
+    setSettingsError('');
     setLoading(true);
-    setError('');
     try {
       await api.patch(`/users/${user.id}`, profileForm);
       const updatedUser = { ...user, ...profileForm };
@@ -530,7 +532,7 @@ export default function LendApp() {
       showToast('Profile updated successfully!');
       setShowSettings(false);
     } catch (err) {
-      setError(err.message);
+      setSettingsError(err.message);
     } finally {
       setLoading(false);
     }
@@ -1696,6 +1698,12 @@ export default function LendApp() {
               <h3 style={{ fontSize: '22px', margin: 0 }}>Account Settings</h3>
             </div>
 
+            {settingsError && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--accent-rose)', color: 'var(--accent-rose)', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' }}>
+                {settingsError}
+              </div>
+            )}
+
             {/* Modal Tabs */}
             <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '16px', marginBottom: '20px' }}>
               <button type="button"
@@ -1762,8 +1770,25 @@ export default function LendApp() {
             {settingsTab === 'security' && (
               <form onSubmit={async (e) => {
                 e.preventDefault();
-                await handleChangePassword(e);
-                setShowSettings(false);
+                setSettingsError('');
+                if (passwordForm.new_password !== passwordForm.confirm_password) {
+                  setSettingsError('New password and confirmation do not match.');
+                  return;
+                }
+                setLoading(true);
+                try {
+                  await api.post('/auth/change-password', {
+                    current_password: passwordForm.current_password,
+                    new_password: passwordForm.new_password
+                  });
+                  showToast('Password changed successfully.');
+                  setShowSettings(false);
+                  setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+                } catch (err) {
+                  setSettingsError(err.message);
+                } finally {
+                  setLoading(false);
+                }
               }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>CURRENT PASSWORD</label>
