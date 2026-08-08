@@ -73,7 +73,7 @@ export async function runInterestAccruals(loanId) {
           } else if (dbLoan.interest_type === 'weekly') {
             nextDate.setDate(nextDate.getDate() + 7);
           } else if (dbLoan.interest_type === 'monthly') {
-            nextDate.setDate(nextDate.getDate() + 30);
+            nextDate.setMonth(nextDate.getMonth() + 1);
           } else {
             break; // unknown interest_type — avoid an infinite loop
           }

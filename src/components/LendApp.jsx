@@ -4829,7 +4829,7 @@ function projectCurrentInterestBalance(loan) {
     periods += 1;
     if (loan.interest_type === 'daily') cursor.setDate(cursor.getDate() + 1);
     else if (loan.interest_type === 'weekly') cursor.setDate(cursor.getDate() + 7);
-    else if (loan.interest_type === 'monthly') cursor.setDate(cursor.getDate() + 30);
+    else if (loan.interest_type === 'monthly') cursor.setMonth(cursor.getMonth() + 1);
     else break;
     cursor.setHours(0, 0, 0, 0);
   }
