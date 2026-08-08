@@ -1604,10 +1604,10 @@ export default function LendApp() {
               User: <strong style={{ color: 'var(--text-primary)' }}>{user.name}</strong>
             </span>
             <button className="glass-btn glass-btn-secondary" style={{ padding: '10px 16px', fontSize: '14px' }} onClick={() => setShowChangePassword(true)}>
-              <KeyRound className="icon" /> Password
+              <KeyRound className="icon" /> <span className="btn-label-text">Password</span>
             </button>
             <button className="glass-btn glass-btn-rose" style={{ padding: '10px 20px', fontSize: '15px' }} onClick={handleLogout}>
-              <LogOut className="icon" /> Logout
+              <LogOut className="icon" /> <span className="btn-label-text">Logout</span>
             </button>
           </div>
         </header>
@@ -1880,7 +1880,7 @@ export default function LendApp() {
                   <div className="wizard-layout">
                     {/* Stepper Navigation Sidebar */}
                     <div className="wizard-sidebar">
-                      <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', margin: '0 0 10px', fontWeight: 'bold' }}>LOAN WIZARD</h4>
+                      <h4 className="wizard-title" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', margin: '0 0 10px', fontWeight: 'bold' }}>LOAN WIZARD</h4>
                       
                       <button 
                         type="button"
@@ -2778,7 +2778,7 @@ export default function LendApp() {
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>You cannot change your own role.</span>
                           )}
                         </div>
-                        <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ padding: '12px', marginTop: '10px' }}>
+                        <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '12px', marginTop: '10px' }}>
                           <ClipboardCheck className="icon" /> Save Changes
                         </button>
                       </form>
@@ -2990,7 +2990,7 @@ export default function LendApp() {
                     <input type="text" className="glass-input" placeholder="e.g. Tx Ref: 981726, paid from BOC account" value={borrowerPayment.notes} onChange={e => setBorrowerPayment(prev => ({ ...prev, notes: e.target.value }))} />
                   </div>
 
-                  <button type="submit" className="glass-btn glass-btn-emerald" style={{ padding: '12px' }} disabled={loading}>
+                  <button type="submit" className="glass-btn glass-btn-emerald" style={{ width: '100%', padding: '12px' }} disabled={loading}>
                     {loading ? 'Submitting...' : 'Submit Payment Proof'}
                   </button>
                 </form>
@@ -3368,7 +3368,7 @@ export default function LendApp() {
                         value={remittanceForm.notes}
                         onChange={e => setRemittanceForm(prev => ({ ...prev, notes: e.target.value }))} />
                     </div>
-                    <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading}>Submit Handover</button>
+                    <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%' }}>Submit Handover</button>
                   </form>
                 </div>
 
@@ -3545,9 +3545,10 @@ export default function LendApp() {
               </div>
 
               {/* Tab Navigation Menu */}
-              <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '0px' }}>
+              <div className="loan-file-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '0px' }}>
                 <button
                   type="button"
+                  className="loan-file-tab"
                   onClick={() => setLedgerTab('passbook')}
                   style={{
                     padding: '12px 16px',
@@ -3569,6 +3570,7 @@ export default function LendApp() {
                 </button>
                 <button
                   type="button"
+                  className="loan-file-tab"
                   onClick={() => setLedgerTab('profile')}
                   style={{
                     padding: '12px 16px',
@@ -3590,6 +3592,7 @@ export default function LendApp() {
                 </button>
                 <button
                   type="button"
+                  className="loan-file-tab"
                   onClick={() => setLedgerTab('guarantor')}
                   style={{
                     padding: '12px 16px',
@@ -3612,6 +3615,7 @@ export default function LendApp() {
                 {user.role === 'admin' && (
                   <button
                     type="button"
+                    className="loan-file-tab"
                     onClick={() => setLedgerTab('management')}
                     style={{
                       padding: '12px 16px',
@@ -4093,7 +4097,7 @@ export default function LendApp() {
                                 ))}
                               </select>
                             </div>
-                            <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading}>Save Changes</button>
+                            <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading} style={{ width: '100%' }}>Save Changes</button>
                           </form>
                         </div>
 
@@ -4106,7 +4110,7 @@ export default function LendApp() {
                             <input type="text" className="glass-input" placeholder="Reason (optional)"
                               value={penaltyForm.reason}
                               onChange={e => setPenaltyForm(prev => ({ ...prev, reason: e.target.value }))} />
-                            <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading}>Apply Penalty</button>
+                            <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading} style={{ width: '100%' }}>Apply Penalty</button>
                           </form>
 
                           <h4 style={{ fontSize: '15px', margin: '16px 0 10px' }}>Mark as Defaulted</h4>

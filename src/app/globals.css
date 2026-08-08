@@ -582,10 +582,17 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
     gap: 10px;
   }
   .app-header-nav span {
-    display: none; /* Hide User name label to save space */
+    /* Hides the "User: Name" label AND the Password/Logout button text
+       (wrapped in <span class="btn-label-text">) to save header space on
+       mobile, leaving icon-only buttons. This used to instead be a bare,
+       unscoped `.glass-btn-secondary { display: none }` rule, which hid
+       EVERY secondary button in the entire app on mobile — Cancel, Back,
+       Edit, Forgot Password, demo login buttons, on every single page. */
+    display: none;
   }
-  .glass-btn-secondary {
-    display: none; /* Hide top redundant Home button on mobile */
+  .app-header-nav .glass-btn,
+  .app-header-nav .glass-btn-rose {
+    padding: 10px !important;
   }
 
 
@@ -681,7 +688,13 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
 
   .glass-btn {
     padding: 14px 24px;
-    width: 100%; /* Full width buttons on tiny screens */
+    /* Previously `width: 100%` here, unscoped — that stretched EVERY
+       button using .glass-btn on screens <=480px, including filter
+       chips, small inline actions, and buttons that explicitly opted out
+       via alignSelf/flex-basis. Primary form CTAs that actually want full
+       width set it explicitly inline (search this file for
+       `width: '100%'` on glass-btn buttons) — removed here so
+       secondary/inline buttons size to their content instead. */
   }
 }
 
@@ -793,15 +806,23 @@ table.desktop-only {
 }
 
 .mobile-row-card-actions {
+  /* Was `display: flex` with no wrap and every button forced to
+     `width: 100%` — with 3+ action buttons (Deactivate/Edit/Reset
+     Password/Delete) that meant each one tried to claim the full row
+     width simultaneously, and everything past the first button ran off
+     the right edge of the screen, invisible and untappable. Wraps into a
+     compact 2-per-row grid instead. */
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 8px;
   width: 100%;
 }
 
 .mobile-row-card-actions .glass-btn {
-  width: 100%;
-  padding: 10px 16px;
-  font-size: 14px;
+  flex: 1 1 calc(50% - 4px);
+  padding: 10px 12px;
+  font-size: 13px;
   height: 40px;
 }
 
@@ -1214,14 +1235,35 @@ table.desktop-only {
     gap: 8px;
     justify-content: space-around;
   }
+  /* The "LOAN WIZARD" title used to sit in this same flex row as the two
+     step buttons (they're siblings), squeezing all three into a cramped
+     341px-wide row on mobile. Hidden here since "Give New Loan" already
+     appears as a heading right below — the title was redundant, not just
+     misplaced. */
+  .wizard-title {
+    display: none;
+  }
   .wizard-body {
     padding: 20px;
   }
+
+  /* Loan file tabs (Passbook & Payments / Borrower Profile / Guarantor
+     Info / Manage Loan) — at desktop sizing these four barely fit even a
+     tablet width, so on a 375px phone only about 1.5 tabs were visible at
+     once with the rest requiring a swipe most users won't discover.
+     Compacted so all four fit (or nearly fit) without losing the icons. */
+  .loan-file-tab {
+    padding: 10px 10px !important;
+    font-size: 12px !important;
+    gap: 5px !important;
+    flex-shrink: 0;
+  }
   .step-indicator {
-    padding: 6px 10px;
+    padding: 8px 10px;
     flex-direction: row;
     gap: 8px;
     width: auto;
+    flex: 1;
   }
   .step-subtext {
     display: none;
