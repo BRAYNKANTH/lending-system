@@ -38,7 +38,7 @@ export default function LendApp() {
   // Admin: Cash & Tools view data (users, remittances, ledger report)
   const [adminUsers, setAdminUsers] = useState([]);
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', email: '', gender: '', role: 'agent', password: '' });
+  const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', email: '', role: 'agent', password: '' });
   const [remittances, setRemittances] = useState([]);
   const [ledgerReport, setLedgerReport] = useState(null);
   const [ledgerFrom, setLedgerFrom] = useState('');
@@ -72,7 +72,6 @@ export default function LendApp() {
     borrower_phone: '',
     borrower_address: '',
     borrower_email: '',
-    borrower_gender: '',
     principal_amount: '',
     interest_rate: '2.00',
     interest_type: 'daily',
@@ -84,7 +83,7 @@ export default function LendApp() {
   });
   const [includeGuarantor, setIncludeGuarantor] = useState(false);
   const emptyGuarantor = {
-    full_name: '', nic_number: '', gender: '', ethnicity: '',
+    full_name: '', nic_number: '', ethnicity: '',
     address: '', phone: '',
     protected_under_debt_act: false, has_pending_court_cases: false,
     monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
@@ -344,8 +343,7 @@ export default function LendApp() {
       name: targetUser.name || '',
       phone: targetUser.phone || '',
       role: targetUser.role || '',
-      email: targetUser.email || '',
-      gender: targetUser.gender || ''
+      email: targetUser.email || ''
     });
   };
 
@@ -359,8 +357,7 @@ export default function LendApp() {
         name: editUserForm.name,
         phone: editUserForm.phone,
         role: editUserForm.role,
-        email: editUserForm.email || '',
-        gender: editUserForm.gender || ''
+        email: editUserForm.email || ''
       });
       showToast(`User ${editUserForm.name} updated successfully.`);
       setEditingUser(null);
@@ -381,7 +378,6 @@ export default function LendApp() {
         name: newUserForm.name,
         phone: newUserForm.phone,
         email: newUserForm.email || undefined,
-        gender: newUserForm.gender || undefined,
         role: newUserForm.role,
         password: newUserForm.password || undefined
       });
@@ -390,7 +386,7 @@ export default function LendApp() {
           ? `${newUserForm.name} added as ${newUserForm.role}. Temporary password: ${result.temporaryPassword}`
           : `${newUserForm.name} added as ${newUserForm.role}.`
       );
-      setNewUserForm({ name: '', phone: '', email: '', gender: '', role: 'agent', password: '' });
+      setNewUserForm({ name: '', phone: '', email: '', role: 'agent', password: '' });
       setShowAddUser(false);
       refreshAdminTools();
     } catch (err) {
@@ -1155,7 +1151,6 @@ export default function LendApp() {
     setGuarantorEditForm(existingGuarantor ? {
       full_name: existingGuarantor.full_name || '',
       nic_number: existingGuarantor.nic_number || '',
-      gender: existingGuarantor.gender || '',
       ethnicity: existingGuarantor.ethnicity || '',
       address: existingGuarantor.address || '',
       phone: existingGuarantor.phone || '',
@@ -2124,14 +2119,6 @@ export default function LendApp() {
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER EMAIL (OPTIONAL)</label>
                                   <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
                                 </div>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>GENDER</label>
-                                  <select className="glass-input" value={newLoan.borrower_gender || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_gender: e.target.value }))}>
-                                    <option value="">Select Gender</option>
-                                    <option value="male">Male</option>
-                                    <option value="female">Female</option>
-                                  </select>
-                                </div>
                               </div>
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -2326,14 +2313,6 @@ export default function LendApp() {
                                 </div>
 
                                 <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gender</label>
-                                    <select className="glass-input" value={guarantorForm.gender} onChange={e => setGuarantorForm(prev => ({ ...prev, gender: e.target.value }))}>
-                                      <option value="">-- Select --</option>
-                                      <option value="male">Male</option>
-                                      <option value="female">Female</option>
-                                    </select>
-                                  </div>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity / Citizenship</label>
                                     <input type="text" className="glass-input" value={guarantorForm.ethnicity} onChange={e => setGuarantorForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
@@ -2801,14 +2780,6 @@ export default function LendApp() {
                           <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>EMAIL (OPTIONAL)</label>
                           <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newUserForm.email} onChange={e => setNewUserForm(prev => ({ ...prev, email: e.target.value }))} />
                         </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>GENDER</label>
-                          <select className="glass-input" value={newUserForm.gender} onChange={e => setNewUserForm(prev => ({ ...prev, gender: e.target.value }))}>
-                            <option value="">-- Select --</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                          </select>
-                        </div>
                       </div>
                       <div className="form-grid-2-col">
                         <div>
@@ -2931,19 +2902,9 @@ export default function LendApp() {
                           <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
                           <input required type="tel" className="glass-input" value={editUserForm.phone} onChange={e => setEditUserForm(prev => ({ ...prev, phone: e.target.value }))} />
                         </div>
-                        <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>EMAIL (OPTIONAL)</label>
-                            <input type="email" className="glass-input" value={editUserForm.email || ''} onChange={e => setEditUserForm(prev => ({ ...prev, email: e.target.value }))} />
-                          </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>GENDER</label>
-                            <select className="glass-input" value={editUserForm.gender || ''} onChange={e => setEditUserForm(prev => ({ ...prev, gender: e.target.value }))}>
-                              <option value="">Select Gender</option>
-                              <option value="male">Male</option>
-                              <option value="female">Female</option>
-                            </select>
-                          </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>EMAIL (OPTIONAL)</label>
+                          <input type="email" className="glass-input" value={editUserForm.email || ''} onChange={e => setEditUserForm(prev => ({ ...prev, email: e.target.value }))} />
                         </div>
                         <div>
                           <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ROLE</label>
@@ -3701,7 +3662,6 @@ export default function LendApp() {
                   <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 4px' }}>
                     Address: <strong>{loanStatement.loan.borrower_address || 'N/A'}</strong>
                     {loanStatement.loan.borrower_email && <> | Email: <strong>{loanStatement.loan.borrower_email}</strong></>}
-                    {loanStatement.loan.borrower_gender && <> | Gender: <strong style={{ textTransform: 'capitalize' }}>{loanStatement.loan.borrower_gender}</strong></>}
                   </p>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0' }}>
                     Loan Term: <strong style={{ textTransform: 'capitalize' }}>
@@ -4149,7 +4109,6 @@ export default function LendApp() {
                         <div><strong>Name:</strong> {loanStatement.guarantor.full_name}</div>
                         <div><strong>NIC:</strong> {loanStatement.guarantor.nic_number}</div>
                         <div><strong>Phone:</strong> {loanStatement.guarantor.phone}</div>
-                        <div><strong>Gender:</strong> {loanStatement.guarantor.gender || '-'}</div>
                         <div><strong>Ethnicity:</strong> {loanStatement.guarantor.ethnicity || '-'}</div>
                         <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.guarantor.address}</div>
                         <div>
@@ -4215,15 +4174,6 @@ export default function LendApp() {
                           </div>
                         </div>
                         <div className="form-grid-2-col">
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gender</label>
-                            <select className="glass-input" value={guarantorEditForm.gender} onChange={e => setGuarantorEditForm(prev => ({ ...prev, gender: e.target.value }))}>
-                              <option value="">-- Select --</option>
-                              <option value="male">Male</option>
-                              <option value="female">Female</option>
-                              <option value="other">Other</option>
-                            </select>
-                          </div>
                           <div>
                             <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity</label>
                             <input type="text" className="glass-input" value={guarantorEditForm.ethnicity} onChange={e => setGuarantorEditForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
