@@ -20,7 +20,14 @@ function createClient() {
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false }
     },
-    pool: { min: 0, max: 5 }
+    // Each warm serverless instance holds its own pool of up to this many
+    // connections. 5 was fine for early testing but starts to queue
+    // requests under real concurrent staff usage (several agents recording
+    // collections at once). Supabase's transaction pooler (the :6543
+    // pooler.supabase.com host this app is configured to use) is built to
+    // multiplex many logical connections like this efficiently, so raising
+    // it here is safe.
+    pool: { min: 0, max: 10 }
   });
 }
 
