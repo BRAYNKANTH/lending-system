@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { normalizePhone } from '@/lib/phone.js';
+import bcrypt from 'bcryptjs';
 
 // Permanently delete a user (Admin only). Blocked if the user has any
 // loan/transaction/remittance history — that history is part of the audit
@@ -12,6 +13,18 @@ export async function DELETE(request, { params }) {
   try {
     const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
+
+    const url = new URL(request.url);
+    const password = url.searchParams.get('password');
+    if (!password) {
+      return NextResponse.json({ message: 'Password confirmation is required to delete a user.' }, { status: 400 });
+    }
+
+    const adminUser = await db('users').where({ id: authUser.id }).first();
+    const isMatch = await bcrypt.compare(password, adminUser.password_hash);
+    if (!isMatch) {
+      return NextResponse.json({ message: 'Invalid password. Deletion denied.' }, { status: 401 });
+    }
 
     if (id === authUser.id) {
       return NextResponse.json({ message: 'You cannot delete your own account.' }, { status: 400 });

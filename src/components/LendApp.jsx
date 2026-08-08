@@ -88,6 +88,7 @@ export default function LendApp() {
   const [guarantorForm, setGuarantorForm] = useState(emptyGuarantor);
   const [giveLoanStep, setGiveLoanStep] = useState(1);
   const [validationErrors, setValidationErrors] = useState({});
+  const [ledgerTab, setLedgerTab] = useState('passbook');
 
   const clearFieldError = (field) => {
     if (validationErrors[field]) {
@@ -387,10 +388,16 @@ export default function LendApp() {
     if (!window.confirm(`Permanently delete ${targetUser.name}? This can't be undone. Users with loan/payment history can't be deleted — deactivate them instead.`)) {
       return;
     }
+    const password = window.prompt(`Please enter your admin password to authorize deleting ${targetUser.name}:`);
+    if (password === null) return;
+    if (!password) {
+      showToast('Password is required to delete a user.', 'error');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await api.delete(`/users/${targetUser.id}`);
+      await api.delete(`/users/${targetUser.id}?password=${encodeURIComponent(password)}`);
       showToast(`${targetUser.name} deleted.`);
       refreshAdminTools();
     } catch (err) {
@@ -1030,6 +1037,7 @@ export default function LendApp() {
   const viewStatement = async (loanId) => {
     setSelectedLoanId(loanId);
     setView('ledger');
+    setLedgerTab('passbook');
     setShowGuarantorEditor(false);
     setLoading(true);
     try {
@@ -3351,7 +3359,7 @@ export default function LendApp() {
           const displayEvents = [...eventsWithBalance].reverse();
 
           return (
-            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               
               {/* Header info card */}
               <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
@@ -3422,434 +3430,541 @@ export default function LendApp() {
                 </div>
               </div>
 
-              {/* Admin-only loan lifecycle controls */}
-              {user.role === 'admin' && loanStatement.loan.status === 'active' && (
-                <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Settings className="icon" /> Loan Management</h3>
-                  <div className="responsive-grid-2-col" style={{ gap: '20px' }}>
-                    <div>
-                      <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Edit Terms</h4>
-                      <form onSubmit={handleUpdateLoan} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div>
-                          <label style={{ fontSize: '12px', fontWeight: 'bold' }}>New Interest Rate (%) — currently {loanStatement.loan.interest_rate}%</label>
-                          <input type="number" step="0.01" min="0" className="glass-input" placeholder="Leave blank to keep unchanged"
-                            value={loanEditForm.interest_rate}
-                            onChange={e => setLoanEditForm(prev => ({ ...prev, interest_rate: e.target.value }))} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '12px', fontWeight: 'bold' }}>Reassign Agent</label>
-                          <select className="glass-input" value={loanEditForm.assigned_agent_id}
-                            onChange={e => setLoanEditForm(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
-                            <option value="">Leave unchanged</option>
-                            {agentsList.map(a => (
-                              <option key={a.id} value={a.id}>{a.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading}>Save Changes</button>
-                      </form>
-                    </div>
+              {/* Tab Navigation Menu */}
+              <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '0px' }}>
+                <button
+                  type="button"
+                  onClick={() => setLedgerTab('passbook')}
+                  style={{
+                    padding: '12px 16px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: ledgerTab === 'passbook' ? '3px solid var(--accent-blue)' : '3px solid transparent',
+                    color: ledgerTab === 'passbook' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <Receipt className="icon" style={{ fontSize: '16px' }} /> Passbook & Payments
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLedgerTab('profile')}
+                  style={{
+                    padding: '12px 16px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: ledgerTab === 'profile' ? '3px solid var(--accent-blue)' : '3px solid transparent',
+                    color: ledgerTab === 'profile' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <ClipboardList className="icon" style={{ fontSize: '16px' }} /> Borrower Profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLedgerTab('guarantor')}
+                  style={{
+                    padding: '12px 16px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: ledgerTab === 'guarantor' ? '3px solid var(--accent-blue)' : '3px solid transparent',
+                    color: ledgerTab === 'guarantor' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <ShieldCheck className="icon" style={{ fontSize: '16px' }} /> Guarantor Info
+                </button>
+                {user.role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={() => setLedgerTab('management')}
+                    style={{
+                      padding: '12px 16px',
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      background: 'none',
+                      border: 'none',
+                      borderBottom: ledgerTab === 'management' ? '3px solid var(--accent-blue)' : '3px solid transparent',
+                      color: ledgerTab === 'management' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <Settings className="icon" style={{ fontSize: '16px' }} /> Manage Loan
+                  </button>
+                )}
+              </div>
 
-                    <div>
-                      <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Apply Late Fee / Penalty</h4>
-                      <form onSubmit={handleApplyPenalty} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <input type="number" min="1" className="glass-input" placeholder="Penalty amount (LKR)"
-                          value={penaltyForm.amount}
-                          onChange={e => setPenaltyForm(prev => ({ ...prev, amount: e.target.value }))} />
-                        <input type="text" className="glass-input" placeholder="Reason (optional)"
-                          value={penaltyForm.reason}
-                          onChange={e => setPenaltyForm(prev => ({ ...prev, reason: e.target.value }))} />
-                        <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading}>Apply Penalty</button>
-                      </form>
-
-                      <h4 style={{ fontSize: '15px', margin: '16px 0 10px' }}>Mark as Defaulted</h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <input type="text" className="glass-input" placeholder="Reason for default (required)"
-                          value={defaultReason}
-                          onChange={e => setDefaultReason(e.target.value)} />
-                        <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={() => {
-                          if (window.confirm('Mark this loan as defaulted? This will block further payment collection.')) {
-                            handleMarkDefaulted();
-                          }
-                        }}>
-                          <Ban className="icon" /> Mark Defaulted
-                        </button>
-                      </div>
-
-                      <h4 style={{ fontSize: '15px', margin: '16px 0 10px' }}>Write Off as Bad Debt</h4>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>Permanently closes this loan and posts the remaining balance to the ledger as unrecoverable. Use only when the debt will never be collected.</p>
-                      <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={handleWriteOffLoan} style={{ width: '100%' }}>
-                        <Ban className="icon" /> Write Off Loan
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {user.role === 'admin' && loanStatement.loan.status === 'defaulted' && (
-                <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '8px' }}><Settings className="icon" /> Loan Management</h3>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px' }}>
-                    This loan is defaulted (Reason: {loanStatement.loan.default_reason || 'N/A'}). No payments can be recorded until it's reinstated.
-                  </p>
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                    <button type="button" className="glass-btn glass-btn-emerald" disabled={loading} onClick={handleReinstateLoan}>
-                      <RefreshCcw className="icon" /> Reinstate to Active
-                    </button>
-                    <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={handleWriteOffLoan}>
-                      <Ban className="icon" /> Write Off as Bad Debt
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Guarantor Details (only for loans that recorded one) */}
-              {loanStatement.guarantor && (
-                <div className="glass-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
-                    <h3 style={{ fontSize: '22px', margin: 0 }}><ShieldCheck className="icon" /> Guarantor Details</h3>
-                    {user.role === 'admin' && (
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleOpenGuarantorEditor(loanStatement.guarantor)}>
-                          Edit Guarantor
-                        </button>
-                        <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={handleRemoveGuarantor}>
-                          <Trash2 className="icon" /> Remove
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
-                    <div><strong>Name:</strong> {loanStatement.guarantor.full_name}</div>
-                    <div><strong>NIC:</strong> {loanStatement.guarantor.nic_number}</div>
-                    <div><strong>Phone:</strong> {loanStatement.guarantor.phone}</div>
-                    <div><strong>Gender:</strong> {loanStatement.guarantor.gender || '-'}</div>
-                    <div><strong>Ethnicity:</strong> {loanStatement.guarantor.ethnicity || '-'}</div>
-                    <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.guarantor.address}</div>
-                    <div>
-                      <strong>Protected under debt-recovery act:</strong>{' '}
-                      <span style={{ color: loanStatement.guarantor.protected_under_debt_act ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                        {loanStatement.guarantor.protected_under_debt_act ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                    <div>
-                      <strong>Pending court cases:</strong>{' '}
-                      <span style={{ color: loanStatement.guarantor.has_pending_court_cases ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                        {loanStatement.guarantor.has_pending_court_cases ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: '14px', display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '14px' }}>
-                    <div>
-                      <strong>Monthly Income:</strong> LKR {(
-                        parseFloat(loanStatement.guarantor.monthly_income_business || 0) +
-                        parseFloat(loanStatement.guarantor.monthly_income_agriculture || 0) +
-                        parseFloat(loanStatement.guarantor.monthly_income_other || 0)
-                      ).toLocaleString()}
-                      <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Business: {parseFloat(loanStatement.guarantor.monthly_income_business || 0).toLocaleString()}, Agriculture: {parseFloat(loanStatement.guarantor.monthly_income_agriculture || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_income_other || 0).toLocaleString()})</span>
-                    </div>
-                    <div>
-                      <strong>Monthly Expense:</strong> LKR {(
-                        parseFloat(loanStatement.guarantor.monthly_expense_food || 0) +
-                        parseFloat(loanStatement.guarantor.monthly_expense_rent || 0) +
-                        parseFloat(loanStatement.guarantor.monthly_expense_other || 0)
-                      ).toLocaleString()}
-                      <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(loanStatement.guarantor.monthly_expense_food || 0).toLocaleString()}, Rent: {parseFloat(loanStatement.guarantor.monthly_expense_rent || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_expense_other || 0).toLocaleString()})</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {!loanStatement.guarantor && user.role === 'admin' && (
-                <div className="glass-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                    <div>
-                      <h3 style={{ fontSize: '22px', margin: '0 0 4px' }}><ShieldCheck className="icon" /> Guarantor Details</h3>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>No guarantor is on file for this loan.</p>
-                    </div>
-                    <button className="glass-btn glass-btn-emerald" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => handleOpenGuarantorEditor(null)}>
-                      <ShieldCheck className="icon" /> Add Guarantor
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {showGuarantorEditor && (
-                <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ShieldCheck className="icon" /> {loanStatement.guarantor ? 'Edit' : 'Add'} Guarantor</h3>
-                  <form onSubmit={handleSaveGuarantor} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div className="form-grid-2-col">
-                      <div>
-                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
-                        <input required type="text" className="glass-input" value={guarantorEditForm.full_name} onChange={e => setGuarantorEditForm(prev => ({ ...prev, full_name: e.target.value }))} />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                        <input required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} />
-                      </div>
-                    </div>
-                    <div className="form-grid-2-col">
-                      <div>
-                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gender</label>
-                        <select className="glass-input" value={guarantorEditForm.gender} onChange={e => setGuarantorEditForm(prev => ({ ...prev, gender: e.target.value }))}>
-                          <option value="">-- Select --</option>
-                          <option value="male">Male</option>
-                          <option value="female">Female</option>
-                          <option value="other">Other</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity</label>
-                        <input type="text" className="glass-input" value={guarantorEditForm.ethnicity} onChange={e => setGuarantorEditForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
-                      </div>
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone *</label>
-                      <input required type="tel" className="glass-input" value={guarantorEditForm.phone} onChange={e => setGuarantorEditForm(prev => ({ ...prev, phone: e.target.value }))} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                      <input required type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
-                    </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                      <input type="checkbox" checked={guarantorEditForm.protected_under_debt_act} onChange={e => setGuarantorEditForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
-                      Protected under debt-recovery act
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                      <input type="checkbox" checked={guarantorEditForm.has_pending_court_cases} onChange={e => setGuarantorEditForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
-                      Has pending court cases
-                    </label>
-                    <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Monthly Income (LKR)</p>
-                    <div className="form-grid-2-col">
-                      <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorEditForm.monthly_income_business} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
-                      <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorEditForm.monthly_income_agriculture} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
-                    </div>
-                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorEditForm.monthly_income_other} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
-                    <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Monthly Expense (LKR)</p>
-                    <div className="form-grid-2-col">
-                      <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorEditForm.monthly_expense_food} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
-                      <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorEditForm.monthly_expense_rent} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
-                    </div>
-                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorEditForm.monthly_expense_other} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-                      <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ flex: 1 }}>Save Guarantor</button>
-                      <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowGuarantorEditor(false)}>Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              )}
-
-              {/* Borrower Profile Details (always collected for loans created after this feature shipped; older loans may show '-') */}
-              {(loanStatement.loan.loan_purpose || loanStatement.loan.dependents_count !== null || loanStatement.loan.monthly_income !== null || loanStatement.loan.spouse_name || loanStatement.loan.borrower_address) && (
-                <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ClipboardList className="icon" /> Borrower Profile Details</h3>
-                  <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
-                    <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.loan.borrower_address || '-'}</div>
-                    <div style={{ gridColumn: '1 / -1' }}><strong>Purpose of Loan:</strong> {loanStatement.loan.loan_purpose || '-'}</div>
-                    <div><strong>Dependents:</strong> {loanStatement.loan.dependents_count ?? '-'}</div>
-                    <div><strong>Monthly Income:</strong> {loanStatement.loan.monthly_income !== null && loanStatement.loan.monthly_income !== undefined ? `LKR ${parseFloat(loanStatement.loan.monthly_income).toLocaleString()}` : '-'}</div>
-                    <div><strong>Spouse Name:</strong> {loanStatement.loan.spouse_name || '-'}</div>
-                    <div><strong>Spouse NIC:</strong> {loanStatement.loan.spouse_nic || '-'}</div>
-                    <div style={{ gridColumn: '1 / -1' }}><strong>Spouse Occupation:</strong> {loanStatement.loan.spouse_occupation || '-'}</div>
-                  </div>
-                </div>
-              )}
-
-              {loanStatement.loan.collection_mode === 'fixed_term' && loanStatement.loan.maturity_date && (
-                <div className="glass-card">
-                  <h3 style={{ fontSize: '20px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><TrendingUp className="icon" /> Fixed Term Progress</h3>
-                  {(() => {
-                    const start = new Date(loanStatement.loan.created_at);
-                    const maturity = new Date(loanStatement.loan.maturity_date);
-                    const today = new Date();
-                    
-                    const totalDays = Math.max(1, Math.round((maturity - start) / (1000 * 60 * 60 * 24)));
-                    const elapsedDays = Math.max(0, Math.round((today - start) / (1000 * 60 * 60 * 24)));
-                    const percent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
-                    
-                    return (
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px', color: 'var(--text-secondary)' }}>
-                          <span>Disbursed: <strong>{start.toLocaleDateString()}</strong></span>
-                          <span>Day {Math.min(totalDays, elapsedDays)} of {totalDays} ({percent.toFixed(0)}%)</span>
-                          <span>Maturity: <strong>{maturity.toLocaleDateString()}</strong></span>
-                        </div>
-                        <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.07)', borderRadius: '5px', overflow: 'hidden' }}>
-                          <div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-blue), var(--accent-emerald))', transition: 'width 0.4s ease' }} />
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {/* Daily collection tracker removed — balance tracking active */}
-
-              {/* Summary columns grid */}
-              <div className="responsive-grid-2-col">
-
-                {/* Passbook Statement History */}
-                <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Receipt className="icon" /> Passbook Statement (Activity Log)</h3>
-                  
-                  {/* Desktop View Table */}
-                  <div className="desktop-only" style={{ overflowX: 'auto' }}>
-                    <table className="glass-table">
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Activity</th>
-                          <th>Details</th>
-                          <th>Amount (+ / -)</th>
-                          <th>Principal Bal.</th>
-                          <th>Interest Bal.</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayEvents.map((entry, idx) => (
-                          <tr key={idx}>
-                            <td>{new Date(entry.date).toLocaleString()}</td>
-                            <td>
-                              <span className={`badge ${entry.change === 'decrease' ? 'badge-active' : 'badge-pending'}`}>
-                                {entry.type}
-                              </span>
-                            </td>
-                            <td style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{entry.details}</td>
-                            <td style={{
-                              fontWeight: 'bold',
-                              color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
-                            }}>
-                              {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
-                            </td>
-                            <td style={{ fontWeight: 'bold' }}>
-                              LKR {entry.runningPrincipalBalance.toLocaleString()}
-                            </td>
-                            <td style={{ fontWeight: 'bold' }}>
-                              LKR {entry.runningInterestBalance.toLocaleString()}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Mobile View Cards */}
-                  <div className="mobile-only mobile-card-list">
-                    {displayEvents.map((entry, idx) => (
-                      <div key={idx} className={`mobile-row-card ${entry.change === 'decrease' ? 'mobile-row-card-success' : 'mobile-row-card-warning'}`}>
-                        <div className="mobile-row-card-header">
-                          <strong style={{ fontSize: '15px' }}>{entry.type}</strong>
-                          <span className={`badge ${entry.change === 'decrease' ? 'badge-active' : 'badge-pending'}`}>
-                            {entry.change === 'increase' ? 'Charged' : 'Paid'}
-                          </span>
-                        </div>
-                        <div className="mobile-row-card-grid-compact">
+              {/* TAB 1: PASSBOOK & PAYMENTS */}
+              {ledgerTab === 'passbook' && (
+                <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {loanStatement.loan.collection_mode === 'fixed_term' && loanStatement.loan.maturity_date && (
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '20px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><TrendingUp className="icon" /> Fixed Term Progress</h3>
+                      {(() => {
+                        const start = new Date(loanStatement.loan.created_at);
+                        const maturity = new Date(loanStatement.loan.maturity_date);
+                        const today = new Date();
+                        
+                        const totalDays = Math.max(1, Math.round((maturity - start) / (1000 * 60 * 60 * 24)));
+                        const elapsedDays = Math.max(0, Math.round((today - start) / (1000 * 60 * 60 * 24)));
+                        const percent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
+                        
+                        return (
                           <div>
-                            <span className="mobile-row-card-label">Date:</span>
-                            <span className="mobile-row-card-value">{new Date(entry.date).toLocaleDateString()}</span>
-                          </div>
-                          <div>
-                            <span className="mobile-row-card-label">Change:</span>
-                            <span className="mobile-row-card-value" style={{ 
-                              fontWeight: 'bold', 
-                              color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)' 
-                            }}>
-                              {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
-                            </span>
-                          </div>
-                          <div style={{ gridColumn: 'span 2' }}>
-                            <span className="mobile-row-card-label">Description:</span>
-                            <span className="mobile-row-card-value" style={{ fontSize: '13px' }}>{entry.details}</span>
-                          </div>
-                          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
-                            <span className="mobile-row-card-label">Principal Bal:</span>
-                            <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
-                          </div>
-                          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
-                            <span className="mobile-row-card-label">Interest Bal:</span>
-                            <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Payments & Interest History split */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-                  
-                  {/* Collection Receipts ledger */}
-                  <div className="glass-card">
-                    <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Banknote className="icon" /> Payments Received</h3>
-                    {loanStatement.payments.length === 0 ? (
-                      <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No payments collected yet.</p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {loanStatement.payments.map((p, idx) => (
-                          <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
-                              <span>Received by {p.agent_name}</span>
-                              <span style={{ color: 'var(--text-muted)' }}>{new Date(p.payment_date).toLocaleDateString()}</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                              <span>Disbursed: <strong>{start.toLocaleDateString()}</strong></span>
+                              <span>Day {Math.min(totalDays, elapsedDays)} of {totalDays} ({percent.toFixed(0)}%)</span>
+                              <span>Maturity: <strong>{maturity.toLocaleDateString()}</strong></span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <strong style={{ color: 'var(--accent-emerald)', fontSize: '15px' }}>LKR {parseFloat(p.amount).toLocaleString()}</strong>
-                              <div style={{ display: 'flex', gap: '6px' }}>
-                                <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => {
-                                  handleOpenReceipt(p, {
-                                    borrowerName: loanStatement.loan.borrower_name,
-                                    borrowerPhone: loanStatement.loan.borrower_phone,
-                                    loanPrincipal: loanStatement.loan.principal_amount,
-                                    loanInterestRate: loanStatement.loan.interest_rate,
-                                    loanInterestType: loanStatement.loan.interest_type,
-                                    loanPrincipalOutstanding: loanStatement.loan.principal_outstanding,
-                                    loanInterestBalance: loanStatement.loan.interest_balance
-                                  });
+                            <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.07)', borderRadius: '5px', overflow: 'hidden' }}>
+                              <div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-blue), var(--accent-emerald))', transition: 'width 0.4s ease' }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  <div className="responsive-grid-2-col" style={{ gap: '24px' }}>
+                    {/* Passbook Statement History */}
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><Receipt className="icon" /> Passbook Statement (Activity Log)</h3>
+                      
+                      {/* Desktop View Table */}
+                      <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                        <table className="glass-table">
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Activity</th>
+                              <th>Details</th>
+                              <th>Amount (+ / -)</th>
+                              <th>Principal Bal.</th>
+                              <th>Interest Bal.</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {displayEvents.map((entry, idx) => (
+                              <tr key={idx}>
+                                <td>{new Date(entry.date).toLocaleString()}</td>
+                                <td>
+                                  <span className={`badge ${entry.change === 'decrease' ? 'badge-active' : 'badge-pending'}`}>
+                                    {entry.type}
+                                  </span>
+                                </td>
+                                <td style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{entry.details}</td>
+                                <td style={{
+                                  fontWeight: 'bold',
+                                  color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
                                 }}>
-                                  <Printer className="icon" /> Print
-                                </button>
-                                {p.proof_image_url && (
-                                  <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => {
-                                    const win = window.open();
-                                    win.document.write(`<img src="${p.proof_image_url}" style="max-width:100%; height:auto;" />`);
-                                  }}>
-                                    Photo
-                                  </button>
-                                )}
+                                  {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
+                                </td>
+                                <td style={{ fontWeight: 'bold' }}>
+                                  LKR {entry.runningPrincipalBalance.toLocaleString()}
+                                </td>
+                                <td style={{ fontWeight: 'bold' }}>
+                                  LKR {entry.runningInterestBalance.toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile View Cards */}
+                      <div className="mobile-only mobile-card-list">
+                        {displayEvents.map((entry, idx) => (
+                          <div key={idx} className={`mobile-row-card ${entry.change === 'decrease' ? 'mobile-row-card-success' : 'mobile-row-card-warning'}`}>
+                            <div className="mobile-row-card-header">
+                              <strong style={{ fontSize: '15px' }}>{entry.type}</strong>
+                              <span className={`badge ${entry.change === 'decrease' ? 'badge-active' : 'badge-pending'}`}>
+                                {entry.change === 'increase' ? 'Charged' : 'Paid'}
+                              </span>
+                            </div>
+                            <div className="mobile-row-card-grid-compact">
+                              <div>
+                                <span className="mobile-row-card-label">Date:</span>
+                                <span className="mobile-row-card-value">{new Date(entry.date).toLocaleDateString()}</span>
+                              </div>
+                              <div>
+                                <span className="mobile-row-card-label">Change:</span>
+                                <span className="mobile-row-card-value" style={{ 
+                                  fontWeight: 'bold', 
+                                  color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)' 
+                                }}>
+                                  {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
+                                </span>
+                              </div>
+                              <div style={{ gridColumn: 'span 2' }}>
+                                <span className="mobile-row-card-label">Description:</span>
+                                <span className="mobile-row-card-value" style={{ fontSize: '13px' }}>{entry.details}</span>
+                              </div>
+                              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
+                                <span className="mobile-row-card-label">Principal Bal:</span>
+                                <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
+                              </div>
+                              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
+                                <span className="mobile-row-card-label">Interest Bal:</span>
+                                <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
                               </div>
                             </div>
-                            {p.notes && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>"{p.notes}"</p>}
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  {/* Accrued Interest list */}
-                  <div className="glass-card">
-                    <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><TrendingUp className="icon" /> Interest Charged History</h3>
-                    {loanStatement.accruals.length === 0 ? (
-                      <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No interest accrued yet.</p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {loanStatement.accruals.map((acc, idx) => (
-                          <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                              <span>Accrued Date</span>
-                              <span>{new Date(acc.created_at).toLocaleDateString()}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <strong style={{ color: 'var(--accent-gold)' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</strong>
-                            </div>
-                            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace' }}>{acc.calculation_log}</p>
+                    {/* Payments & Interest History split */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                      
+                      {/* Collection Receipts ledger */}
+                      <div className="glass-card">
+                        <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><Banknote className="icon" /> Payments Received</h3>
+                        {loanStatement.payments.length === 0 ? (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No payments collected yet.</p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {loanStatement.payments.map((p, idx) => (
+                              <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
+                                  <span>Received by {p.agent_name}</span>
+                                  <span style={{ color: 'var(--text-muted)' }}>{new Date(p.payment_date).toLocaleDateString()}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <strong style={{ color: 'var(--accent-emerald)', fontSize: '15px' }}>LKR {parseFloat(p.amount).toLocaleString()}</strong>
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => {
+                                      handleOpenReceipt(p, {
+                                        borrowerName: loanStatement.loan.borrower_name,
+                                        borrowerPhone: loanStatement.loan.borrower_phone,
+                                        loanPrincipal: loanStatement.loan.principal_amount,
+                                        loanInterestRate: loanStatement.loan.interest_rate,
+                                        loanInterestType: loanStatement.loan.interest_type,
+                                        loanPrincipalOutstanding: loanStatement.loan.principal_outstanding,
+                                        loanInterestBalance: loanStatement.loan.interest_balance
+                                      });
+                                    }}>
+                                      <Printer className="icon" /> Print
+                                    </button>
+                                    {p.proof_image_url && (
+                                      <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => {
+                                        const win = window.open();
+                                        win.document.write(`<img src="${p.proof_image_url}" style="max-width:100%; height:auto;" />`);
+                                      }}>
+                                        Photo
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                {p.notes && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>"{p.notes}"</p>}
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
-                    )}
-                  </div>
 
+                      {/* Accrued Interest list */}
+                      <div className="glass-card">
+                        <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><TrendingUp className="icon" /> Interest Charged History</h3>
+                        {loanStatement.accruals.length === 0 ? (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No interest accrued yet.</p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {loanStatement.accruals.map((acc, idx) => (
+                              <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                                  <span>Accrued Date</span>
+                                  <span>{new Date(acc.created_at).toLocaleDateString()}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <strong style={{ color: 'var(--accent-gold)' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</strong>
+                                </div>
+                                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace' }}>{acc.calculation_log}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
                 </div>
+              )}
 
-              </div>
+              {/* TAB 2: BORROWER PROFILE */}
+              {ledgerTab === 'profile' && (
+                <div className="animate-fade-in">
+                  {(loanStatement.loan.loan_purpose || loanStatement.loan.dependents_count !== null || loanStatement.loan.monthly_income !== null || loanStatement.loan.spouse_name || loanStatement.loan.borrower_address) ? (
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ClipboardList className="icon" /> Borrower Profile Details</h3>
+                      <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
+                        <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.loan.borrower_address || '-'}</div>
+                        <div style={{ gridColumn: '1 / -1' }}><strong>Purpose of Loan:</strong> {loanStatement.loan.loan_purpose || '-'}</div>
+                        <div><strong>Dependents:</strong> {loanStatement.loan.dependents_count ?? '-'}</div>
+                        <div><strong>Monthly Income:</strong> {loanStatement.loan.monthly_income !== null && loanStatement.loan.monthly_income !== undefined ? `LKR ${parseFloat(loanStatement.loan.monthly_income).toLocaleString()}` : '-'}</div>
+                        <div><strong>Spouse Name:</strong> {loanStatement.loan.spouse_name || '-'}</div>
+                        <div><strong>Spouse NIC:</strong> {loanStatement.loan.spouse_nic || '-'}</div>
+                        <div style={{ gridColumn: '1 / -1' }}><strong>Spouse Occupation:</strong> {loanStatement.loan.spouse_occupation || '-'}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '22px', marginBottom: '8px' }}><ClipboardList className="icon" /> Borrower Profile Details</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>No profile details are on file for this borrower.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: GUARANTOR INFO */}
+              {ledgerTab === 'guarantor' && (
+                <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {loanStatement.guarantor && (
+                    <div className="glass-card">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+                        <h3 style={{ fontSize: '22px', margin: 0 }}><ShieldCheck className="icon" /> Guarantor Details</h3>
+                        {user.role === 'admin' && (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleOpenGuarantorEditor(loanStatement.guarantor)}>
+                              Edit Guarantor
+                            </button>
+                            <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={handleRemoveGuarantor}>
+                              <Trash2 className="icon" /> Remove
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
+                        <div><strong>Name:</strong> {loanStatement.guarantor.full_name}</div>
+                        <div><strong>NIC:</strong> {loanStatement.guarantor.nic_number}</div>
+                        <div><strong>Phone:</strong> {loanStatement.guarantor.phone}</div>
+                        <div><strong>Gender:</strong> {loanStatement.guarantor.gender || '-'}</div>
+                        <div><strong>Ethnicity:</strong> {loanStatement.guarantor.ethnicity || '-'}</div>
+                        <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.guarantor.address}</div>
+                        <div>
+                          <strong>Protected under debt-recovery act:</strong>{' '}
+                          <span style={{ color: loanStatement.guarantor.protected_under_debt_act ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                            {loanStatement.guarantor.protected_under_debt_act ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                        <div>
+                          <strong>Pending court cases:</strong>{' '}
+                          <span style={{ color: loanStatement.guarantor.has_pending_court_cases ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                            {loanStatement.guarantor.has_pending_court_cases ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: '14px', display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '14px' }}>
+                        <div>
+                          <strong>Monthly Income:</strong> LKR {(
+                            parseFloat(loanStatement.guarantor.monthly_income_business || 0) +
+                            parseFloat(loanStatement.guarantor.monthly_income_agriculture || 0) +
+                            parseFloat(loanStatement.guarantor.monthly_income_other || 0)
+                          ).toLocaleString()}
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Business: {parseFloat(loanStatement.guarantor.monthly_income_business || 0).toLocaleString()}, Agriculture: {parseFloat(loanStatement.guarantor.monthly_income_agriculture || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_income_other || 0).toLocaleString()})</span>
+                        </div>
+                        <div>
+                          <strong>Monthly Expense:</strong> LKR {(
+                            parseFloat(loanStatement.guarantor.monthly_expense_food || 0) +
+                            parseFloat(loanStatement.guarantor.monthly_expense_rent || 0) +
+                            parseFloat(loanStatement.guarantor.monthly_expense_other || 0)
+                          ).toLocaleString()}
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(loanStatement.guarantor.monthly_expense_food || 0).toLocaleString()}, Rent: {parseFloat(loanStatement.guarantor.monthly_expense_rent || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_expense_other || 0).toLocaleString()})</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!loanStatement.guarantor && user.role === 'admin' && (
+                    <div className="glass-card">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <h3 style={{ fontSize: '22px', margin: '0 0 4px' }}><ShieldCheck className="icon" /> Guarantor Details</h3>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>No guarantor is on file for this loan.</p>
+                        </div>
+                        <button className="glass-btn glass-btn-emerald" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => handleOpenGuarantorEditor(null)}>
+                          <ShieldCheck className="icon" /> Add Guarantor
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {showGuarantorEditor && (
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ShieldCheck className="icon" /> {loanStatement.guarantor ? 'Edit' : 'Add'} Guarantor</h3>
+                      <form onSubmit={handleSaveGuarantor} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div className="form-grid-2-col">
+                          <div>
+                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                            <input required type="text" className="glass-input" value={guarantorEditForm.full_name} onChange={e => setGuarantorEditForm(prev => ({ ...prev, full_name: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
+                            <input required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="form-grid-2-col">
+                          <div>
+                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gender</label>
+                            <select className="glass-input" value={guarantorEditForm.gender} onChange={e => setGuarantorEditForm(prev => ({ ...prev, gender: e.target.value }))}>
+                              <option value="">-- Select --</option>
+                              <option value="male">Male</option>
+                              <option value="female">Female</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity</label>
+                            <input type="text" className="glass-input" value={guarantorEditForm.ethnicity} onChange={e => setGuarantorEditForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone *</label>
+                          <input required type="tel" className="glass-input" value={guarantorEditForm.phone} onChange={e => setGuarantorEditForm(prev => ({ ...prev, phone: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                          <input required type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                          <input type="checkbox" checked={guarantorEditForm.protected_under_debt_act} onChange={e => setGuarantorEditForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
+                          Protected under debt-recovery act
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                          <input type="checkbox" checked={guarantorEditForm.has_pending_court_cases} onChange={e => setGuarantorEditForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
+                          Has pending court cases
+                        </label>
+                        <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Monthly Income (LKR)</p>
+                        <div className="form-grid-2-col">
+                          <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorEditForm.monthly_income_business} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
+                          <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorEditForm.monthly_income_agriculture} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
+                        </div>
+                        <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorEditForm.monthly_income_other} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
+                        <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Monthly Expense (LKR)</p>
+                        <div className="form-grid-2-col">
+                          <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorEditForm.monthly_expense_food} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
+                          <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorEditForm.monthly_expense_rent} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
+                        </div>
+                        <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorEditForm.monthly_expense_other} onChange={e => setGuarantorEditForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                          <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ flex: 1 }}>Save Guarantor</button>
+                          <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowGuarantorEditor(false)}>Cancel</button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: MANAGE LOAN */}
+              {ledgerTab === 'management' && user.role === 'admin' && (
+                <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {loanStatement.loan.status === 'active' && (
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Settings className="icon" /> Loan Management</h3>
+                      <div className="responsive-grid-2-col" style={{ gap: '20px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Edit Terms</h4>
+                          <form onSubmit={handleUpdateLoan} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: 'bold' }}>New Interest Rate (%) — currently {loanStatement.loan.interest_rate}%</label>
+                              <input type="number" step="0.01" min="0" className="glass-input" placeholder="Leave blank to keep unchanged"
+                                value={loanEditForm.interest_rate}
+                                onChange={e => setLoanEditForm(prev => ({ ...prev, interest_rate: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: 'bold' }}>Reassign Agent</label>
+                              <select className="glass-input" value={loanEditForm.assigned_agent_id}
+                                onChange={e => setLoanEditForm(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
+                                <option value="">Leave unchanged</option>
+                                {agentsList.map(a => (
+                                  <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading}>Save Changes</button>
+                          </form>
+                        </div>
+
+                        <div>
+                          <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Apply Late Fee / Penalty</h4>
+                          <form onSubmit={handleApplyPenalty} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <input type="number" min="1" className="glass-input" placeholder="Penalty amount (LKR)"
+                              value={penaltyForm.amount}
+                              onChange={e => setPenaltyForm(prev => ({ ...prev, amount: e.target.value }))} />
+                            <input type="text" className="glass-input" placeholder="Reason (optional)"
+                              value={penaltyForm.reason}
+                              onChange={e => setPenaltyForm(prev => ({ ...prev, reason: e.target.value }))} />
+                            <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading}>Apply Penalty</button>
+                          </form>
+
+                          <h4 style={{ fontSize: '15px', margin: '16px 0 10px' }}>Mark as Defaulted</h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <input type="text" className="glass-input" placeholder="Reason for default (required)"
+                              value={defaultReason}
+                              onChange={e => setDefaultReason(e.target.value)} />
+                            <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={() => {
+                              if (window.confirm('Mark this loan as defaulted? This will block further payment collection.')) {
+                                handleMarkDefaulted();
+                              }
+                            }}>
+                              <Ban className="icon" /> Mark Defaulted
+                            </button>
+                          </div>
+
+                          <h4 style={{ fontSize: '15px', margin: '16px 0 10px' }}>Write Off as Bad Debt</h4>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>Permanently closes this loan and posts the remaining balance to the ledger as unrecoverable. Use only when the debt will never be collected.</p>
+                          <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={handleWriteOffLoan} style={{ width: '100%' }}>
+                            <Ban className="icon" /> Write Off Loan
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {loanStatement.loan.status === 'defaulted' && (
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '22px', marginBottom: '8px' }}><Settings className="icon" /> Loan Management</h3>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+                        This loan is defaulted (Reason: {loanStatement.loan.default_reason || 'N/A'}). No payments can be recorded until it's reinstated.
+                      </p>
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <button type="button" className="glass-btn glass-btn-emerald" disabled={loading} onClick={handleReinstateLoan}>
+                          <RefreshCcw className="icon" /> Reinstate to Active
+                        </button>
+                        <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={handleWriteOffLoan}>
+                          <Ban className="icon" /> Write Off as Bad Debt
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
             </div>
           );
