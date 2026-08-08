@@ -128,6 +128,15 @@ export default function LendApp() {
     idempotency_key: ''
   });
 
+  const [ledgerPaymentForm, setLedgerPaymentForm] = useState({
+    payment_type: 'interest',
+    amount: '',
+    notes: '',
+    proof_image: '',
+    payment_method: 'cash',
+    idempotency_key: ''
+  });
+
   // Borrower dashboard and payment forms
   const [borrowerData, setBorrowerData] = useState(null);
   const [borrowerPayment, setBorrowerPayment] = useState({
@@ -975,6 +984,50 @@ export default function LendApp() {
     }
   };
 
+  const handleLedgerCollectPayment = async (e) => {
+    e.preventDefault();
+    if (!loanStatement || !loanStatement.loan) return;
+    const loanId = loanStatement.loan.id;
+    if (!ledgerPaymentForm.amount || parseFloat(ledgerPaymentForm.amount) <= 0) {
+      showToast('Please enter a valid amount.', 'error');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.post('/payments', {
+        loan_id: loanId,
+        payment_type: ledgerPaymentForm.payment_type,
+        amount: parseFloat(ledgerPaymentForm.amount),
+        notes: ledgerPaymentForm.notes,
+        proof_image_url: ledgerPaymentForm.proof_image || null,
+        payment_method: ledgerPaymentForm.payment_method,
+        idempotency_key: ledgerPaymentForm.idempotency_key || (Math.random().toString(36).substring(2) + Date.now())
+      });
+
+      const kind = ledgerPaymentForm.payment_type === 'interest' ? 'Interest' : 'Principal';
+      showToast(`${kind} collection recorded successfully! LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString()} collected.`);
+
+      setLedgerPaymentForm({
+        payment_type: 'interest',
+        amount: '',
+        notes: '',
+        proof_image: '',
+        payment_method: 'cash',
+        idempotency_key: Math.random().toString(36).substring(2) + Date.now()
+      });
+
+      const updatedDetails = await api.get(`/loans/${loanId}`);
+      setLoanStatement(updatedDetails);
+      fetchDashboardData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleBorrowerPayment = async (e) => {
     e.preventDefault();
     if (!borrowerPayment.loan_id) {
@@ -1038,6 +1091,14 @@ export default function LendApp() {
     setSelectedLoanId(loanId);
     setView('ledger');
     setLedgerTab('passbook');
+    setLedgerPaymentForm({
+      payment_type: 'interest',
+      amount: '',
+      notes: '',
+      proof_image: '',
+      payment_method: 'cash',
+      idempotency_key: Math.random().toString(36).substring(2) + Date.now()
+    });
     setShowGuarantorEditor(false);
     setLoading(true);
     try {
@@ -3299,7 +3360,13 @@ export default function LendApp() {
         )}
 
         {/* ----------------- DOUBLE-ENTRY STATEMENT AUDIT LEDGER ----------------- */}
-        {token && user && view === 'ledger' && loanStatement && (() => {
+        {token && user && view === 'ledger' && (
+          !loanStatement ? (
+            <div className="glass-card animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px', gap: '16px' }}>
+              <div className="loading-spinner" />
+              <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Loading loan file details...</p>
+            </div>
+          ) : (() => {
           // Construct passbook events chronologically. Interest-only model —
           // principal and interest are two separate running balances:
           // disbursement/principal-payments only move the principal balance,
@@ -3553,8 +3620,13 @@ export default function LendApp() {
 
                   <div className="responsive-grid-2-col" style={{ gap: '24px' }}>
                     {/* Passbook Statement History */}
-                    <div className="glass-card">
-                      <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><Receipt className="icon" /> Passbook Statement (Activity Log)</h3>
+                    <div className="glass-card" style={{ cursor: 'pointer', transition: 'transform 0.2s ease, border-color 0.2s ease' }} onClick={() => setView('passbook-details')}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 style={{ fontSize: '20px', margin: 0 }}><Receipt className="icon" /> Passbook Statement (Activity Log)</h3>
+                        <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '6px' }}>
+                          View Detailed Table
+                        </button>
+                      </div>
                       
                       {/* Desktop View Table */}
                       <div className="desktop-only" style={{ overflowX: 'auto' }}>
@@ -3642,6 +3714,73 @@ export default function LendApp() {
                     {/* Payments & Interest History split */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                       
+                      {/* Record Payment inline card */}
+                      {(user.role === 'admin' || user.role === 'agent') && loanStatement.loan.status === 'active' && (
+                        <div className="glass-card" onClick={(e) => e.stopPropagation()} style={{ border: '1px solid var(--border-light)', background: 'rgba(255, 255, 255, 0.01)' }}>
+                          <h3 style={{ fontSize: '18px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Banknote className="icon" style={{ color: 'var(--accent-blue)' }} /> Record a Payment
+                          </h3>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>
+                            Enter cash collection details for this loan.
+                          </p>
+                          <form onSubmit={handleLedgerCollectPayment} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>PAYMENT TYPE</label>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button type="button"
+                                  className={`glass-btn ${ledgerPaymentForm.payment_type === 'interest' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                                  style={{ flex: 1, padding: '6px 12px', fontSize: '12px' }}
+                                  onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'interest' }))}>
+                                  Interest
+                                </button>
+                                <button type="button"
+                                  className={`glass-btn ${ledgerPaymentForm.payment_type === 'principal' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                                  style={{ flex: 1, padding: '6px 12px', fontSize: '12px' }}
+                                  onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'principal' }))}>
+                                  Principal
+                                </button>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>AMOUNT (LKR) *</label>
+                              <input required type="number" step="0.01" min="0.01" className="glass-input" placeholder="0.00"
+                                value={ledgerPaymentForm.amount}
+                                onChange={e => setLedgerPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
+                                style={{ padding: '8px 12px', fontSize: '14px' }} />
+                            </div>
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>NOTES / DESCRIPTION</label>
+                              <input type="text" className="glass-input" placeholder="e.g. Week 2 payment"
+                                value={ledgerPaymentForm.notes}
+                                onChange={e => setLedgerPaymentForm(prev => ({ ...prev, notes: e.target.value }))}
+                                style={{ padding: '8px 12px', fontSize: '13px' }} />
+                            </div>
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>RECEIPT PHOTO / PROOF</label>
+                              <input type="file" accept="image/*" className="glass-input"
+                                onChange={async (e) => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                      setLedgerPaymentForm(prev => ({ ...prev, proof_image: reader.result }));
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                style={{ padding: '6px', fontSize: '12px' }} />
+                            </div>
+
+                            <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '10px', fontSize: '14px', marginTop: '4px' }}>
+                              Collect Payment
+                            </button>
+                          </form>
+                        </div>
+                      )}
+
                       {/* Collection Receipts ledger */}
                       <div className="glass-card">
                         <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><Banknote className="icon" /> Payments Received</h3>
@@ -3968,7 +4107,143 @@ export default function LendApp() {
 
             </div>
           );
-        })()}
+        })()
+      )}
+
+      {/* ----------------- CHRONOLOGICAL DETAILED PASSBOOK TABLE PAGE ----------------- */}
+      {token && user && view === 'passbook-details' && (
+        !loanStatement ? (
+          <div className="glass-card animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px', gap: '16px' }}>
+            <div className="loading-spinner" />
+            <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Loading passbook details...</p>
+          </div>
+        ) : (() => {
+          // Event compilation (chronological order)
+          const events = [
+            {
+              date: loanStatement.loan.created_at,
+              type: 'Loan Disbursed',
+              amount: parseFloat(loanStatement.loan.principal_amount),
+              bucket: 'principal',
+              change: 'increase',
+              details: 'Initial principal loan amount'
+            },
+            ...loanStatement.accruals.map(acc => ({
+              date: acc.created_at,
+              type: 'Interest Added',
+              amount: parseFloat(acc.amount_accrued),
+              bucket: 'interest',
+              change: 'increase',
+              details: acc.calculation_log
+            })),
+            ...loanStatement.payments.map(p => ({
+              date: p.payment_date,
+              type: p.payment_type === 'principal' ? 'Principal Payment' : 'Interest Payment',
+              amount: parseFloat(p.amount),
+              bucket: p.payment_type === 'principal' ? 'principal' : 'interest',
+              change: 'decrease',
+              details: `Cash collected by ${p.agent_name} ${p.notes ? ` - "${p.notes}"` : ''}`
+            })),
+            ...loanStatement.ledger.filter(l => l.account === 'penalty_revenue').map(l => ({
+              date: l.created_at,
+              type: 'Penalty Applied',
+              amount: parseFloat(l.amount),
+              bucket: 'interest',
+              change: 'increase',
+              details: 'Manual late fee / penalty charged by admin'
+            }))
+          ];
+
+          events.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+          let principalBal = 0;
+          let interestBal = 0;
+          const displayEvents = events.map(ev => {
+            const delta = ev.change === 'increase' ? ev.amount : -ev.amount;
+            if (ev.bucket === 'principal') {
+              principalBal += delta;
+            } else {
+              interestBal += delta;
+            }
+            return { ...ev, runningPrincipalBalance: principalBal, runningInterestBalance: interestBal };
+          });
+
+          return (
+            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-blue)', fontWeight: 'bold', letterSpacing: '0.05em' }}>DETAILED PASSBOOK STATEMENT</span>
+                  <h2 style={{ fontSize: '28px', margin: '4px 0' }}>{loanStatement.loan.borrower_name}</h2>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                    NIC: <strong>{loanStatement.loan.nic_number || 'N/A'}</strong> | Phone: <strong>{loanStatement.loan.borrower_phone}</strong>
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button type="button" className="glass-btn glass-btn-secondary" onClick={() => window.print()}>
+                    <Printer className="icon" /> Print Statement
+                  </button>
+                  <button type="button" className="glass-btn" onClick={() => setView('ledger')}>
+                    <ArrowLeft className="icon" /> Back to Loan File
+                  </button>
+                </div>
+              </div>
+
+              <div className="glass-card" style={{ padding: '24px' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="glass-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '15%' }}>Date/Time</th>
+                        <th style={{ width: '15%' }}>Event Type</th>
+                        <th style={{ width: '30%' }}>Calculation Details / Log</th>
+                        <th style={{ width: '13%', textAlign: 'right' }}>Principal Change</th>
+                        <th style={{ width: '13%', textAlign: 'right' }}>Principal Balance</th>
+                        <th style={{ width: '13%', textAlign: 'right' }}>Interest Change</th>
+                        <th style={{ width: '13%', textAlign: 'right' }}>Interest Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayEvents.map((entry, idx) => (
+                        <tr key={idx}>
+                          <td style={{ fontSize: '13px' }}>{new Date(entry.date).toLocaleString()}</td>
+                          <td>
+                            <span className={`badge ${entry.change === 'decrease' ? 'badge-active' : 'badge-pending'}`}>
+                              {entry.type}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                            {entry.details}
+                          </td>
+                          <td style={{
+                            textAlign: 'right',
+                            fontWeight: 'bold',
+                            color: entry.bucket === 'principal' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                          }}>
+                            {entry.bucket === 'principal' ? (entry.change === 'increase' ? `+LKR ${entry.amount.toLocaleString()}` : `-LKR ${entry.amount.toLocaleString()}`) : '-'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                            LKR {entry.runningPrincipalBalance.toLocaleString()}
+                          </td>
+                          <td style={{
+                            textAlign: 'right',
+                            fontWeight: 'bold',
+                            color: entry.bucket === 'interest' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                          }}>
+                            {entry.bucket === 'interest' ? (entry.change === 'increase' ? `+LKR ${entry.amount.toLocaleString()}` : `-LKR ${entry.amount.toLocaleString()}`) : '-'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                            LKR {entry.runningInterestBalance.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
 
       </main>
 

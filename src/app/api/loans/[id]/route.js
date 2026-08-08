@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { runInterestAccruals } from '@/lib/services/interest.js';
 
 // Get detailed loan statement
 export async function GET(request, { params }) {
   try {
     const { role, id: userId } = await requireAuth(request);
     const { id } = params;
+
+    // Automatically trigger any pending interest accruals in real-time
+    await runInterestAccruals();
 
     const loan = await db('loans')
       .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
