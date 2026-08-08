@@ -205,6 +205,7 @@ async function createSchemaAndSeed() {
     table.string('status', 20).defaultTo('active'); // 'pending', 'active', 'fully_paid', 'defaulted', 'written_off'
     table.timestamp('last_accrual_date').defaultTo(db.fn.now());
     table.timestamp('next_accrual_date').notNullable();
+    table.string('reference_number', 50).unique().nullable();
     table.string('nic_number', 50);
     table.text('nic_photo_url');
     table.text('borrower_address').nullable();

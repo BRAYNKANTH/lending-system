@@ -2424,6 +2424,11 @@ export default function LendApp() {
                             <tr key={loan.id}>
                               <td>
                                 <strong>{loan.borrower_name}</strong>
+                                {loan.reference_number && (
+                                  <span style={{ fontSize: '11px', color: 'var(--accent-blue)', background: 'rgba(59,130,246,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'bold' }}>
+                                    {loan.reference_number}
+                                  </span>
+                                )}
                               </td>
                               <td style={{ textTransform: 'capitalize' }}>{loan.interest_type}</td>
                               <td>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
@@ -2456,7 +2461,14 @@ export default function LendApp() {
                           style={{ cursor: 'pointer', transition: 'transform 0.1s ease, box-shadow 0.1s ease' }}
                         >
                           <div className="mobile-row-card-header">
-                            <span className="mobile-row-card-title">{loan.borrower_name}</span>
+                            <span className="mobile-row-card-title">
+                              {loan.borrower_name}
+                              {loan.reference_number && (
+                                <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(59,130,246,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'bold' }}>
+                                  {loan.reference_number}
+                                </span>
+                              )}
+                            </span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <span className="badge badge-defaulted">Overdue</span>
                               <span style={{ color: 'var(--text-muted)', display: 'flex' }}><ChevronRight /></span>
@@ -3610,7 +3622,14 @@ export default function LendApp() {
               <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
                 <div style={{ flex: '1 1 300px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--accent-blue)', fontWeight: 'bold', letterSpacing: '0.05em' }}>LOAN STATEMENT & HISTORY</span>
-                  <h2 style={{ fontSize: '28px', margin: '4px 0' }}>Loan Details: {loanStatement.loan.borrower_name}</h2>
+                  <h2 style={{ fontSize: '28px', margin: '4px 0', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    Loan Details: {loanStatement.loan.borrower_name}
+                    {loanStatement.loan.reference_number && (
+                      <span style={{ fontSize: '16px', color: 'var(--accent-blue)', background: 'rgba(59, 130, 246, 0.1)', padding: '4px 10px', borderRadius: '6px', fontWeight: 'bold' }}>
+                        {loanStatement.loan.reference_number}
+                      </span>
+                    )}
+                  </h2>
                   
                   {/* Styled responsive metrics grid */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px 16px', margin: '12px 0' }}>
@@ -4592,7 +4611,8 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const filteredLoans = loans.filter(loan => {
     const matchesSearch =
       loan.borrower_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.borrower_phone.includes(searchTerm);
+      loan.borrower_phone.includes(searchTerm) ||
+      (loan.reference_number && loan.reference_number.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesFilter = statusFilter === 'all' || loan.status === statusFilter;
     return matchesSearch && matchesFilter;
   });
@@ -4696,7 +4716,14 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                   <tr key={loan.id}>
                     <td>{new Date(loan.created_at).toLocaleDateString()}</td>
                     <td>
-                      <strong style={{ display: 'block' }}>{loan.borrower_name}</strong>
+                      <strong style={{ display: 'block' }}>
+                        {loan.borrower_name}
+                        {loan.reference_number && (
+                          <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(59,130,246,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'normal' }}>
+                            {loan.reference_number}
+                          </span>
+                        )}
+                      </strong>
                       <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}><Phone className="icon" /> {loan.borrower_phone}</span>
                       {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}><IdCard className="icon" /> NIC: {loan.nic_number}</span>}
                     </td>
@@ -4733,7 +4760,14 @@ function LoansLoader({ onSelect, fetchTrigger }) {
               >
                 <div className="mobile-row-card-header">
                   <div>
-                    <strong className="mobile-row-card-title" style={{ display: 'block' }}>{loan.borrower_name}</strong>
+                    <strong className="mobile-row-card-title" style={{ display: 'block' }}>
+                      {loan.borrower_name}
+                      {loan.reference_number && (
+                        <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(59,130,246,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'normal' }}>
+                          {loan.reference_number}
+                        </span>
+                      )}
+                    </strong>
                     <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}><Phone className="icon" /> {loan.borrower_phone}</span>
                     {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}><IdCard className="icon" /> NIC: {loan.nic_number}</span>}
                   </div>

@@ -257,6 +257,10 @@ export async function POST(request) {
     }
 
     const loanResult = await db.transaction(async (trx) => {
+      const [{ count }] = await trx('loans').count('id as count');
+      const nextSequence = parseInt(count, 10) + 1;
+      const refNumber = `STN-${String(nextSequence).padStart(3, '0')}`;
+
       const [newLoan] = await trx('loans').insert({
         borrower_id,
         lender_id: authUser.id,
@@ -274,6 +278,7 @@ export async function POST(request) {
         collection_mode: colMode,
         duration_periods: periods,
         maturity_date: calculatedMaturityDate,
+        reference_number: refNumber,
         ...(borrowerProfileRecord || {})
       }).returning('*');
 
