@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { stripTransactionMediaList } from '@/lib/stripMedia.js';
 
 export async function GET(request) {
   try {
@@ -23,26 +24,29 @@ export async function GET(request) {
     if (borrowerId && role === 'admin') baseQuery = baseQuery.where('transactions.borrower_id', borrowerId);
     if (agentId && role === 'admin') baseQuery = baseQuery.where('transactions.agent_id', agentId);
 
-    const countResult = await baseQuery.clone().count('transactions.id as count').first();
+    const [countResult, historyRaw] = await Promise.all([
+      baseQuery.clone().count('transactions.id as count').first(),
+      baseQuery.clone()
+        .select(
+          'transactions.*',
+          'borrowers.name as borrower_name',
+          'borrowers.phone as borrower_phone',
+          'borrowers.email as borrower_email',
+          'agents.name as agent_name',
+          'loans.principal_amount as loan_principal',
+          'loans.interest_rate as loan_interest_rate',
+          'loans.interest_type as loan_interest_type',
+          'loans.principal_outstanding as loan_principal_outstanding',
+          'loans.interest_balance as loan_interest_balance',
+          'loans.status as loan_status'
+        )
+        .orderBy('transactions.payment_date', 'desc')
+        .limit(limit)
+        .offset((page - 1) * limit)
+    ]);
     const total = parseInt(countResult.count, 10) || 0;
-
-    const history = await baseQuery.clone()
-      .select(
-        'transactions.*',
-        'borrowers.name as borrower_name',
-        'borrowers.phone as borrower_phone',
-        'borrowers.email as borrower_email',
-        'agents.name as agent_name',
-        'loans.principal_amount as loan_principal',
-        'loans.interest_rate as loan_interest_rate',
-        'loans.interest_type as loan_interest_type',
-        'loans.principal_outstanding as loan_principal_outstanding',
-        'loans.interest_balance as loan_interest_balance',
-        'loans.status as loan_status'
-      )
-      .orderBy('transactions.payment_date', 'desc')
-      .limit(limit)
-      .offset((page - 1) * limit);
+    // Receipt photos aren't shown in the history table — stripped here too.
+    const history = stripTransactionMediaList(historyRaw);
 
     return NextResponse.json({ data: history, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) });
   } catch (error) {

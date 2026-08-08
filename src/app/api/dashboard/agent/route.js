@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { getAgentCashInHand } from '@/lib/services/remittance.js';
+import { stripLoanMediaList, stripTransactionMediaList } from '@/lib/stripMedia.js';
 
 export async function GET(request) {
   try {
@@ -10,23 +11,40 @@ export async function GET(request) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const collectionsTodayResult = await db('transactions')
-      .where({ agent_id: agentId })
-      .andWhere('payment_date', '>=', todayStart)
-      .sum('amount as total');
+    // These four don't depend on each other — run concurrently instead of
+    // as four sequential round-trips.
+    const [collectionsTodayResult, assignedLoansRaw, collectionHistoryRaw, cashInHand] = await Promise.all([
+      db('transactions')
+        .where({ agent_id: agentId })
+        .andWhere('payment_date', '>=', todayStart)
+        .sum('amount as total'),
+      // All statuses, not just active — the UI toggles between Active,
+      // Defaulted, and Closed (fully_paid/written_off) tabs. Previously this
+      // hardcoded status='active', so agents could never see a defaulted or
+      // closed loan on their own route at all.
+      db('loans')
+        .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
+        .where({ assigned_agent_id: agentId })
+        .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone')
+        .orderBy('loans.principal_outstanding', 'desc'),
+      db('transactions')
+        .join('users as borrowers', 'transactions.borrower_id', 'borrowers.id')
+        .where({ agent_id: agentId })
+        .select('transactions.*', 'borrowers.name as borrower_name')
+        .orderBy('transactions.payment_date', 'desc')
+        .limit(10),
+      getAgentCashInHand(agentId)
+    ]);
+
     const collectionsToday = parseFloat(collectionsTodayResult[0].total) || 0;
+    // Neither the loan list nor the collection history displays NIC/proof
+    // photos — stripped so agents aren't downloading several MB of base64
+    // images every time they open their dashboard.
+    const assignedLoans = stripLoanMediaList(assignedLoansRaw);
+    const collectionHistory = stripTransactionMediaList(collectionHistoryRaw);
 
-    // All statuses, not just active — the UI toggles between Active,
-    // Defaulted, and Closed (fully_paid/written_off) tabs. Previously this
-    // hardcoded status='active', so agents could never see a defaulted or
-    // closed loan on their own route at all.
-    const assignedLoans = await db('loans')
-      .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
-      .where({ assigned_agent_id: agentId })
-      .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone')
-      .orderBy('loans.principal_outstanding', 'desc');
-
-    // Today's collection-tracker status per loan, for the daily checklist
+    // Today's collection-tracker status per loan, for the daily checklist —
+    // depends on assignedLoans' IDs, so this one has to come after.
     const todayStr = new Date().toISOString().slice(0, 10);
     const todayMarks = assignedLoans.length
       ? await db('daily_collections')
@@ -38,14 +56,6 @@ export async function GET(request) {
       loan.today_collection_status = todayMarkByLoanId[loan.id]?.status || null;
     }
 
-    const collectionHistory = await db('transactions')
-      .join('users as borrowers', 'transactions.borrower_id', 'borrowers.id')
-      .where({ agent_id: agentId })
-      .select('transactions.*', 'borrowers.name as borrower_name')
-      .orderBy('transactions.payment_date', 'desc')
-      .limit(10);
-
-    const cashInHand = await getAgentCashInHand(agentId);
     const activeCount = assignedLoans.filter((l) => l.status === 'active').length;
 
     return NextResponse.json({

@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
-
 :root {
   /* Professional blue theme — a modern indigo-leaning primary blue rather
      than a flat/generic one, with a cooler, blue-tinted neutral scale so
@@ -23,8 +21,12 @@
   --accent-rose: #dc2626; /* Danger red */
   --accent-gold: #d97706; /* Warning amber */
 
-  --font-title: 'Outfit', 'Inter', sans-serif;
-  --font-body: 'Inter', sans-serif;
+  /* Self-hosted via next/font/google (see layout.js) instead of a
+     render-blocking @import from fonts.googleapis.com — that import added
+     a full extra network round-trip (DNS + TLS + request) before the
+     browser could even start painting, on every single page load. */
+  --font-title: var(--font-outfit), 'Inter', sans-serif;
+  --font-body: var(--font-inter), sans-serif;
 
   --shadow-xs: 0 1px 2px rgba(15, 27, 49, 0.05);
   --shadow-sm: 0 1px 3px rgba(15, 27, 49, 0.06), 0 1px 2px rgba(15, 27, 49, 0.05);

@@ -9,8 +9,10 @@ export async function GET(request, { params }) {
     const { role, id: userId } = await requireAuth(request);
     const { id } = params;
 
-    // Automatically trigger any pending interest accruals in real-time
-    await runInterestAccruals();
+    // Automatically trigger any pending interest accrual in real-time, but
+    // only for this one loan — previously this swept every active loan in
+    // the system on every single loan-detail page view.
+    await runInterestAccruals(id);
 
     const loan = await db('loans')
       .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
@@ -29,21 +31,23 @@ export async function GET(request, { params }) {
       return NextResponse.json({ message: 'This loan is not assigned to you.' }, { status: 403 });
     }
 
-    const payments = await db('transactions')
-      .join('users as agents', 'transactions.agent_id', 'agents.id')
-      .where({ loan_id: id })
-      .select('transactions.*', 'agents.name as agent_name')
-      .orderBy('payment_date', 'desc');
-
-    const accruals = await db('interest_accruals').where({ loan_id: id }).orderBy('created_at', 'desc');
-    const ledger = await db('ledger_entries').where({ loan_id: id }).orderBy('created_at', 'asc');
-    const guarantor = await db('guarantors').where({ loan_id: id }).first();
-
-    const dailyCollections = await db('daily_collections')
-      .leftJoin('users as markers', 'daily_collections.marked_by', 'markers.id')
-      .where({ loan_id: id })
-      .select('daily_collections.*', 'markers.name as marked_by_name')
-      .orderBy('collection_date', 'desc');
+    // None of these five depend on each other — run concurrently instead
+    // of as five sequential round-trips.
+    const [payments, accruals, ledger, guarantor, dailyCollections] = await Promise.all([
+      db('transactions')
+        .join('users as agents', 'transactions.agent_id', 'agents.id')
+        .where({ loan_id: id })
+        .select('transactions.*', 'agents.name as agent_name')
+        .orderBy('payment_date', 'desc'),
+      db('interest_accruals').where({ loan_id: id }).orderBy('created_at', 'desc'),
+      db('ledger_entries').where({ loan_id: id }).orderBy('created_at', 'asc'),
+      db('guarantors').where({ loan_id: id }).first(),
+      db('daily_collections')
+        .leftJoin('users as markers', 'daily_collections.marked_by', 'markers.id')
+        .where({ loan_id: id })
+        .select('daily_collections.*', 'markers.name as marked_by_name')
+        .orderBy('collection_date', 'desc')
+    ]);
 
     return NextResponse.json({ loan, payments, accruals, ledger, guarantor: guarantor || null, dailyCollections });
   } catch (error) {

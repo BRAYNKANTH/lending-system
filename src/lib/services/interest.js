@@ -6,12 +6,21 @@ import db from '../db.js';
  *
  * Called from the Vercel Cron route (app/api/cron/accrue-interest) instead of
  * a setInterval loop — serverless functions don't stay alive between requests.
+ *
+ * Pass `loanId` to scope this to a single loan instead of sweeping every
+ * active loan in the system — used when a loan's detail page wants an
+ * up-to-date balance without paying the cost of processing every OTHER
+ * loan too. Without it, this was running a full system-wide accrual sweep
+ * on every single loan detail page view, getting more expensive as the
+ * loan book grows regardless of which one loan was actually being looked at.
  */
-export async function runInterestAccruals() {
-  console.log('Running interest accrual checks...');
-  const activeLoans = await db('loans')
+export async function runInterestAccruals(loanId) {
+  console.log(loanId ? `Running interest accrual check for loan ${loanId}...` : 'Running interest accrual checks...');
+  let query = db('loans')
     .where('status', 'active')
     .andWhere('next_accrual_date', '<=', db.fn.now());
+  if (loanId) query = query.andWhere('id', loanId);
+  const activeLoans = await query;
 
   console.log(`Found ${activeLoans.length} loans qualifying for interest accrual.`);
 
