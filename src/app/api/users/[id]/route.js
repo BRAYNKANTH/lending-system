@@ -67,8 +67,13 @@ export async function DELETE(request, { params }) {
 
 export async function PATCH(request, { params }) {
   try {
-    const authUser = await requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request);
     const { id } = params;
+
+    if (authUser.role !== 'admin' && authUser.id !== id) {
+      return NextResponse.json({ message: 'Forbidden.' }, { status: 403 });
+    }
+
     const { name, phone, role, email, gender } = await request.json();
 
     const targetUser = await db('users').where({ id }).first();
@@ -106,6 +111,9 @@ export async function PATCH(request, { params }) {
     }
 
     if (role !== undefined) {
+      if (authUser.role !== 'admin') {
+        return NextResponse.json({ message: 'Only admins can change user roles.' }, { status: 403 });
+      }
       if (!['admin', 'agent', 'borrower'].includes(role)) {
         return NextResponse.json({ message: 'Invalid role specified.' }, { status: 400 });
       }

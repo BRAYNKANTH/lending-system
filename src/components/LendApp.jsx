@@ -48,9 +48,12 @@ export default function LendApp() {
   // Agent: cash remittance submission form
   const [remittanceForm, setRemittanceForm] = useState({ amount: '', notes: '' });
 
-  // Change password modal (all roles)
+  // Change password & settings modal (all roles)
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('profile');
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '', email: '', gender: '' });
 
   // Admin: loan edit/default/penalty controls on the statement view
   const [loanEditForm, setLoanEditForm] = useState({ interest_rate: '', assigned_agent_id: '' });
@@ -495,6 +498,41 @@ export default function LendApp() {
         localStorage.setItem('lend_user', JSON.stringify(updatedUser));
         setUser(updatedUser);
       }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Open settings panel prefilled with profile info
+  const handleOpenSettings = () => {
+    setProfileForm({
+      name: user?.name || '',
+      phone: user?.phone || '',
+      email: user?.email || '',
+      gender: user?.gender || ''
+    });
+    setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+    setSettingsTab('profile');
+    setShowSettings(true);
+  };
+
+  // Submit profile self-updates
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      await api(`/users/${user.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(profileForm)
+      });
+      const updatedUser = { ...user, ...profileForm };
+      localStorage.setItem('lend_user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
+      showToast('Profile updated successfully!');
+      setShowSettings(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1600,11 +1638,11 @@ export default function LendApp() {
           )}
 
           <div className="app-header-nav">
-            <span style={{ color: 'var(--text-secondary)', fontSize: '16px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '16px' }} className="desktop-only">
               User: <strong style={{ color: 'var(--text-primary)' }}>{user.name}</strong>
             </span>
-            <button className="glass-btn glass-btn-secondary" style={{ padding: '10px 16px', fontSize: '14px' }} onClick={() => setShowChangePassword(true)}>
-              <KeyRound className="icon" /> <span className="btn-label-text">Password</span>
+            <button className="glass-btn glass-btn-secondary" style={{ padding: '10px 16px', fontSize: '14px' }} onClick={handleOpenSettings}>
+              <Settings className="icon" /> <span className="btn-label-text">Settings</span>
             </button>
             <button className="glass-btn glass-btn-rose" style={{ padding: '10px 20px', fontSize: '15px' }} onClick={handleLogout}>
               <LogOut className="icon" /> <span className="btn-label-text">Logout</span>
@@ -1649,6 +1687,123 @@ export default function LendApp() {
                 <button type="submit" className="glass-btn glass-btn-emerald" style={{ flex: 1 }} disabled={loading}>Update Password</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal (Profile & Security) */}
+      {showSettings && (
+        <div className="receipt-modal-overlay" onClick={() => setShowSettings(false)}>
+          <div className="glass-card" style={{ maxWidth: '480px', width: '100%', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <Settings className="icon" style={{ color: 'var(--accent-blue)', width: '24px', height: '24px' }} />
+              <h3 style={{ fontSize: '22px', margin: 0 }}>Account Settings</h3>
+            </div>
+
+            {/* Modal Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '16px', marginBottom: '20px' }}>
+              <button type="button"
+                style={{
+                  padding: '8px 4px',
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  color: settingsTab === 'profile' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                  borderBottom: settingsTab === 'profile' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setSettingsTab('profile')}>
+                Edit Profile
+              </button>
+              <button type="button"
+                style={{
+                  padding: '8px 4px',
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  color: settingsTab === 'security' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                  borderBottom: settingsTab === 'security' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setSettingsTab('security')}>
+                Security & Password
+              </button>
+            </div>
+
+            {/* Tab 1: Profile Settings */}
+            {settingsTab === 'profile' && (
+              <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>FULL NAME *</label>
+                  <input type="text" required className="glass-input" style={{ width: '100%' }}
+                    value={profileForm.name}
+                    onChange={e => setProfileForm(prev => ({ ...prev, name: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>PHONE NUMBER *</label>
+                  <input type="tel" required className="glass-input" style={{ width: '100%' }}
+                    value={profileForm.phone}
+                    onChange={e => setProfileForm(prev => ({ ...prev, phone: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>EMAIL ADDRESS</label>
+                  <input type="email" className="glass-input" style={{ width: '100%' }}
+                    value={profileForm.email}
+                    onChange={e => setProfileForm(prev => ({ ...prev, email: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>GENDER</label>
+                  <select className="glass-input" style={{ width: '100%', textTransform: 'capitalize' }}
+                    value={profileForm.gender}
+                    onChange={e => setProfileForm(prev => ({ ...prev, gender: e.target.value }))}>
+                    <option value="">Select Gender</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={() => setShowSettings(false)}>Cancel</button>
+                  <button type="submit" className="glass-btn glass-btn-emerald" style={{ flex: 1 }} disabled={loading}>Save Profile</button>
+                </div>
+              </form>
+            )}
+
+            {/* Tab 2: Security Settings */}
+            {settingsTab === 'security' && (
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                await handleChangePassword(e);
+                setShowSettings(false);
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>CURRENT PASSWORD</label>
+                  <input type="password" required className="glass-input" style={{ width: '100%' }}
+                    value={passwordForm.current_password}
+                    onChange={e => setPasswordForm(prev => ({ ...prev, current_password: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>NEW PASSWORD</label>
+                  <input type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
+                    value={passwordForm.new_password}
+                    onChange={e => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>CONFIRM NEW PASSWORD</label>
+                  <input type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
+                    value={passwordForm.confirm_password}
+                    onChange={e => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))} />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={() => setShowSettings(false)}>Cancel</button>
+                  <button type="submit" className="glass-btn glass-btn-emerald" style={{ flex: 1 }} disabled={loading}>Update Password</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
