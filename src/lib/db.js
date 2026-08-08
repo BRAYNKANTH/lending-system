@@ -27,7 +27,7 @@ function createClient() {
     // pooler.supabase.com host this app is configured to use) is built to
     // multiplex many logical connections like this efficiently, so raising
     // it here is safe.
-    pool: { min: 0, max: 10 }
+    pool: { min: 0, max: 15 }
   });
 }
 
