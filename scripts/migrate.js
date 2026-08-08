@@ -224,6 +224,10 @@ async function createSchemaAndSeed() {
     table.integer('duration_periods').nullable();
     table.timestamp('maturity_date').nullable();
     table.timestamps(true, true);
+
+    table.index('borrower_id');
+    table.index('assigned_agent_id');
+    table.index(['status', 'next_accrual_date']);
   });
 
   await db.schema.createTable('transactions', (table) => {
@@ -239,6 +243,10 @@ async function createSchemaAndSeed() {
     table.string('payment_method', 50).defaultTo('cash');
     table.string('idempotency_key', 255).unique().notNullable();
     table.timestamp('created_at').defaultTo(db.fn.now());
+
+    table.index('loan_id');
+    table.index('agent_id');
+    table.index('payment_date');
   });
 
   await db.schema.createTable('interest_accruals', (table) => {
@@ -247,6 +255,9 @@ async function createSchemaAndSeed() {
     table.decimal('amount_accrued', 15, 2).notNullable();
     table.text('calculation_log').notNullable();
     table.timestamp('created_at').defaultTo(db.fn.now());
+
+    table.index('loan_id');
+    table.index('created_at');
   });
 
   await db.schema.createTable('ledger_entries', (table) => {
@@ -257,6 +268,8 @@ async function createSchemaAndSeed() {
     table.string('type', 10).notNullable(); // 'debit', 'credit'
     table.decimal('amount', 15, 2).notNullable();
     table.timestamp('created_at').defaultTo(db.fn.now());
+
+    table.index('loan_id');
   });
 
   await db.schema.createTable('audit_logs', (table) => {
