@@ -20,14 +20,16 @@ function createClient() {
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false }
     },
-    // Each warm serverless instance holds its own pool of up to this many
-    // connections. 5 was fine for early testing but starts to queue
-    // requests under real concurrent staff usage (several agents recording
-    // collections at once). Supabase's transaction pooler (the :6543
-    // pooler.supabase.com host this app is configured to use) is built to
-    // multiplex many logical connections like this efficiently, so raising
-    // it here is safe.
-    pool: { min: 0, max: 15 }
+    // min: 0 meant the pool dropped to zero idle connections during any
+    // natural gap between requests (very normal — a user reading a page
+    // before clicking the next thing). The next query then had to pay a
+    // fresh TCP+TLS handshake to Supabase before it could even run —
+    // measured at ~1.2s round-trip to this project's ap-northeast-1
+    // (Tokyo) region — on top of the query itself. Keeping a couple of
+    // connections always warm (min: 2) eliminates that reconnect tax for
+    // normal usage patterns; Supabase's transaction pooler is built to
+    // handle many such idle-but-held connections cheaply.
+    pool: { min: 2, max: 15, idleTimeoutMillis: 60000 }
   });
 }
 
