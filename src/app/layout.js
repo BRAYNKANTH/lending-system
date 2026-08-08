@@ -31,8 +31,8 @@ export const metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'LendBuddy'
+    statusBarStyle: 'default',
+    title: 'STN Credit'
   }
 };
 
@@ -40,7 +40,8 @@ export const viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  themeColor: '#107a57'
+  themeColor: '#2554e8',
+  viewportFit: 'cover'
 };
 
 export default function RootLayout({ children }) {

@@ -2837,9 +2837,11 @@ export default function LendApp() {
                               <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleStartEditUser(u)} disabled={loading}>
                                 Edit Details
                               </button>
-                              <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleResetUserPassword(u)} disabled={loading}>
-                                Reset Password
-                              </button>
+                              {u.role !== 'borrower' && (
+                                <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleResetUserPassword(u)} disabled={loading}>
+                                  Reset Password
+                                </button>
+                              )}
                               <button className="glass-btn glass-btn-rose" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleDeleteUser(u)} disabled={loading || u.id === user.id}>
                                 <Trash2 className="icon" /> Delete
                               </button>
@@ -2871,9 +2873,11 @@ export default function LendApp() {
                           <button className="glass-btn glass-btn-secondary" onClick={() => handleStartEditUser(u)} disabled={loading}>
                             Edit Details
                           </button>
-                          <button className="glass-btn glass-btn-secondary" onClick={() => handleResetUserPassword(u)} disabled={loading}>
-                            Reset Password
-                          </button>
+                          {u.role !== 'borrower' && (
+                            <button className="glass-btn glass-btn-secondary" onClick={() => handleResetUserPassword(u)} disabled={loading}>
+                              Reset Password
+                            </button>
+                          )}
                           <button className="glass-btn glass-btn-rose" onClick={() => handleDeleteUser(u)} disabled={loading || u.id === user.id}>
                             <Trash2 className="icon" /> Delete
                           </button>

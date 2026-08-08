@@ -254,6 +254,12 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   justify-content: center;
   gap: 10px;
   box-shadow: 0 1px 2px rgba(15, 27, 49, 0.08);
+  /* A comfortable tap target floor regardless of whatever inline padding
+     an individual button uses (inline styles override the padding rule
+     above, but not this — plenty of small/compact buttons throughout the
+     app were landing at 27-29px tall, under any real touch-target
+     guideline). */
+  min-height: 40px;
 }
 
 .glass-btn:hover {
@@ -448,7 +454,8 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 64px;
+  height: calc(64px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-light);
   display: none; /* Hidden on desktop */
@@ -545,7 +552,10 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
 /* Media Queries for Tablet/Mobile */
 @media (max-width: 992px) {
   .dashboard-container {
-    padding: 20px 16px 88px 16px; /* Added extra bottom padding */
+    /* Clears the fixed bottom-nav-bar (64px + the safe-area inset it now
+       also pads itself by, e.g. the ~34px home-indicator strip on
+       notched iPhones), plus a little breathing room above it. */
+    padding: 20px 16px calc(88px + env(safe-area-inset-bottom, 0px)) 16px;
   }
 }
 
@@ -839,11 +849,31 @@ table.desktop-only {
   background: rgba(15, 23, 42, 0.65);
   backdrop-filter: blur(8px);
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
+  /* Every modal in the app shares this overlay — from a short password
+     form to the full printable loan agreement. With align-items:center
+     and no scroll, anything taller than the viewport got silently
+     clipped top and bottom with no way to reach it (no scrollbar, no way
+     to see the rest of the document or tap Print/Close). overflow-y:auto
+     here + margin:auto on the card below is the standard fix: short
+     modals still center perfectly, tall ones become scrollable from the
+     top instead of clipping.
+  */
+  overflow-y: auto;
   z-index: 2000;
   padding: 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   animation: fadeInOverlay 0.2s ease;
+}
+
+/* The centering-with-graceful-scroll trick needs margin:auto on whichever
+   element is the overlay's direct child — most modals use
+   .receipt-modal-card, but a couple (Settings) reuse .glass-card instead.
+   Targeting the direct child covers both without duplicating the rule. */
+.receipt-modal-overlay > * {
+  margin-top: auto;
+  margin-bottom: auto;
 }
 
 @keyframes fadeInOverlay {
@@ -858,6 +888,7 @@ table.desktop-only {
   padding: 32px;
   width: 100%;
   max-width: 440px;
+  margin: auto;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   border: 1px solid var(--border-light);
   position: relative;
