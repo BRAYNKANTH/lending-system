@@ -510,8 +510,7 @@ export default function LendApp() {
     setProfileForm({
       name: user?.name || '',
       phone: user?.phone || '',
-      email: user?.email || '',
-      gender: user?.gender || ''
+      email: user?.email || ''
     });
     setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
     setSettingsTab('profile');
@@ -1750,17 +1749,7 @@ export default function LendApp() {
                     value={profileForm.email}
                     onChange={e => setProfileForm(prev => ({ ...prev, email: e.target.value }))} />
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>GENDER</label>
-                  <select className="glass-input" style={{ width: '100%', textTransform: 'capitalize' }}
-                    value={profileForm.gender}
-                    onChange={e => setProfileForm(prev => ({ ...prev, gender: e.target.value }))}>
-                    <option value="">Select Gender</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
+
 
                 <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
                   <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={() => setShowSettings(false)}>Cancel</button>
