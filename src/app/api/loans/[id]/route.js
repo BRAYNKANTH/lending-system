@@ -12,7 +12,7 @@ export async function GET(request, { params }) {
       .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
       .leftJoin('users as agents', 'loans.assigned_agent_id', 'agents.id')
       .where('loans.id', id)
-      .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone', 'agents.name as agent_name')
+      .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone', 'borrowers.email as borrower_email', 'borrowers.gender as borrower_gender', 'agents.name as agent_name')
       .first();
 
     if (!loan) {
@@ -81,9 +81,12 @@ export async function PATCH(request, { params }) {
 
     if (assigned_agent_id !== undefined) {
       if (assigned_agent_id) {
-        const agent = await db('users').where({ id: assigned_agent_id, role: 'agent' }).first();
+        const agent = await db('users')
+          .where({ id: assigned_agent_id })
+          .whereIn('role', ['agent', 'admin'])
+          .first();
         if (!agent) {
-          return NextResponse.json({ message: 'Assigned agent not found.' }, { status: 404 });
+          return NextResponse.json({ message: 'Assigned agent/admin not found.' }, { status: 404 });
         }
       }
       updates.assigned_agent_id = assigned_agent_id || null;

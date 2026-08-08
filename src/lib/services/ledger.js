@@ -69,13 +69,13 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
     // either payment type clears part of that same receivable, so the
     // ledger posting is identical; only the loan's own bookkeeping below
     // distinguishes which component was paid down.
-    // A: Debit cash_agent (Asset increases)
-    // B: Credit loan_receivable (Asset decreases)
+    // A: Debit cash_agent or cash_office depending on payment method
+    const debitAccount = (paymentMethod && paymentMethod !== 'cash') ? 'cash_office' : 'cash_agent';
     await trx('ledger_entries').insert([
       {
         loan_id: loanId,
         transaction_id: transaction.id || transaction,
-        account: 'cash_agent',
+        account: debitAccount,
         type: 'debit',
         amount: payAmount
       },
@@ -124,11 +124,13 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
     // 6. Retrieve related user data for notifications
     const borrower = await trx('users').where({ id: loan.borrower_id }).first();
     const admin = await trx('users').where({ id: loan.lender_id }).first();
+    const agent = await trx('users').where({ id: agentId }).first();
 
     return {
       transactionId: transaction.id || transaction,
       borrower,
       admin,
+      agent,
       amount: payAmount,
       paymentType,
       newPrincipalOutstanding,

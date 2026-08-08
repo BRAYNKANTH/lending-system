@@ -1107,6 +1107,127 @@ table.desktop-only {
   }
 }
 
+/* --- WIZARD FORM LAYOUT --- */
+.wizard-layout {
+  display: flex;
+  flex-direction: row;
+  min-height: 500px;
+}
+
+.wizard-sidebar {
+  width: 240px;
+  background: var(--bg-tertiary);
+  border-right: 1px solid var(--border-light);
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wizard-body {
+  flex: 1;
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  width: 100%;
+  text-align: left;
+}
+
+.step-indicator.active {
+  background: var(--accent-blue-light);
+  border-color: rgba(37, 84, 232, 0.15);
+}
+
+.step-indicator.active .step-number {
+  background-color: var(--accent-blue);
+  color: #ffffff;
+}
+
+.step-indicator.completed .step-number {
+  background-color: var(--accent-emerald);
+  color: #ffffff;
+}
+
+.step-indicator.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.step-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  background-color: var(--border-strong);
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.step-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.step-indicator.active .step-label {
+  color: var(--accent-blue);
+}
+
+.step-indicator.completed .step-label {
+  color: var(--accent-emerald);
+}
+
+.step-subtext {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Stepper responsive layout */
+@media (max-width: 768px) {
+  .wizard-layout {
+    flex-direction: column;
+  }
+  .wizard-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
+    flex-direction: row;
+    padding: 12px;
+    gap: 8px;
+    justify-content: space-around;
+  }
+  .wizard-body {
+    padding: 20px;
+  }
+  .step-indicator {
+    padding: 6px 10px;
+    flex-direction: row;
+    gap: 8px;
+    width: auto;
+  }
+  .step-subtext {
+    display: none;
+  }
+}
+
+
 
 
 

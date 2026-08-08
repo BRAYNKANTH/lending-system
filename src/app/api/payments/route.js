@@ -8,7 +8,7 @@ import { validateImageDataUrl } from '@/lib/services/image.js';
 // Record payment collection (Agent or Admin — borrowers have no login access)
 export async function POST(request) {
   try {
-    const authUser = await requireAuth(request, ['agent', 'admin']);
+    const authUser = await requireAuth(request, ['agent', 'admin', 'borrower']);
     const { loan_id, amount, payment_type, notes, proof_image_url, payment_method, idempotency_key } = await request.json();
 
     if (!loan_id || !amount || !idempotency_key) {
@@ -31,21 +31,22 @@ export async function POST(request) {
       );
     }
 
-    // An agent may only collect on loans assigned to them — otherwise any
-    // agent could post a payment against any loan_id, real money movement
-    // with no ownership check. Admin is unrestricted (covers self-collected
-    // loans with no assigned agent).
-    if (authUser.role === 'agent') {
-      const loan = await db('loans').where({ id: loan_id }).first();
-      if (!loan) {
-        return NextResponse.json({ message: 'Loan not found.' }, { status: 404 });
-      }
-      if (loan.assigned_agent_id !== authUser.id) {
-        return NextResponse.json({ message: 'This loan is not assigned to you.' }, { status: 403 });
-      }
+    const loan = await db('loans').where({ id: loan_id }).first();
+    if (!loan) {
+      return NextResponse.json({ message: 'Loan not found.' }, { status: 404 });
     }
 
-    const agentId = authUser.id;
+    // Role-based access checks
+    if (authUser.role === 'agent' && loan.assigned_agent_id !== authUser.id) {
+      return NextResponse.json({ message: 'This loan is not assigned to you.' }, { status: 403 });
+    }
+    if (authUser.role === 'borrower' && loan.borrower_id !== authUser.id) {
+      return NextResponse.json({ message: 'This loan does not belong to you.' }, { status: 403 });
+    }
+
+    const agentId = authUser.role === 'borrower'
+      ? (loan.assigned_agent_id || loan.lender_id)
+      : authUser.id;
 
     let savedProofUrl = null;
     if (proof_image_url) {
@@ -66,6 +67,7 @@ export async function POST(request) {
     notifyPaymentReceived({
       borrower: result.borrower,
       admin: result.admin,
+      agent: result.agent,
       amount: result.amount,
       paymentType: result.paymentType,
       principalOutstanding: result.newPrincipalOutstanding,

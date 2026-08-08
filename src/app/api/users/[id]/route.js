@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { normalizePhone } from '@/lib/phone.js';
 
 // Permanently delete a user (Admin only). Blocked if the user has any
 // loan/transaction/remittance history — that history is part of the audit
@@ -48,5 +49,103 @@ export async function DELETE(request, { params }) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Delete user error:', error);
     return NextResponse.json({ message: 'Failed to delete user.' }, { status: 500 });
+  }
+}
+
+export async function PATCH(request, { params }) {
+  try {
+    const authUser = await requireAuth(request, ['admin']);
+    const { id } = params;
+    const { name, phone, role, email, gender } = await request.json();
+
+    const targetUser = await db('users').where({ id }).first();
+    if (!targetUser) {
+      return NextResponse.json({ message: 'User not found.' }, { status: 404 });
+    }
+
+    const updates = {};
+    const changes = [];
+
+    if (name !== undefined) {
+      const cleanName = name.trim();
+      if (!cleanName) {
+        return NextResponse.json({ message: 'Name cannot be empty.' }, { status: 400 });
+      }
+      updates.name = cleanName;
+      changes.push(`name: '${targetUser.name}' -> '${cleanName}'`);
+    }
+
+    if (phone !== undefined) {
+      const cleanPhone = phone.trim().replace(/\s+/g, '');
+      if (!cleanPhone) {
+        return NextResponse.json({ message: 'Phone number cannot be empty.' }, { status: 400 });
+      }
+      const normalized = normalizePhone(cleanPhone);
+      const existingUser = await db('users')
+        .whereRaw('phone LIKE ?', [`%${normalized}`])
+        .andWhereNot({ id })
+        .first();
+      if (existingUser) {
+        return NextResponse.json({ message: 'Phone number is already registered by another user.' }, { status: 400 });
+      }
+      updates.phone = cleanPhone;
+      changes.push(`phone: '${targetUser.phone}' -> '${cleanPhone}'`);
+    }
+
+    if (role !== undefined) {
+      if (!['admin', 'agent', 'borrower'].includes(role)) {
+        return NextResponse.json({ message: 'Invalid role specified.' }, { status: 400 });
+      }
+      if (id === authUser.id && role !== 'admin') {
+        return NextResponse.json({ message: 'You cannot change your own role.' }, { status: 400 });
+      }
+      updates.role = role;
+      changes.push(`role: '${targetUser.role}' -> '${role}'`);
+    }
+
+    if (email !== undefined) {
+      const cleanEmail = email && email.trim() ? email.trim().toLowerCase() : null;
+      if (cleanEmail) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+          return NextResponse.json({ message: 'Invalid email format.' }, { status: 400 });
+        }
+        const existingEmail = await db('users')
+          .where({ email: cleanEmail })
+          .andWhereNot({ id })
+          .first();
+        if (existingEmail) {
+          return NextResponse.json({ message: 'Email address is already registered to another user.' }, { status: 400 });
+        }
+      }
+      updates.email = cleanEmail;
+      changes.push(`email: '${targetUser.email || 'none'}' -> '${cleanEmail || 'none'}'`);
+    }
+
+    if (gender !== undefined) {
+      const cleanGender = gender ? gender.trim() : null;
+      updates.gender = cleanGender;
+      changes.push(`gender: '${targetUser.gender || 'none'}' -> '${cleanGender || 'none'}'`);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ message: 'No editable fields supplied (name, phone, role, email, gender).' }, { status: 400 });
+    }
+
+    updates.updated_at = db.fn.now();
+    await db('users').where({ id }).update(updates);
+
+    await db('audit_logs').insert({
+      actor_id: authUser.id,
+      action_type: 'USER_UPDATED',
+      description: `Admin updated user '${targetUser.name}' (${id}): ${changes.join(', ')}.`
+    });
+
+    const updatedUser = await db('users').where({ id }).first();
+    return NextResponse.json({ message: 'User updated successfully.', user: updatedUser });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Update user error:', error);
+    return NextResponse.json({ message: 'Failed to update user details.' }, { status: 500 });
   }
 }

@@ -26,8 +26,9 @@ CREATE TYPE account_type AS ENUM ('cash_agent', 'loan_receivable', 'interest_rev
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE,
     phone VARCHAR(20) UNIQUE NOT NULL,
+    gender VARCHAR(10),
     password_hash VARCHAR(255) NOT NULL,
     role user_role NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,

@@ -45,6 +45,9 @@ export async function runInterestAccruals() {
         const now = new Date();
 
         while (nextDate <= now && periodsAccrued < 500) {
+          if (dbLoan.maturity_date && nextDate > new Date(dbLoan.maturity_date)) {
+            break;
+          }
           runningInterestBalance += interestPerPeriod;
           totalAccrued += interestPerPeriod;
           periodsAccrued += 1;

@@ -30,7 +30,6 @@ export async function POST(request) {
       : null;
 
     const genericMessage = 'If that account exists, a temporary password has been sent to the registered mobile number.';
-
     // Borrowers have no login access, so there's nothing to reset — treated
     // the same as a non-existent account to avoid leaking which phone
     // numbers are registered as borrowers vs staff.

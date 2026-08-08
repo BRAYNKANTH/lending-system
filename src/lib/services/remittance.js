@@ -6,7 +6,7 @@ import db from '../db.js';
  * 'cash_agent' ledger account for a single agent.
  */
 export async function getAgentCashInHand(agentId) {
-  const collectedResult = await db('transactions').where({ agent_id: agentId }).sum('amount as total');
+  const collectedResult = await db('transactions').where({ agent_id: agentId, payment_method: 'cash' }).sum('amount as total');
   // Rejected remittances don't reduce cash-in-hand — the cash never
   // actually left the agent (or came back), so only pending/verified claims
   // count against their outstanding liability.

@@ -162,6 +162,13 @@ async function runIncrementalMigrations() {
 
   // Remittances can now be disputed/rejected, not just verified.
   await addColumnIfMissing('remittances', 'rejection_reason', (t) => t.text('rejection_reason').nullable());
+
+  await addColumnIfMissing('loans', 'collection_mode', (t) => t.string('collection_mode', 30).notNullable().defaultTo('passbook'));
+  await addColumnIfMissing('loans', 'duration_periods', (t) => t.integer('duration_periods').nullable());
+  await addColumnIfMissing('loans', 'maturity_date', (t) => t.timestamp('maturity_date').nullable());
+
+  // Add gender column to users table
+  await addColumnIfMissing('users', 'gender', (t) => t.string('gender', 10).nullable());
 }
 
 async function createSchemaAndSeed() {
@@ -172,6 +179,7 @@ async function createSchemaAndSeed() {
     table.string('name', 100).notNullable();
     table.string('email', 100).unique().nullable(); // legacy field, no longer used for login
     table.string('phone', 20).unique().notNullable();
+    table.string('gender', 10).nullable();
     table.string('password_hash', 255).notNullable();
     table.string('role', 20).notNullable(); // 'admin', 'agent', 'borrower'
     table.boolean('is_active').defaultTo(true);
@@ -211,6 +219,9 @@ async function createSchemaAndSeed() {
     table.string('spouse_name', 150).nullable();
     table.string('spouse_nic', 50).nullable();
     table.string('spouse_occupation', 150).nullable();
+    table.string('collection_mode', 30).notNullable().defaultTo('passbook');
+    table.integer('duration_periods').nullable();
+    table.timestamp('maturity_date').nullable();
     table.timestamps(true, true);
   });
 

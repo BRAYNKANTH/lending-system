@@ -5,6 +5,8 @@ import { validateImageDataUrl } from '@/lib/services/image.js';
 import { notifyLoanCreation } from '@/lib/services/notification.js';
 import { isValidSriLankanNIC, addInterval } from '@/lib/loanSchedule.js';
 import { normalizePhone } from '@/lib/phone.js';
+import bcrypt from 'bcryptjs';
+import { generateTempPassword } from '@/lib/tempPassword.js';
 
 // Create a new loan (Admin only)
 export async function POST(request) {
@@ -13,7 +15,8 @@ export async function POST(request) {
     const body = await request.json();
     const {
       borrower_name, borrower_phone, borrower_address, principal_amount, interest_rate, interest_type,
-      assigned_agent_id, nic_number, nic_photo, guarantor, borrower_profile
+      assigned_agent_id, nic_number, nic_photo, guarantor, borrower_profile,
+      collection_mode, duration_periods, borrower_email, borrower_gender
     } = body;
 
     if (!borrower_name || !borrower_phone || !principal_amount || !interest_rate || !interest_type) {
@@ -46,6 +49,29 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Invalid interest type. Use daily, weekly, or monthly.' }, { status: 400 });
     }
 
+    const colMode = collection_mode || 'open_ended';
+    if (!['open_ended', 'fixed_term'].includes(colMode)) {
+      return NextResponse.json({ message: 'Invalid collection mode.' }, { status: 400 });
+    }
+
+    let periods = null;
+    if (colMode === 'fixed_term') {
+      periods = parseInt(duration_periods, 10);
+      if (isNaN(periods) || periods <= 0) {
+        return NextResponse.json({ message: 'Duration must be a positive integer for fixed term loans.' }, { status: 400 });
+      }
+    }
+
+    if (assigned_agent_id) {
+      const agentUser = await db('users')
+        .where({ id: assigned_agent_id })
+        .whereIn('role', ['agent', 'admin'])
+        .first();
+      if (!agentUser) {
+        return NextResponse.json({ message: 'Assigned agent/admin not found.' }, { status: 404 });
+      }
+    }
+
     const principal = parseFloat(principal_amount);
     const rate = parseFloat(interest_rate);
     if (isNaN(principal) || principal <= 0) {
@@ -71,10 +97,10 @@ export async function POST(request) {
         nic_number: guarantor.nic_number.trim().toUpperCase(),
         gender: guarantor.gender || null,
         ethnicity: guarantor.ethnicity || null,
-        date_of_birth: guarantor.date_of_birth || null,
+        date_of_birth: null,
         address: guarantor.address.trim(),
         phone: guarantor.phone.trim().replace(/\s+/g, ''),
-        email: guarantor.email || null,
+        email: null,
         protected_under_debt_act: !!guarantor.protected_under_debt_act,
         has_pending_court_cases: !!guarantor.has_pending_court_cases,
         monthly_income_business: parseFloat(guarantor.monthly_income_business) || 0,
@@ -113,6 +139,15 @@ export async function POST(request) {
       }
     }
 
+    let cleanEmail = null;
+    if (borrower_email && borrower_email.trim()) {
+      cleanEmail = borrower_email.trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        return NextResponse.json({ message: 'Invalid email format.' }, { status: 400 });
+      }
+    }
+
     const cleanPhone = borrower_phone.trim().replace(/\s+/g, '');
 
     let borrower = await db('users')
@@ -135,8 +170,21 @@ export async function POST(request) {
       if (priorLoanForNIC) {
         borrower = priorLoanForNIC;
         const oldPhone = borrower.phone;
-        await db('users').where({ id: borrower.id }).update({ phone: cleanPhone, name: borrower_name.trim(), updated_at: db.fn.now() });
-        borrower = { ...borrower, phone: cleanPhone, name: borrower_name.trim() };
+
+        // Validate email uniqueness
+        if (cleanEmail) {
+          const existingEmailUser = await db('users').where({ email: cleanEmail }).first();
+          if (existingEmailUser && existingEmailUser.id !== borrower.id) {
+            return NextResponse.json({ message: 'Email address is already registered to another user.' }, { status: 400 });
+          }
+        }
+
+        const updateFields = { phone: cleanPhone, name: borrower_name.trim(), updated_at: db.fn.now() };
+        if (cleanEmail !== undefined) updateFields.email = cleanEmail;
+        if (borrower_gender !== undefined) updateFields.gender = borrower_gender || null;
+
+        await db('users').where({ id: borrower.id }).update(updateFields);
+        borrower = { ...borrower, ...updateFields };
 
         await db('audit_logs').insert({
           actor_id: authUser.id,
@@ -144,15 +192,37 @@ export async function POST(request) {
           description: `Matched new loan to existing borrower '${borrower.name}' (NIC: ${cleanNIC}) by NIC — no phone match, but a prior loan under this NIC exists. Updated phone from '${oldPhone}' to '${cleanPhone}'.`
         });
       }
+    } else {
+      // Validate email uniqueness
+      if (cleanEmail) {
+        const existingEmailUser = await db('users').where({ email: cleanEmail }).first();
+        if (existingEmailUser && existingEmailUser.id !== borrower.id) {
+          return NextResponse.json({ message: 'Email address is already registered to another user.' }, { status: 400 });
+        }
+      }
+
+      const updateFields = { name: borrower_name.trim(), updated_at: db.fn.now() };
+      if (cleanEmail !== undefined) updateFields.email = cleanEmail;
+      if (borrower_gender !== undefined) updateFields.gender = borrower_gender || null;
+
+      await db('users').where({ id: borrower.id }).update(updateFields);
+      borrower = { ...borrower, ...updateFields };
     }
 
     if (!borrower) {
-      // Borrowers are records, not accounts — they never log in, so there's
-      // no real password to issue. 'NO_LOGIN_ACCESS' is a deliberately
-      // invalid bcrypt hash that bcrypt.compare() always rejects.
+      // Validate email uniqueness
+      if (cleanEmail) {
+        const existingEmailUser = await db('users').where({ email: cleanEmail }).first();
+        if (existingEmailUser) {
+          return NextResponse.json({ message: 'Email address is already registered to another user.' }, { status: 400 });
+        }
+      }
+
       const [newBorrowerId] = await db('users').insert({
         name: borrower_name.trim(),
         phone: cleanPhone,
+        email: cleanEmail,
+        gender: borrower_gender || null,
         password_hash: 'NO_LOGIN_ACCESS',
         role: 'borrower',
         is_active: true,
@@ -160,7 +230,7 @@ export async function POST(request) {
       }).returning('id');
 
       const bId = newBorrowerId.id || newBorrowerId;
-      borrower = { id: bId, name: borrower_name.trim(), phone: cleanPhone };
+      borrower = { id: bId, name: borrower_name.trim(), phone: cleanPhone, email: cleanEmail, gender: borrower_gender || null };
 
       await db('audit_logs').insert({
         actor_id: authUser.id,
@@ -180,6 +250,10 @@ export async function POST(request) {
 
     const creationDate = new Date();
     const nextAccrualDate = addInterval(creationDate, interest_type);
+    let calculatedMaturityDate = null;
+    if (colMode === 'fixed_term') {
+      calculatedMaturityDate = addInterval(creationDate, interest_type, periods);
+    }
 
     const loanResult = await db.transaction(async (trx) => {
       const [newLoan] = await trx('loans').insert({
@@ -196,6 +270,9 @@ export async function POST(request) {
         nic_number: cleanNIC,
         nic_photo_url,
         borrower_address: borrower_address.trim(),
+        collection_mode: colMode,
+        duration_periods: periods,
+        maturity_date: calculatedMaturityDate,
         ...(borrowerProfileRecord || {})
       }).returning('*');
 
@@ -219,7 +296,7 @@ export async function POST(request) {
       return newLoan;
     });
 
-    notifyLoanCreation({ borrower, principal, interestType: interest_type })
+    notifyLoanCreation({ borrower, principal, interestType: interest_type, rate })
       .catch((err) => console.error('Failed to dispatch notification:', err));
 
     return NextResponse.json({
@@ -248,6 +325,7 @@ export async function GET(request) {
         'borrowers.name as borrower_name',
         'borrowers.phone as borrower_phone',
         'borrowers.email as borrower_email',
+        'borrowers.gender as borrower_gender',
         'agents.name as agent_name'
       );
 

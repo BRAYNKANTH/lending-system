@@ -47,11 +47,13 @@ export async function notifyPasswordReset({ user, tempPassword }) {
 }
 
 /**
- * Triggers alerts for loan creation. Borrowers don't have login accounts —
- * this is an informational SMS only, not a credential handoff.
+ * Triggers alerts for loan creation.
  */
-export async function notifyLoanCreation({ borrower, principal, interestType }) {
-  const borrowerMsg = `You received a loan of LKR ${Number(principal).toLocaleString()}. Interest type: ${interestType.toUpperCase()}.`;
+export async function notifyLoanCreation({ borrower, principal, interestType, rate }) {
+  const calculatedInterest = Number(principal) * (Number(rate) / 100);
+  const frequencyText = interestType.toLowerCase(); // 'daily', 'weekly', 'monthly'
+  const borrowerMsg = `Dear ${borrower.name}, you have successfully got a loan of Rs. ${Number(principal).toLocaleString()} for the ${frequencyText} interest on ${rate}%, and according to that your ${frequencyText} payment is Rs. ${calculatedInterest.toLocaleString()}.`;
+
   await sendNotification({
     recipientName: borrower.name,
     phone: borrower.phone,
@@ -65,14 +67,22 @@ export async function notifyLoanCreation({ borrower, principal, interestType }) 
  * payment (recurring, doesn't close the loan) from a principal payment
  * (reduces the fixed loan amount, closes the loan at zero).
  */
-export async function notifyPaymentReceived({ borrower, admin, amount, paymentType, principalOutstanding, interestBalance }) {
+export async function notifyPaymentReceived({ borrower, admin, agent, amount, paymentType, principalOutstanding, interestBalance }) {
   const formattedAmount = Number(amount).toLocaleString();
   const kind = paymentType === 'interest' ? 'interest' : 'principal';
-  const remainingMsg = paymentType === 'interest'
-    ? `Interest due: LKR ${Number(interestBalance).toLocaleString()}.`
-    : `Principal remaining: LKR ${Number(principalOutstanding).toLocaleString()}.`;
 
-  const borrowerMsg = `${kind === 'interest' ? 'Interest' : 'Principal'} payment of LKR ${formattedAmount} received. ${remainingMsg}`;
+  const borrowerMsg = `Dear ${borrower.name},
+
+You have successfully paid LKR ${formattedAmount} (${kind}) for your loan.
+
+Receipt Details:
+- Amount Paid: LKR ${formattedAmount}
+- Payment Type: ${kind === 'interest' ? 'Interest' : 'Principal'}
+- Remaining Principal: LKR ${Number(principalOutstanding).toLocaleString()}
+- Remaining Interest Due: LKR ${Number(interestBalance).toLocaleString()}
+
+Thank you,
+STN CREDIT`;
 
   await sendNotification({
     recipientName: borrower.name,
@@ -82,7 +92,8 @@ export async function notifyPaymentReceived({ borrower, admin, amount, paymentTy
   });
 
   if (admin) {
-    const adminMsg = `Collection recorded: LKR ${formattedAmount} (${kind}) from ${borrower.name}. ${remainingMsg}`;
+    const agentName = agent ? agent.name : 'Unknown';
+    const adminMsg = `STN Alert: Collection of LKR ${formattedAmount} (${kind}) from ${borrower.name} recorded by Agent ${agentName}. Remaining Principal: LKR ${Number(principalOutstanding).toLocaleString()}, Remaining Interest: LKR ${Number(interestBalance).toLocaleString()}.`;
     await sendNotification({
       recipientName: admin.name,
       phone: admin.phone,

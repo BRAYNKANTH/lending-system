@@ -66,27 +66,36 @@ export default function LendApp() {
     borrower_name: '',
     borrower_phone: '',
     borrower_address: '',
+    borrower_email: '',
+    borrower_gender: '',
     principal_amount: '',
     interest_rate: '2.00',
     interest_type: 'daily',
     assigned_agent_id: '',
     nic_number: '',
-    nic_photo: ''
+    nic_photo: '',
+    collection_mode: 'open_ended',
+    duration_periods: ''
   });
   const [includeGuarantor, setIncludeGuarantor] = useState(false);
   const emptyGuarantor = {
-    full_name: '', nic_number: '', gender: '', ethnicity: '', date_of_birth: '',
-    address: '', phone: '', email: '',
+    full_name: '', nic_number: '', gender: '', ethnicity: '',
+    address: '', phone: '',
     protected_under_debt_act: false, has_pending_court_cases: false,
     monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
     monthly_expense_food: '', monthly_expense_rent: '', monthly_expense_other: ''
   };
   const [guarantorForm, setGuarantorForm] = useState(emptyGuarantor);
+  const [giveLoanStep, setGiveLoanStep] = useState(1);
 
   // Editing/adding a guarantor on an EXISTING loan (loan statement page),
   // separate from the create-loan form above.
   const [showGuarantorEditor, setShowGuarantorEditor] = useState(false);
   const [guarantorEditForm, setGuarantorEditForm] = useState(emptyGuarantor);
+
+  // Editing user details (Admin only)
+  const [editingUser, setEditingUser] = useState(null);
+  const [editUserForm, setEditUserForm] = useState({ name: '', phone: '', role: '' });
 
   // Borrower profile details are collected for every loan now (not
   // optional) — loan purpose, dependents, and monthly income are required;
@@ -105,6 +114,18 @@ export default function LendApp() {
     notes: '',
     proof_image: '',
     payment_method: 'cash',
+    idempotency_key: ''
+  });
+
+  // Borrower dashboard and payment forms
+  const [borrowerData, setBorrowerData] = useState(null);
+  const [borrowerPayment, setBorrowerPayment] = useState({
+    loan_id: '',
+    payment_type: 'interest',
+    amount: '',
+    notes: '',
+    proof_image: '',
+    payment_method: 'bank_transfer',
     idempotency_key: ''
   });
 
@@ -143,12 +164,28 @@ export default function LendApp() {
         setRemittances(remits);
         // Pre-fill idempotency key
         resetPaymentForm(data.assignedLoans?.[0]?.id || '');
+      } else if (user.role === 'borrower') {
+        const data = await api.get('/dashboard/borrower');
+        setBorrowerData(data);
+        resetBorrowerPaymentForm(data.loans?.find(l => l.status === 'active')?.id || data.loans?.[0]?.id || '');
       }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetBorrowerPaymentForm = (loanId) => {
+    setBorrowerPayment({
+      loan_id: loanId || '',
+      payment_type: 'interest',
+      amount: '',
+      notes: '',
+      proof_image: '',
+      payment_method: 'bank_transfer',
+      idempotency_key: 'idemp_borr_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now()
+    });
   };
 
   // Admin: load Users / Remittances / Ledger report for the Cash & Tools view
@@ -160,7 +197,7 @@ export default function LendApp() {
     setError('');
     try {
       const [users, remits, ledger, recon] = await Promise.all([
-        api.get('/users?role=admin,agent'),
+        api.get('/users?role=admin,agent,borrower'),
         api.get('/remittances'),
         api.get('/reports/ledger'),
         api.get('/cash-reconciliation')
@@ -179,7 +216,7 @@ export default function LendApp() {
   const refreshAdminTools = async () => {
     try {
       const [users, remits, ledger, recon] = await Promise.all([
-        api.get('/users?role=admin,agent'),
+        api.get('/users?role=admin,agent,borrower'),
         api.get('/remittances'),
         api.get('/reports/ledger'),
         api.get('/cash-reconciliation')
@@ -220,7 +257,7 @@ export default function LendApp() {
     setError('');
     try {
       await api.patch(`/remittances/${id}/verify`, {});
-      showToast('Remittance verified.');
+      showToast('Cash handover verified.');
       refreshAdminTools();
     } catch (err) {
       setError(err.message);
@@ -230,17 +267,17 @@ export default function LendApp() {
   };
 
   const handleRejectRemittance = async (id) => {
-    const reason = window.prompt('Reason for rejecting this remittance (e.g. cash never arrived):');
+    const reason = window.prompt('Reason for rejecting this cash handover (e.g. cash never arrived):');
     if (reason === null) return; // cancelled
     if (!reason.trim()) {
-      setError('A reason is required to reject a remittance.');
+      setError('A reason is required to reject a cash handover.');
       return;
     }
     setLoading(true);
     setError('');
     try {
       await api.patch(`/remittances/${id}/reject`, { reason });
-      showToast('Remittance rejected — reversed onto the agent\'s outstanding cash-in-hand.');
+      showToast('Cash handover rejected — reversed onto the agent\'s outstanding cash-in-hand.');
       refreshAdminTools();
     } catch (err) {
       setError(err.message);
@@ -269,6 +306,40 @@ export default function LendApp() {
     try {
       const result = await api.post(`/users/${targetUser.id}/reset-password`, {});
       showToast(`Password reset for ${targetUser.name}. Temporary password: ${result.temporaryPassword}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartEditUser = (targetUser) => {
+    setEditingUser(targetUser);
+    setEditUserForm({
+      name: targetUser.name || '',
+      phone: targetUser.phone || '',
+      role: targetUser.role || '',
+      email: targetUser.email || '',
+      gender: targetUser.gender || ''
+    });
+  };
+
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.patch(`/users/${editingUser.id}`, {
+        name: editUserForm.name,
+        phone: editUserForm.phone,
+        role: editUserForm.role,
+        email: editUserForm.email || '',
+        gender: editUserForm.gender || ''
+      });
+      showToast(`User ${editUserForm.name} updated successfully.`);
+      setEditingUser(null);
+      refreshAdminTools();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -336,7 +407,7 @@ export default function LendApp() {
   const downloadRemittancesCsv = () => {
     if (!remittances.length) return;
     downloadCsv(
-      `remittances-${new Date().toISOString().slice(0, 10)}.csv`,
+      `cash-handovers-${new Date().toISOString().slice(0, 10)}.csv`,
       ['Date', 'Agent', 'Amount', 'Status', 'Notes', 'Verified/Rejected By', 'Verified/Rejected At'],
       remittances.map(r => [
         new Date(r.created_at).toLocaleString(),
@@ -350,18 +421,18 @@ export default function LendApp() {
     );
   };
 
-  // Agent: submit a cash remittance to the office
+  // Agent: submit a cash handover to the office
   const handleSubmitRemittance = async (e) => {
     e.preventDefault();
     if (!remittanceForm.amount || parseFloat(remittanceForm.amount) <= 0) {
-      setError('Please enter a valid remittance amount.');
+      setError('Please enter a valid cash handover amount.');
       return;
     }
     setLoading(true);
     setError('');
     try {
       await api.post('/remittances', { amount: parseFloat(remittanceForm.amount), notes: remittanceForm.notes });
-      showToast(`LKR ${parseFloat(remittanceForm.amount).toLocaleString()} remittance submitted to the office.`);
+      showToast(`LKR ${parseFloat(remittanceForm.amount).toLocaleString()} cash handover submitted to the office.`);
       setRemittanceForm({ amount: '', notes: '' });
       fetchDashboardData();
       const remits = await api.get('/remittances');
@@ -629,6 +700,75 @@ export default function LendApp() {
     showToast('Logged out successfully.');
   };
 
+  const isValidNIC = (nic) => {
+    if (!nic) return false;
+    const cleaned = nic.trim().toUpperCase();
+    return /^[0-9]{9}[VX]$/.test(cleaned) || /^[0-9]{12}$/.test(cleaned);
+  };
+
+  const validateStep1 = () => {
+    if (!newLoan.borrower_name || !newLoan.borrower_name.trim()) return false;
+    if (!newLoan.borrower_phone || !newLoan.borrower_phone.trim()) return false;
+    if (!newLoan.borrower_address || !newLoan.borrower_address.trim()) return false;
+    if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) return false;
+    if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) return false;
+    if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) return false;
+    if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) return false;
+    if (borrowerProfileForm.dependents_count === undefined || borrowerProfileForm.dependents_count === '') return false;
+    if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '') return false;
+    return true;
+  };
+
+  const handleNextStep = () => {
+    setError('');
+    if (!newLoan.borrower_name || !newLoan.borrower_name.trim()) {
+      setError("Borrower name is required.");
+      return;
+    }
+    if (!newLoan.borrower_phone || !newLoan.borrower_phone.trim()) {
+      setError("Borrower phone number is required.");
+      return;
+    }
+    if (!newLoan.borrower_address || !newLoan.borrower_address.trim()) {
+      setError("Borrower address is required.");
+      return;
+    }
+    if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) {
+      setError("A valid Sri Lankan NIC number is required.");
+      return;
+    }
+    if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) {
+      setError("Principal amount must be a positive number.");
+      return;
+    }
+    if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) {
+      setError("Interest rate must be a non-negative number.");
+      return;
+    }
+    if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) {
+      setError("Purpose of loan is required.");
+      return;
+    }
+    if (borrowerProfileForm.dependents_count === undefined || borrowerProfileForm.dependents_count === '' || borrowerProfileForm.dependents_count === null) {
+      setError("Number of dependents is required.");
+      return;
+    }
+    if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '' || borrowerProfileForm.monthly_income === null) {
+      setError("Monthly income is required.");
+      return;
+    }
+    setGiveLoanStep(2);
+  };
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    if (includeGuarantor && giveLoanStep === 1) {
+      handleNextStep();
+    } else {
+      handleCreateLoan(e);
+    }
+  };
+
   // Admin: Create new loan
   const handleCreateLoan = async (e) => {
     e.preventDefault();
@@ -646,13 +786,18 @@ export default function LendApp() {
         borrower_name: '',
         borrower_phone: '',
         borrower_address: '',
+        borrower_email: '',
+        borrower_gender: '',
         principal_amount: '',
         interest_rate: '2.00',
         interest_type: 'daily',
         assigned_agent_id: '',
         nic_number: '',
-        nic_photo: ''
+        nic_photo: '',
+        collection_mode: 'open_ended',
+        duration_periods: ''
       });
+      setGiveLoanStep(1);
       setIncludeGuarantor(false);
       setGuarantorForm(emptyGuarantor);
       setBorrowerProfileForm(emptyBorrowerProfile);
@@ -743,6 +888,64 @@ export default function LendApp() {
     }
   };
 
+  const handleBorrowerPayment = async (e) => {
+    e.preventDefault();
+    if (!borrowerPayment.loan_id) {
+      setError('Please select a loan.');
+      return;
+    }
+    if (!borrowerPayment.amount || parseFloat(borrowerPayment.amount) <= 0) {
+      setError('Please enter a valid amount.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.post('/payments', {
+        loan_id: borrowerPayment.loan_id,
+        payment_type: borrowerPayment.payment_type,
+        amount: parseFloat(borrowerPayment.amount),
+        notes: borrowerPayment.notes,
+        proof_image_url: borrowerPayment.proof_image || null,
+        payment_method: borrowerPayment.payment_method,
+        idempotency_key: borrowerPayment.idempotency_key
+      });
+
+      const loan = borrowerData.loans.find(l => l.id === borrowerPayment.loan_id);
+      const kind = borrowerPayment.payment_type === 'interest' ? 'Interest' : 'Principal';
+      showToast(`Digital ${kind} payment of LKR ${parseFloat(borrowerPayment.amount).toLocaleString()} submitted successfully!`);
+
+      fetchDashboardData();
+
+      if (response.transaction) {
+        handleOpenReceipt(response.transaction);
+      } else {
+        handleOpenReceipt({
+          id: response.transactionId || 'N/A',
+          payment_date: new Date().toISOString(),
+          payment_type: borrowerPayment.payment_type,
+          borrower_name: user.name,
+          borrower_phone: user.phone,
+          agent_name: loan?.agent_name || 'Lender Office',
+          amount: parseFloat(borrowerPayment.amount),
+          notes: borrowerPayment.notes,
+          payment_method: borrowerPayment.payment_method,
+          idempotency_key: borrowerPayment.idempotency_key,
+          loan_principal: loan?.principal_amount,
+          loan_interest_rate: loan?.interest_rate,
+          loan_interest_type: loan?.interest_type,
+          loan_principal_outstanding: response.newPrincipalOutstanding !== undefined ? response.newPrincipalOutstanding : loan?.principal_outstanding,
+          loan_interest_balance: response.newInterestBalance !== undefined ? response.newInterestBalance : loan?.interest_balance
+        });
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // View loan statement
   const viewStatement = async (loanId) => {
     setSelectedLoanId(loanId);
@@ -766,12 +969,9 @@ export default function LendApp() {
       nic_number: existingGuarantor.nic_number || '',
       gender: existingGuarantor.gender || '',
       ethnicity: existingGuarantor.ethnicity || '',
-      date_of_birth: existingGuarantor.date_of_birth ? existingGuarantor.date_of_birth.slice(0, 10) : '',
       address: existingGuarantor.address || '',
       phone: existingGuarantor.phone || '',
-      email: existingGuarantor.email || '',
       protected_under_debt_act: !!existingGuarantor.protected_under_debt_act,
-      has_pending_court_cases: !!existingGuarantor.has_pending_court_cases,
       monthly_income_business: existingGuarantor.monthly_income_business || '',
       monthly_income_agriculture: existingGuarantor.monthly_income_agriculture || '',
       monthly_income_other: existingGuarantor.monthly_income_other || '',
@@ -1229,7 +1429,7 @@ export default function LendApp() {
               <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}><Banknote className="icon" /> Give Loan</button>
               <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}><ClipboardList className="icon" /> Check Loans</button>
               <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}><Users className="icon" /> Agent Route</button>
-              <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Cash & Tools</button>
+              <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Users & Cash Tools</button>
               <button className={`nav-link-btn ${view === 'payment-history' ? 'active' : ''}`} onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); }}><Receipt className="icon" /> Payment History</button>
               <button className={`nav-link-btn ${view === 'audit-log' ? 'active' : ''}`} onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); }}><ScrollText className="icon" /> Audit Log</button>
             </div>
@@ -1239,6 +1439,11 @@ export default function LendApp() {
               <button className={`nav-link-btn ${agentSubView === 'collect' ? 'active' : ''}`} onClick={() => setAgentSubView('collect')}><Banknote className="icon" /> Collect Payments</button>
               <button className={`nav-link-btn ${agentSubView === 'history' ? 'active' : ''}`} onClick={() => setAgentSubView('history')}><ScrollText className="icon" /> Collection History</button>
               <button className={`nav-link-btn ${agentSubView === 'remit' ? 'active' : ''}`} onClick={() => setAgentSubView('remit')}><Landmark className="icon" /> Remit Cash</button>
+            </div>
+          )}
+          {user.role === 'borrower' && (
+            <div className="desktop-header-nav">
+              <button className={`nav-link-btn ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}><Home className="icon" /> Home</button>
             </div>
           )}
 
@@ -1508,224 +1713,369 @@ export default function LendApp() {
               </div>
             )}
 
-            {/* View 2: Give New Loan form */}
             {view === 'create-loan' && (
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => {
+                    setView('dashboard');
+                    setGiveLoanStep(1);
+                  }}>
                     <ArrowLeft className="icon" /> Back to Main Menu
                   </button>
                 </div>
 
-                <div className="glass-card" style={{ maxWidth: '600px', margin: '0 auto', width: '100%' }}>
-                  <h3 style={{ fontSize: '28px', marginBottom: '8px' }}><Banknote className="icon" /> Give New Loan</h3>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '24px' }}>Type customer details to start a loan. Borrower registration happens automatically.</p>
-                  
-                  <form onSubmit={handleCreateLoan} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER NAME</label>
-                      <input type="text" required className="glass-input" placeholder="e.g. Bandara Perera" value={newLoan.borrower_name} onChange={e => setNewLoan(prev => ({ ...prev, borrower_name: e.target.value }))} />
+                <div className="glass-card" style={{ maxWidth: '900px', margin: '0 auto', width: '100%', padding: '0', overflow: 'hidden' }}>
+                  <div className="wizard-layout">
+                    {/* Stepper Navigation Sidebar */}
+                    <div className="wizard-sidebar">
+                      <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', margin: '0 0 10px', fontWeight: 'bold' }}>LOAN WIZARD</h4>
+                      
+                      <button 
+                        type="button"
+                        className={`step-indicator ${giveLoanStep === 1 ? 'active' : 'completed'}`}
+                        onClick={() => setGiveLoanStep(1)}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer' }}
+                      >
+                        <div className="step-number">1</div>
+                        <div>
+                          <div className="step-label">Borrower & Loan</div>
+                          <span className="step-subtext">KYC, Profile & Terms</span>
+                        </div>
+                      </button>
+
+                      <button 
+                        type="button"
+                        className={`step-indicator ${giveLoanStep === 2 ? 'active' : includeGuarantor ? '' : 'disabled'}`}
+                        disabled={!includeGuarantor}
+                        onClick={() => {
+                          if (includeGuarantor && validateStep1()) {
+                            setGiveLoanStep(2);
+                          }
+                        }}
+                        style={{ border: 'none', background: 'none', cursor: includeGuarantor ? 'pointer' : 'not-allowed' }}
+                      >
+                        <div className="step-number">2</div>
+                        <div>
+                          <div className="step-label">Guarantor Details</div>
+                          <span className="step-subtext">{includeGuarantor ? 'Required step' : 'Optional (Skipped)'}</span>
+                        </div>
+                      </button>
                     </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER MOBILE NUMBER (SRI LANKA)</label>
-                      <input type="tel" required className="glass-input" placeholder="e.g. 0771234567 or +94771234567" value={newLoan.borrower_phone} onChange={e => setNewLoan(prev => ({ ...prev, borrower_phone: e.target.value }))} />
-                    </div>
+                    {/* Wizard Body / Form Content */}
+                    <div className="wizard-body">
+                      <h3 style={{ fontSize: '28px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Banknote className="icon" style={{ color: 'var(--accent-blue)', fontSize: '24px' }} /> Give New Loan
+                      </h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
+                        {giveLoanStep === 1 
+                          ? "Step 1 of 2: Borrower profile, KYC information, and loan interest terms."
+                          : "Step 2 of 2: Enter details for the guarantor backing this loan."
+                        }
+                      </p>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER ADDRESS</label>
-                      <input type="text" required className="glass-input" placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => setNewLoan(prev => ({ ...prev, borrower_address: e.target.value }))} />
-                    </div>
+                      <form onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {giveLoanStep === 1 && (
+                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* --- SECTION 1: BORROWER DETAILS --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <User className="icon" /> 1. BORROWER PERSONAL DETAILS
+                              </p>
+                              
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER NAME *</label>
+                                <input type="text" required className="glass-input" placeholder="e.g. Bandara Perera" value={newLoan.borrower_name} onChange={e => setNewLoan(prev => ({ ...prev, borrower_name: e.target.value }))} />
+                              </div>
 
-                    <div className="form-grid-2-col">
-                      <div>
-                        <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC NUMBER</label>
-                        <input type="text" required className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => setNewLoan(prev => ({ ...prev, nic_number: e.target.value }))} />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO</label>
-                        <input type="file" accept="image/*" className="glass-input" onChange={handleNICPhotoChange} />
-                        {newLoan.nic_photo && (
-                          <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <img src={newLoan.nic_photo} alt="NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                            <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER MOBILE NUMBER (SRI LANKA) *</label>
+                                <input type="tel" required className="glass-input" placeholder="e.g. 0771234567 or +94771234567" value={newLoan.borrower_phone} onChange={e => setNewLoan(prev => ({ ...prev, borrower_phone: e.target.value }))} />
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER ADDRESS *</label>
+                                <input type="text" required className="glass-input" placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => setNewLoan(prev => ({ ...prev, borrower_address: e.target.value }))} />
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER EMAIL (OPTIONAL)</label>
+                                  <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>GENDER</label>
+                                  <select className="glass-input" value={newLoan.borrower_gender || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_gender: e.target.value }))}>
+                                    <option value="">Select Gender</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC NUMBER *</label>
+                                  <input type="text" required className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => setNewLoan(prev => ({ ...prev, nic_number: e.target.value }))} />
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO</label>
+                                  <input type="file" accept="image/*" className="glass-input" onChange={handleNICPhotoChange} />
+                                  {newLoan.nic_photo && (
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                      <img src={newLoan.nic_photo} alt="NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* --- SECTION 2: BORROWER PROFILE DETAILS --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <ClipboardList className="icon" /> 2. BORROWER PROFILE DETAILS
+                              </p>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
+                                  <input required type="text" className="glass-input" placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value }))} />
+                                </div>
+
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Number of Dependents *</label>
+                                    <input required type="number" min="0" className="glass-input" value={borrowerProfileForm.dependents_count} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value }))} />
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
+                                    <input required type="number" min="0" className="glass-input" value={borrowerProfileForm.monthly_income} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value }))} />
+                                  </div>
+                                </div>
+
+                                <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Spouse Details (if applicable)</p>
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Name</label>
+                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_name} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_name: e.target.value }))} />
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse NIC Number</label>
+                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_nic} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_nic: e.target.value }))} />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Occupation</label>
+                                  <input type="text" className="glass-input" value={borrowerProfileForm.spouse_occupation} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_occupation: e.target.value }))} />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* --- SECTION 3: LOAN DETAILS & AGENT --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <Landmark className="icon" /> 3. LOAN SCHEDULING DETAILS
+                              </p>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PRINCIPAL AMOUNT (LKR) *</label>
+                                <input type="number" min="1" required className="glass-input" placeholder="e.g. 50000" value={newLoan.principal_amount} onChange={e => setNewLoan(prev => ({ ...prev, principal_amount: e.target.value }))} />
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>INTEREST RATE (%) *</label>
+                                  <input type="number" step="0.01" min="0" required className="glass-input" placeholder="2.00" value={newLoan.interest_rate} onChange={e => setNewLoan(prev => ({ ...prev, interest_rate: e.target.value }))} />
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ACCRUAL FREQUENCY</label>
+                                  <select required className="glass-input" value={newLoan.interest_type} onChange={e => setNewLoan(prev => ({ ...prev, interest_type: e.target.value }))}>
+                                    <option value="daily">Daily Accumulation</option>
+                                    <option value="weekly">Weekly Accumulation</option>
+                                    <option value="monthly">Monthly Accumulation</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>LOAN TERM</label>
+                                  <select required className="glass-input" value={newLoan.collection_mode} onChange={e => setNewLoan(prev => ({ ...prev, collection_mode: e.target.value }))}>
+                                    <option value="open_ended">Open-Ended (Runs until fully paid)</option>
+                                    <option value="fixed_term">Fixed Term (Set duration)</option>
+                                  </select>
+                                </div>
+                                {newLoan.collection_mode === 'fixed_term' && (
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
+                                      DURATION (in {newLoan.interest_type === 'daily' ? 'days' : newLoan.interest_type === 'weekly' ? 'weeks' : 'months'}) *
+                                    </label>
+                                    <input type="number" min="1" required className="glass-input" placeholder="e.g. 30" value={newLoan.duration_periods} onChange={e => setNewLoan(prev => ({ ...prev, duration_periods: e.target.value }))} />
+                                  </div>
+                                )}
+                              </div>
+
+                              {newLoan.principal_amount > 0 && newLoan.interest_rate > 0 && (
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0' }}>
+                                  {(() => {
+                                    const p = parseFloat(newLoan.principal_amount) || 0;
+                                    const r = parseFloat(newLoan.interest_rate) || 0;
+                                    const perPeriod = p * (r / 100);
+                                    return `Interest-only loan: borrower owes LKR ${perPeriod.toLocaleString(undefined, { maximumFractionDigits: 2 })} interest every ${newLoan.interest_type === 'daily' ? 'day' : newLoan.interest_type === 'weekly' ? 'week' : 'month'} until the LKR ${p.toLocaleString()} principal is repaid in full (whenever the borrower is ready).`;
+                                  })()}
+                                </p>
+                              )}
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ASSIGN COLLECTION AGENT</label>
+                                <select className="glass-input" value={newLoan.assigned_agent_id} onChange={e => setNewLoan(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
+                                  <option value="">-- No Agent (Self Collect) --</option>
+                                  {agentsList.map(a => (
+                                    <option key={a.id} value={a.id}>{a.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* --- SECTION 4: GUARANTOR CHECKBOX --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'rgba(255,255,255,0.01)' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', margin: 0 }}>
+                                <input type="checkbox" checked={includeGuarantor} onChange={e => {
+                                  setIncludeGuarantor(e.target.checked);
+                                  if (!e.target.checked && giveLoanStep === 2) {
+                                    setGiveLoanStep(1);
+                                  }
+                                }} />
+                                <ShieldCheck className="icon" /> ADD GUARANTOR DETAILS (OPTIONAL)
+                              </label>
+                              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '24px', marginTop: '-8px' }}>
+                                Checking this will add a second step to fill in the guarantor personal, income and expense details.
+                              </span>
+                            </div>
+
+                            {/* Navigation Buttons for Step 1 */}
+                            {includeGuarantor ? (
+                              <button 
+                                type="button" 
+                                className="glass-btn glass-btn-emerald" 
+                                onClick={handleNextStep}
+                                style={{ width: '100%', marginTop: '10px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px' }}
+                              >
+                                Continue to Guarantor Details <ArrowRight className="icon" />
+                              </button>
+                            ) : (
+                              <button 
+                                type="submit" 
+                                className="glass-btn glass-btn-emerald" 
+                                disabled={loading} 
+                                style={{ width: '100%', marginTop: '10px', padding: '16px', fontSize: '15px' }}
+                              >
+                                Disburse Cash Loan
+                              </button>
+                            )}
                           </div>
                         )}
-                      </div>
+
+                        {giveLoanStep === 2 && includeGuarantor && (
+                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS
+                              </p>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                                    <input required={includeGuarantor} type="text" className="glass-input" value={guarantorForm.full_name} onChange={e => setGuarantorForm(prev => ({ ...prev, full_name: e.target.value }))} />
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
+                                    <input required={includeGuarantor} type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorForm.nic_number} onChange={e => setGuarantorForm(prev => ({ ...prev, nic_number: e.target.value }))} />
+                                  </div>
+                                </div>
+
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gender</label>
+                                    <select className="glass-input" value={guarantorForm.gender} onChange={e => setGuarantorForm(prev => ({ ...prev, gender: e.target.value }))}>
+                                      <option value="">-- Select --</option>
+                                      <option value="male">Male</option>
+                                      <option value="female">Female</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity / Citizenship</label>
+                                    <input type="text" className="glass-input" value={guarantorForm.ethnicity} onChange={e => setGuarantorForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
+                                  <input required={includeGuarantor} type="tel" className="glass-input" value={guarantorForm.phone} onChange={e => setGuarantorForm(prev => ({ ...prev, phone: e.target.value }))} />
+                                </div>
+
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                                  <input required={includeGuarantor} type="text" className="glass-input" value={guarantorForm.address} onChange={e => setGuarantorForm(prev => ({ ...prev, address: e.target.value }))} />
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                    <input type="checkbox" checked={guarantorForm.protected_under_debt_act} onChange={e => setGuarantorForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
+                                    Protected under the state debt recovery act or any other law?
+                                  </label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                    <input type="checkbox" checked={guarantorForm.has_pending_court_cases} onChange={e => setGuarantorForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
+                                    Any court judgments/cases registered against them?
+                                  </label>
+                                </div>
+
+                                <div>
+                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
+                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                                    <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorForm.monthly_income_business} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorForm.monthly_income_agriculture} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_income_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
+                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                                    <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorForm.monthly_expense_food} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorForm.monthly_expense_rent} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_expense_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Navigation Buttons for Step 2 */}
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                              <button 
+                                type="button" 
+                                className="glass-btn glass-btn-secondary" 
+                                onClick={() => setGiveLoanStep(1)}
+                                style={{ flex: 1, padding: '16px', fontSize: '15px' }}
+                              >
+                                Back to Step 1
+                              </button>
+                              <button 
+                                type="submit" 
+                                className="glass-btn glass-btn-emerald" 
+                                disabled={loading} 
+                                style={{ flex: 2, padding: '16px', fontSize: '15px' }}
+                              >
+                                Disburse Cash Loan
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </form>
                     </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PRINCIPAL AMOUNT (LKR)</label>
-                      <input type="number" min="1" required className="glass-input" placeholder="e.g. 50000" value={newLoan.principal_amount} onChange={e => setNewLoan(prev => ({ ...prev, principal_amount: e.target.value }))} />
-                    </div>
-
-                    <div className="form-grid-2-col">
-                      <div>
-                        <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>INTEREST RATE (%)</label>
-                        <input type="number" step="0.01" min="0" required className="glass-input" placeholder="2.00" value={newLoan.interest_rate} onChange={e => setNewLoan(prev => ({ ...prev, interest_rate: e.target.value }))} />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ACCRUAL FREQUENCY</label>
-                        <select required className="glass-input" value={newLoan.interest_type} onChange={e => setNewLoan(prev => ({ ...prev, interest_type: e.target.value }))}>
-                          <option value="daily">Daily Accumulation</option>
-                          <option value="weekly">Weekly Accumulation</option>
-                          <option value="monthly">Monthly Accumulation</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {newLoan.principal_amount > 0 && newLoan.interest_rate > 0 && (
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '-8px 0 0' }}>
-                        {(() => {
-                          const p = parseFloat(newLoan.principal_amount) || 0;
-                          const r = parseFloat(newLoan.interest_rate) || 0;
-                          const perPeriod = p * (r / 100);
-                          return `Interest-only loan: borrower owes LKR ${perPeriod.toLocaleString(undefined, { maximumFractionDigits: 2 })} interest every ${newLoan.interest_type === 'daily' ? 'day' : newLoan.interest_type === 'weekly' ? 'week' : 'month'} until the LKR ${p.toLocaleString()} principal is repaid in full (whenever the borrower is ready).`;
-                        })()}
-                      </p>
-                    )}
-
-                    <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '14px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={includeGuarantor} onChange={e => setIncludeGuarantor(e.target.checked)} />
-                        <ShieldCheck className="icon" /> ADD GUARANTOR DETAILS (optional)
-                      </label>
-
-                      {includeGuarantor && (
-                        <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          <div className="form-grid-2-col">
-                            <div>
-                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
-                              <input required={includeGuarantor} type="text" className="glass-input" value={guarantorForm.full_name} onChange={e => setGuarantorForm(prev => ({ ...prev, full_name: e.target.value }))} />
-                            </div>
-                            <div>
-                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                              <input required={includeGuarantor} type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorForm.nic_number} onChange={e => setGuarantorForm(prev => ({ ...prev, nic_number: e.target.value }))} />
-                            </div>
-                          </div>
-
-                          <div className="form-grid-2-col">
-                            <div>
-                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gender</label>
-                              <select className="glass-input" value={guarantorForm.gender} onChange={e => setGuarantorForm(prev => ({ ...prev, gender: e.target.value }))}>
-                                <option value="">-- Select --</option>
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity / Citizenship</label>
-                              <input type="text" className="glass-input" value={guarantorForm.ethnicity} onChange={e => setGuarantorForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
-                            </div>
-                          </div>
-
-                          <div className="form-grid-2-col">
-                            <div>
-                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Date of Birth</label>
-                              <input type="date" className="glass-input" value={guarantorForm.date_of_birth} onChange={e => setGuarantorForm(prev => ({ ...prev, date_of_birth: e.target.value }))} />
-                            </div>
-                            <div>
-                              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
-                              <input required={includeGuarantor} type="tel" className="glass-input" value={guarantorForm.phone} onChange={e => setGuarantorForm(prev => ({ ...prev, phone: e.target.value }))} />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                            <input required={includeGuarantor} type="text" className="glass-input" value={guarantorForm.address} onChange={e => setGuarantorForm(prev => ({ ...prev, address: e.target.value }))} />
-                          </div>
-
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Email</label>
-                            <input type="email" className="glass-input" value={guarantorForm.email} onChange={e => setGuarantorForm(prev => ({ ...prev, email: e.target.value }))} />
-                          </div>
-
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                              <input type="checkbox" checked={guarantorForm.protected_under_debt_act} onChange={e => setGuarantorForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
-                              Protected under the state debt recovery act or any other law?
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                              <input type="checkbox" checked={guarantorForm.has_pending_court_cases} onChange={e => setGuarantorForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
-                              Any court judgments/cases registered against them?
-                            </label>
-                          </div>
-
-                          <div>
-                            <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
-                            <div className="form-grid-3-col">
-                              <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorForm.monthly_income_business} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
-                              <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorForm.monthly_income_agriculture} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
-                              <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_income_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
-                            </div>
-                          </div>
-
-                          <div>
-                            <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
-                            <div className="form-grid-3-col">
-                              <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorForm.monthly_expense_food} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
-                              <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorForm.monthly_expense_rent} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
-                              <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_expense_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '14px' }}>
-                      <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0 0 14px' }}>
-                        <ClipboardList className="icon" /> BORROWER PROFILE DETAILS
-                      </p>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
-                          <input required type="text" className="glass-input" placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value }))} />
-                        </div>
-
-                        <div className="form-grid-2-col">
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Number of Dependents *</label>
-                            <input required type="number" min="0" className="glass-input" value={borrowerProfileForm.dependents_count} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value }))} />
-                          </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
-                            <input required type="number" min="0" className="glass-input" value={borrowerProfileForm.monthly_income} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value }))} />
-                          </div>
-                        </div>
-
-                        <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Spouse Details (if applicable)</p>
-                        <div className="form-grid-2-col">
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Name</label>
-                            <input type="text" className="glass-input" value={borrowerProfileForm.spouse_name} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_name: e.target.value }))} />
-                          </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse NIC Number</label>
-                            <input type="text" className="glass-input" value={borrowerProfileForm.spouse_nic} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_nic: e.target.value }))} />
-                          </div>
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Occupation</label>
-                          <input type="text" className="glass-input" value={borrowerProfileForm.spouse_occupation} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_occupation: e.target.value }))} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ASSIGN COLLECTION AGENT</label>
-                      <select className="glass-input" value={newLoan.assigned_agent_id} onChange={e => setNewLoan(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
-                        <option value="">-- No Agent (Self Collect) --</option>
-                        {agentsList.map(a => (
-                          <option key={a.id} value={a.id}>{a.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', marginTop: '10px', padding: '16px' }}>
-                      Disburse Cash Loan
-                    </button>
-                  </form>
+                  </div>
                 </div>
               </div>
             )}
@@ -1935,7 +2285,7 @@ export default function LendApp() {
                               <span className="mobile-row-card-label">Collected</span>
                               <span className="mobile-row-card-value">LKR {a.totalCollected.toLocaleString()}</span>
 
-                              <span className="mobile-row-card-label">Remitted</span>
+                              <span className="mobile-row-card-label">Handed Over</span>
                               <span className="mobile-row-card-value">LKR {a.totalRemitted.toLocaleString()}</span>
                             </div>
                           </div>
@@ -1945,16 +2295,16 @@ export default function LendApp() {
                   )}
                 </div>
 
-                {/* Pending / recent remittances */}
+                {/* Pending / recent handovers */}
                 <div className="glass-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-                    <h3 style={{ fontSize: '22px', margin: 0 }}><Truck className="icon" /> Cash Remittances</h3>
+                    <h3 style={{ fontSize: '22px', margin: 0 }}><Truck className="icon" /> Cash Handovers</h3>
                     <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={downloadRemittancesCsv} disabled={remittances.length === 0}>
                       <Download className="icon" /> Export CSV
                     </button>
                   </div>
                   {remittances.length === 0 ? (
-                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No remittances submitted yet.</p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No cash handovers submitted yet.</p>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {remittances.map(r => (
@@ -2109,11 +2459,21 @@ export default function LendApp() {
                           <select className="glass-input" value={newUserForm.role} onChange={e => setNewUserForm(prev => ({ ...prev, role: e.target.value }))}>
                             <option value="agent">Agent</option>
                             <option value="admin">Admin</option>
+                            <option value="borrower">Borrower</option>
                           </select>
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PASSWORD</label>
-                          <input required type="text" className="glass-input" placeholder="Set an initial password" value={newUserForm.password} onChange={e => setNewUserForm(prev => ({ ...prev, password: e.target.value }))} />
+                          {newUserForm.role === 'borrower' ? (
+                            <>
+                              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold', opacity: 0.5 }}>PASSWORD (NOT REQUIRED)</label>
+                              <input disabled type="text" className="glass-input" placeholder="Borrowers have no login access" value="" />
+                            </>
+                          ) : (
+                            <>
+                              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PASSWORD</label>
+                              <input required type="text" className="glass-input" placeholder="Set an initial password" value={newUserForm.password} onChange={e => setNewUserForm(prev => ({ ...prev, password: e.target.value }))} />
+                            </>
+                          )}
                         </div>
                       </div>
                       <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ alignSelf: 'flex-start', padding: '10px 24px' }}>
@@ -2146,6 +2506,9 @@ export default function LendApp() {
                               <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleToggleUserStatus(u)} disabled={loading || u.id === user.id}>
                                 {u.is_active ? 'Deactivate' : 'Activate'}
                               </button>
+                              <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleStartEditUser(u)} disabled={loading}>
+                                Edit Details
+                              </button>
                               <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleResetUserPassword(u)} disabled={loading}>
                                 Reset Password
                               </button>
@@ -2177,6 +2540,9 @@ export default function LendApp() {
                           <button className="glass-btn glass-btn-secondary" onClick={() => handleToggleUserStatus(u)} disabled={loading || u.id === user.id}>
                             {u.is_active ? 'Deactivate' : 'Activate'}
                           </button>
+                          <button className="glass-btn glass-btn-secondary" onClick={() => handleStartEditUser(u)} disabled={loading}>
+                            Edit Details
+                          </button>
                           <button className="glass-btn glass-btn-secondary" onClick={() => handleResetUserPassword(u)} disabled={loading}>
                             Reset Password
                           </button>
@@ -2188,6 +2554,58 @@ export default function LendApp() {
                     ))}
                   </div>
                 </div>
+
+                {/* Edit User Modal (Admin only) */}
+                {editingUser && (
+                  <div className="receipt-modal-overlay" onClick={() => setEditingUser(null)}>
+                    <div className="receipt-modal-card" style={{ maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <h3 style={{ fontSize: '20px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><User className="icon" /> Edit User Details</h3>
+                        <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setEditingUser(null)}>
+                          Close
+                        </button>
+                      </div>
+                      <form onSubmit={handleUpdateUser} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>FULL NAME</label>
+                          <input required type="text" className="glass-input" value={editUserForm.name} onChange={e => setEditUserForm(prev => ({ ...prev, name: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
+                          <input required type="tel" className="glass-input" value={editUserForm.phone} onChange={e => setEditUserForm(prev => ({ ...prev, phone: e.target.value }))} />
+                        </div>
+                        <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>EMAIL (OPTIONAL)</label>
+                            <input type="email" className="glass-input" value={editUserForm.email || ''} onChange={e => setEditUserForm(prev => ({ ...prev, email: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>GENDER</label>
+                            <select className="glass-input" value={editUserForm.gender || ''} onChange={e => setEditUserForm(prev => ({ ...prev, gender: e.target.value }))}>
+                              <option value="">Select Gender</option>
+                              <option value="male">Male</option>
+                              <option value="female">Female</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ROLE</label>
+                          <select className="glass-input" value={editUserForm.role} onChange={e => setEditUserForm(prev => ({ ...prev, role: e.target.value }))} disabled={editingUser.id === user.id}>
+                            <option value="agent">Agent</option>
+                            <option value="admin">Admin</option>
+                            <option value="borrower">Borrower</option>
+                          </select>
+                          {editingUser.id === user.id && (
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>You cannot change your own role.</span>
+                          )}
+                        </div>
+                        <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ padding: '12px', marginTop: '10px' }}>
+                          <ClipboardCheck className="icon" /> Save Changes
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2217,6 +2635,229 @@ export default function LendApp() {
         )}
 
         {/* Removed duplicate helper from here as it is integrated inside Tab 2 */}
+
+        {/* ----------------- BORROWER DASHBOARD ----------------- */}
+        {token && user && user.role === 'borrower' && view === 'dashboard' && borrowerData && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+            {/* KPI Metrics */}
+            <div className="grid-cols-analytics">
+              <div className="kpi-card kpi-card-blue">
+                <span className="kpi-lbl">Total Outstanding</span>
+                <h3 className="kpi-val">LKR {(parseFloat(borrowerData.summary.totalPrincipalOutstanding) + parseFloat(borrowerData.summary.totalInterestBalance)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
+              </div>
+              <div className="kpi-card kpi-card-rose">
+                <span className="kpi-lbl">Principal Outstanding</span>
+                <h3 className="kpi-val">LKR {parseFloat(borrowerData.summary.totalPrincipalOutstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
+              </div>
+              <div className="kpi-card kpi-card-rose">
+                <span className="kpi-lbl">Interest Balance</span>
+                <h3 className="kpi-val">LKR {parseFloat(borrowerData.summary.totalInterestBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
+              </div>
+            </div>
+
+            <div className="responsive-grid-2-col">
+              {/* Active Loans */}
+              <div className="glass-card">
+                <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><ClipboardList className="icon" /> My Active Loans</h3>
+                {borrowerData.loans.length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)' }}>You do not have any active loans.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {borrowerData.loans.map(loan => (
+                      <div key={loan.id} style={{ padding: '16px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>LKR {parseFloat(loan.principal_amount).toLocaleString()} Loan</strong>
+                            <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                              Rate: {loan.interest_rate}% ({loan.interest_type})
+                            </span>
+                            <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)' }}>
+                              Assigned Agent: {loan.agent_name || 'Office direct'}
+                            </span>
+                          </div>
+                          <span className={`badge ${loan.status === 'active' ? 'badge-active' : loan.status === 'fully_paid' ? 'badge-paid' : 'badge-defaulted'}`}>
+                            {loan.status}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', fontSize: '13px' }}>
+                          <div>
+                            <span style={{ color: 'var(--text-secondary)' }}>Principal Due:</span>
+                            <strong style={{ display: 'block', color: 'var(--accent-rose)' }}>LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</strong>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Interest Balance:</span>
+                            <strong style={{ display: 'block', color: 'var(--accent-rose)' }}>LKR {parseFloat(loan.interest_balance).toLocaleString()}</strong>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: '14px', display: 'flex', gap: '8px' }}>
+                          <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1, padding: '6px 12px', fontSize: '12px' }} onClick={() => viewStatement(loan.id)}>
+                            <ScrollText className="icon" /> View Statement
+                          </button>
+                          <button type="button" className="glass-btn glass-btn-emerald" style={{ flex: 1, padding: '6px 12px', fontSize: '12px' }} onClick={() => resetBorrowerPaymentForm(loan.id)}>
+                            <CreditCard className="icon" /> Pay Now
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Submit Digital Payment */}
+              <div className="glass-card">
+                <h3 style={{ fontSize: '24px', marginBottom: '8px' }}><CreditCard className="icon" /> Submit Digital Payment</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }}>
+                  Select an active loan and submit digital proof of your payment (Bank transfer receipt/screenshot).
+                </p>
+
+                <form onSubmit={handleBorrowerPayment} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>SELECT LOAN</label>
+                    <select required className="glass-input" value={borrowerPayment.loan_id} onChange={e => resetBorrowerPaymentForm(e.target.value)}>
+                      <option value="">-- Choose Loan --</option>
+                      {borrowerData.loans.filter(l => l.status === 'active').map(loan => (
+                        <option key={loan.id} value={loan.id}>
+                          LKR {parseFloat(loan.principal_amount).toLocaleString()} Loan (Due: LKR {(parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)).toLocaleString()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PAYMENT BUCKET</label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button type="button"
+                        className={`glass-btn ${borrowerPayment.payment_type === 'interest' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                        style={{ flex: 1 }}
+                        onClick={() => setBorrowerPayment(prev => ({ ...prev, payment_type: 'interest', amount: '' }))}>
+                        Interest Due
+                      </button>
+                      <button type="button"
+                        className={`glass-btn ${borrowerPayment.payment_type === 'principal' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                        style={{ flex: 1 }}
+                        onClick={() => setBorrowerPayment(prev => ({ ...prev, payment_type: 'principal', amount: '' }))}>
+                        Principal Repayment
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
+                      {borrowerPayment.payment_type === 'interest' ? 'INTEREST AMOUNT (LKR)' : 'PRINCIPAL AMOUNT (LKR)'}
+                    </label>
+                    <input type="number" required min="1" className="glass-input" placeholder="Enter amount to pay" value={borrowerPayment.amount} onChange={e => setBorrowerPayment(prev => ({ ...prev, amount: e.target.value }))} />
+                    {borrowerPayment.loan_id && (() => {
+                      const loan = borrowerData.loans.find(l => l.id === borrowerPayment.loan_id);
+                      if (!loan) return null;
+                      const maxAmount = borrowerPayment.payment_type === 'interest' ? parseFloat(loan.interest_balance) : parseFloat(loan.principal_outstanding);
+                      if (maxAmount <= 0) return null;
+                      return (
+                        <button type="button" className="glass-btn glass-btn-secondary" style={{ marginTop: '8px', padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => setBorrowerPayment(prev => ({ ...prev, amount: maxAmount.toString() }))}>
+                          Pay full outstanding (LKR {maxAmount.toLocaleString()})
+                        </button>
+                      );
+                    })()}
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>DIGITAL METHOD</label>
+                    <select required className="glass-input" value={borrowerPayment.payment_method} onChange={e => setBorrowerPayment(prev => ({ ...prev, payment_method: e.target.value }))}>
+                      <option value="bank_transfer">🏦 Bank Deposit / Transfer</option>
+                      <option value="mobile_wallet">📱 Mobile Wallet (eZ Cash / mCash)</option>
+                      <option value="card">💳 Credit/Debit Card</option>
+                    </select>
+                  </div>
+
+                  {/* Dynamic Instructions */}
+                  <div style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-glass)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    {borrowerPayment.payment_method === 'bank_transfer' && (
+                      <div>
+                        <strong>Bank Instructions:</strong><br />
+                        Bank: <strong>LendBuddy Central Bank</strong><br />
+                        Account: <strong>1000-5491-0238</strong><br />
+                        Branch: <strong>Colombo Office</strong><br />
+                        Please enter your phone number as reference!
+                      </div>
+                    )}
+                    {borrowerPayment.payment_method === 'mobile_wallet' && (
+                      <div>
+                        <strong>Mobile Wallet Instructions:</strong><br />
+                        Send eZ Cash / mCash directly to:<br />
+                        Mobile No: <strong>+94 77 404 8194</strong><br />
+                        Add note: <strong>"Loan Payment"</strong>
+                      </div>
+                    )}
+                    {borrowerPayment.payment_method === 'card' && (
+                      <div>
+                        <strong>Card Payment Instructions:</strong><br />
+                        We accept Visa/Mastercard credit and debit cards.<br />
+                        Please call our billing line <strong>+94 77 123 4567</strong> for secure processing.
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>RECEIPT UPLOAD (TRANSFER SCREENSHOT / RECEIPT)</label>
+                    <input type="file" accept="image/*" className="glass-input" onChange={handleBorrowerFileChange} />
+                    {borrowerPayment.proof_image && (
+                      <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--accent-emerald)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Check className="icon" /> Receipt screenshot attached
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PAYMENT REFERENCE / NOTES (OPTIONAL)</label>
+                    <input type="text" className="glass-input" placeholder="e.g. Tx Ref: 981726, paid from BOC account" value={borrowerPayment.notes} onChange={e => setBorrowerPayment(prev => ({ ...prev, notes: e.target.value }))} />
+                  </div>
+
+                  <button type="submit" className="glass-btn glass-btn-emerald" style={{ padding: '12px' }} disabled={loading}>
+                    {loading ? 'Submitting...' : 'Submit Payment Proof'}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Payment History */}
+            <div className="glass-card">
+              <h3 style={{ fontSize: '24px', marginBottom: '16px' }}><ScrollText className="icon" /> My Payment History</h3>
+              {borrowerData.recentTransactions.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)' }}>No payments recorded yet.</p>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="glass-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Amount Paid</th>
+                        <th>Method</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {borrowerData.recentTransactions.map(tx => (
+                        <tr key={tx.id}>
+                          <td>{new Date(tx.payment_date).toLocaleString()}</td>
+                          <td style={{ textTransform: 'capitalize' }}>{tx.payment_type}</td>
+                          <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(tx.amount).toLocaleString()}</td>
+                          <td style={{ textTransform: 'capitalize' }}>{(tx.payment_method || 'cash').replace('_', ' ')}</td>
+                          <td><span className="badge badge-active">Recorded</span></td>
+                          <td>
+                            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => handleOpenReceipt(tx)}>
+                              Receipt
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ----------------- AGENT DASHBOARD ----------------- */}
         {token && user && user.role === 'agent' && view === 'dashboard' && agentData && (
@@ -2514,7 +3155,7 @@ export default function LendApp() {
                 </div>
 
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Landmark className="icon" /> Remit Cash to Office</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Landmark className="icon" /> Hand over Cash to Office</h3>
                   <form onSubmit={handleSubmitRemittance} style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '420px' }}>
                     <div>
                       <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Amount (LKR)</label>
@@ -2528,14 +3169,14 @@ export default function LendApp() {
                         value={remittanceForm.notes}
                         onChange={e => setRemittanceForm(prev => ({ ...prev, notes: e.target.value }))} />
                     </div>
-                    <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading}>Submit Remittance</button>
+                    <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading}>Submit Handover</button>
                   </form>
                 </div>
 
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ScrollText className="icon" /> My Remittance History</h3>
+                  <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ScrollText className="icon" /> My Handover History</h3>
                   {remittances.length === 0 ? (
-                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No remittances submitted yet.</p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No cash handovers submitted yet.</p>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {remittances.map(r => (
@@ -2648,8 +3289,34 @@ export default function LendApp() {
                       </>
                     )}
                   </p>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 4px' }}>
                     Address: <strong>{loanStatement.loan.borrower_address || 'N/A'}</strong>
+                    {loanStatement.loan.borrower_email && <> | Email: <strong>{loanStatement.loan.borrower_email}</strong></>}
+                    {loanStatement.loan.borrower_gender && <> | Gender: <strong style={{ textTransform: 'capitalize' }}>{loanStatement.loan.borrower_gender}</strong></>}
+                  </p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0' }}>
+                    Loan Term: <strong style={{ textTransform: 'capitalize' }}>
+                      {loanStatement.loan.collection_mode === 'fixed_term' ? 'Fixed Term' : 'Open-Ended'}
+                    </strong>
+                    {loanStatement.loan.collection_mode === 'fixed_term' && loanStatement.loan.maturity_date && (
+                      <>
+                        {' '}| Maturity: <strong>{new Date(loanStatement.loan.maturity_date).toLocaleDateString()}</strong>
+                        {(() => {
+                          const today = new Date();
+                          today.setHours(0,0,0,0);
+                          const maturity = new Date(loanStatement.loan.maturity_date);
+                          const diffTime = maturity - today;
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          if (diffDays < 0) {
+                            return <span style={{ color: 'var(--accent-rose)', marginLeft: '8px', fontWeight: 'bold' }}>(OVERDUE by {Math.abs(diffDays)} day(s))</span>;
+                          } else if (diffDays === 0) {
+                            return <span style={{ color: 'var(--accent-rose)', marginLeft: '8px', fontWeight: 'bold' }}>(MATURES TODAY!)</span>;
+                          } else {
+                            return <span style={{ color: 'var(--accent-emerald)', marginLeft: '8px' }}>({diffDays} day(s) remaining)</span>;
+                          }
+                        })()}
+                      </>
+                    )}
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -2763,10 +3430,8 @@ export default function LendApp() {
                     <div><strong>Name:</strong> {loanStatement.guarantor.full_name}</div>
                     <div><strong>NIC:</strong> {loanStatement.guarantor.nic_number}</div>
                     <div><strong>Phone:</strong> {loanStatement.guarantor.phone}</div>
-                    <div><strong>Email:</strong> {loanStatement.guarantor.email || '-'}</div>
                     <div><strong>Gender:</strong> {loanStatement.guarantor.gender || '-'}</div>
                     <div><strong>Ethnicity:</strong> {loanStatement.guarantor.ethnicity || '-'}</div>
-                    <div><strong>Date of Birth:</strong> {loanStatement.guarantor.date_of_birth ? new Date(loanStatement.guarantor.date_of_birth).toLocaleDateString() : '-'}</div>
                     <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.guarantor.address}</div>
                     <div>
                       <strong>Protected under debt-recovery act:</strong>{' '}
@@ -2846,20 +3511,12 @@ export default function LendApp() {
                       </div>
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Date of Birth</label>
-                      <input type="date" className="glass-input" value={guarantorEditForm.date_of_birth} onChange={e => setGuarantorEditForm(prev => ({ ...prev, date_of_birth: e.target.value }))} />
-                    </div>
-                    <div>
                       <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone *</label>
                       <input required type="tel" className="glass-input" value={guarantorEditForm.phone} onChange={e => setGuarantorEditForm(prev => ({ ...prev, phone: e.target.value }))} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
                       <input required type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Email</label>
-                      <input type="email" className="glass-input" value={guarantorEditForm.email} onChange={e => setGuarantorEditForm(prev => ({ ...prev, email: e.target.value }))} />
                     </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
                       <input type="checkbox" checked={guarantorEditForm.protected_under_debt_act} onChange={e => setGuarantorEditForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
@@ -2905,64 +3562,35 @@ export default function LendApp() {
                 </div>
               )}
 
-              {/* Daily Collection Tracker — mirrors the physical passbook */}
-              {loanStatement.loan.status === 'active' && (
+              {loanStatement.loan.collection_mode === 'fixed_term' && loanStatement.loan.maturity_date && (
                 <div className="glass-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
-                    <h3 style={{ fontSize: '22px' }}><ClipboardCheck className="icon" /> Daily Collection Tracker</h3>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      <button className="glass-btn glass-btn-emerald" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loanStatement.loan.id, 'paid', backfillDate || null)} disabled={loading}>
-                        <Check className="icon" /> Paid
-                      </button>
-                      <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loanStatement.loan.id, 'partial', backfillDate || null)} disabled={loading}>
-                        Partial
-                      </button>
-                      <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loanStatement.loan.id, 'not_paid', backfillDate || null)} disabled={loading}>
-                        <X className="icon" /> Missed
-                      </button>
-                      {user.role === 'admin' && (
-                        <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleRecordPrincipalPayment(loanStatement.loan.id)} disabled={loading}>
-                          <Banknote className="icon" /> Record Principal Payment
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 'bold', marginRight: '8px' }}>Date (defaults to today):</label>
-                    <input type="date" className="glass-input" style={{ maxWidth: '200px', display: 'inline-block', padding: '8px 12px' }} max={new Date().toISOString().slice(0, 10)} value={backfillDate} onChange={e => setBackfillDate(e.target.value)} />
-                  </div>
-                  {loanStatement.dailyCollections.length === 0 ? (
-                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No days marked yet.</p>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table className="glass-table">
-                        <thead>
-                          <tr>
-                            <th>Date</th>
-                            <th>Status</th>
-                            <th>Amount</th>
-                            <th>Marked By</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {loanStatement.dailyCollections.map(dc => (
-                            <tr key={dc.id}>
-                              <td>{new Date(dc.collection_date).toLocaleDateString()}</td>
-                              <td>
-                                <span className={`badge ${dc.status === 'paid' ? 'badge-active' : dc.status === 'partial' ? 'badge-pending' : 'badge-defaulted'}`}>
-                                  {dc.status === 'not_paid' ? 'Missed' : dc.status}
-                                </span>
-                              </td>
-                              <td>{dc.amount ? `LKR ${parseFloat(dc.amount).toLocaleString()}` : '-'}</td>
-                              <td>{dc.marked_by_name || '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                  <h3 style={{ fontSize: '20px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><TrendingUp className="icon" /> Fixed Term Progress</h3>
+                  {(() => {
+                    const start = new Date(loanStatement.loan.created_at);
+                    const maturity = new Date(loanStatement.loan.maturity_date);
+                    const today = new Date();
+                    
+                    const totalDays = Math.max(1, Math.round((maturity - start) / (1000 * 60 * 60 * 24)));
+                    const elapsedDays = Math.max(0, Math.round((today - start) / (1000 * 60 * 60 * 24)));
+                    const percent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
+                    
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                          <span>Disbursed: <strong>{start.toLocaleDateString()}</strong></span>
+                          <span>Day {Math.min(totalDays, elapsedDays)} of {totalDays} ({percent.toFixed(0)}%)</span>
+                          <span>Maturity: <strong>{maturity.toLocaleDateString()}</strong></span>
+                        </div>
+                        <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.07)', borderRadius: '5px', overflow: 'hidden' }}>
+                          <div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-blue), var(--accent-emerald))', transition: 'width 0.4s ease' }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
+
+              {/* Daily collection tracker removed — balance tracking active */}
 
               {/* Summary columns grid */}
               <div className="responsive-grid-2-col">
@@ -3159,7 +3787,7 @@ export default function LendApp() {
               </button>
               <button className={`bottom-nav-item ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}>
                 <span className="bottom-nav-icon"><Landmark /></span>
-                <span className="bottom-nav-label">Cash & Tools</span>
+                <span className="bottom-nav-label">Users & Cash</span>
               </button>
             </>
           )}
@@ -3176,6 +3804,14 @@ export default function LendApp() {
               <button className={`bottom-nav-item ${agentSubView === 'remit' ? 'active' : ''}`} onClick={() => setAgentSubView('remit')}>
                 <span className="bottom-nav-icon"><Landmark /></span>
                 <span className="bottom-nav-label">Remit</span>
+              </button>
+            </>
+          )}
+          {user.role === 'borrower' && (
+            <>
+              <button className={`bottom-nav-item ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
+                <span className="bottom-nav-icon"><Home /></span>
+                <span className="bottom-nav-label">Home</span>
               </button>
             </>
           )}

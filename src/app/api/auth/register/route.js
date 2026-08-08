@@ -26,18 +26,14 @@ export async function POST(request) {
     }
 
     let passwordHash;
-    let tempPassword = null;
-    let mustChangePassword = false;
     if (role === 'borrower') {
       // Borrowers don't log in — this is a deliberately invalid bcrypt hash
       // that bcrypt.compare() always rejects, regardless of any password
       // supplied in the request.
       passwordHash = 'NO_LOGIN_ACCESS';
-    } else if (password) {
+    } else {
       const salt = await bcrypt.genSalt(10);
       passwordHash = await bcrypt.hash(password, salt);
-    } else {
-      passwordHash = 'NO_LOGIN_ACCESS';
     }
 
     const [userId] = await db('users').insert({
@@ -56,8 +52,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       message: 'User registered successfully.',
-      userId: userId.id || userId,
-      temporaryPassword: tempPassword
+      userId: userId.id || userId
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
