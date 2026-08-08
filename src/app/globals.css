@@ -1318,3 +1318,11 @@ table.desktop-only {
   border-radius: 12px;
   margin-bottom: 12px;
 }
+
+/* Responsive layout for passbook statement card header */
+@media (min-width: 769px) {
+  .mobile-header-split {
+    flex-direction: row !important;
+    align-items: center !important;
+  }
+}

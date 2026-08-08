@@ -3466,26 +3466,35 @@ export default function LendApp() {
             <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               
               {/* Header info card */}
-              <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
+              <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
+                <div style={{ flex: '1 1 300px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--accent-blue)', fontWeight: 'bold', letterSpacing: '0.05em' }}>LOAN STATEMENT & HISTORY</span>
                   <h2 style={{ fontSize: '28px', margin: '4px 0' }}>Loan Details: {loanStatement.loan.borrower_name}</h2>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '15px', marginBottom: '6px' }}>
-                    Original Principal: <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong> |{' '}
-                    Principal Outstanding: <strong style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(loanStatement.loan.principal_outstanding).toLocaleString()}</strong> |{' '}
-                    Interest Due: <strong style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString()}</strong>
-                    {(() => {
-                      const projected = projectCurrentInterestBalance(loanStatement.loan);
-                      const stored = parseFloat(loanStatement.loan.interest_balance) || 0;
-                      if (Math.abs(projected - stored) < 0.01) return null;
-                      return (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-                          {' '}(as of right now: <strong style={{ color: 'var(--accent-rose)' }}>LKR {projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> — today's accrual hasn't posted yet)
-                        </span>
-                      );
-                    })()}
-                  </p>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 6px' }}>
+                  
+                  {/* Styled responsive metrics grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px 16px', margin: '12px 0' }}>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      Original Principal: <strong style={{ color: 'var(--text-primary)' }}>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>
+                    </div>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      Principal Outstanding: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.principal_outstanding).toLocaleString()}</strong>
+                    </div>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      Interest Due: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString()}</strong>
+                      {(() => {
+                        const projected = projectCurrentInterestBalance(loanStatement.loan);
+                        const stored = parseFloat(loanStatement.loan.interest_balance) || 0;
+                        if (Math.abs(projected - stored) < 0.01) return null;
+                        return (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', display: 'block', marginTop: '2px' }}>
+                            (Est. now: <strong style={{ color: 'var(--accent-rose)' }}>LKR {projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>)
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 6px', flexWrap: 'wrap' }}>
                     <span><IdCard className="icon" /> NIC Number: <strong>{loanStatement.loan.nic_number || 'N/A'}</strong></span>
                     {loanStatement.loan.nic_photo_url && (
                       <>
@@ -3534,11 +3543,13 @@ export default function LendApp() {
                     )}
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <button className="glass-btn glass-btn-secondary" onClick={() => setShowLoanAgreement(true)}>
-                    <FileText className="icon" /> Print Loan Agreement
+                
+                {/* Actions group with flex layout */}
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', width: '100%', maxWidth: '360px' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => setShowLoanAgreement(true)}>
+                    <FileText className="icon" /> Print Agreement
                   </button>
-                  <button className="glass-btn" onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
+                  <button className="glass-btn glass-btn-emerald" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
                     <ArrowLeft className="icon" /> Go Back
                   </button>
                 </div>
@@ -3672,9 +3683,9 @@ export default function LendApp() {
                   <div className="responsive-grid-2-col" style={{ gap: '24px' }}>
                     {/* Passbook Statement History */}
                     <div className="glass-card" style={{ cursor: 'pointer', transition: 'transform 0.2s ease, border-color 0.2s ease' }} onClick={() => setView('passbook-details')}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexDirection: 'column', gap: '8px', marginBottom: '16px' }} className="mobile-header-split">
                         <h3 style={{ fontSize: '20px', margin: 0 }}><Receipt className="icon" /> Passbook Statement (Activity Log)</h3>
-                        <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '6px' }}>
+                        <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '6px' }} onClick={(e) => { e.stopPropagation(); setView('passbook-details'); }}>
                           View Detailed Table
                         </button>
                       </div>
@@ -3838,7 +3849,7 @@ export default function LendApp() {
                         {loanStatement.payments.length === 0 ? (
                           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No payments collected yet.</p>
                         ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
                             {loanStatement.payments.map((p, idx) => (
                               <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
@@ -3884,7 +3895,7 @@ export default function LendApp() {
                         {loanStatement.accruals.length === 0 ? (
                           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No interest accrued yet.</p>
                         ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
                             {loanStatement.accruals.map((acc, idx) => (
                               <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -4229,18 +4240,22 @@ export default function LendApp() {
                     NIC: <strong>{loanStatement.loan.nic_number || 'N/A'}</strong> | Phone: <strong>{loanStatement.loan.borrower_phone}</strong>
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button type="button" className="glass-btn glass-btn-secondary" onClick={() => window.print()}>
+                
+                {/* Actions group with flex layout */}
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', width: '100%', maxWidth: '380px' }}>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => window.print()}>
                     <Printer className="icon" /> Print Statement
                   </button>
-                  <button type="button" className="glass-btn" onClick={() => setView('ledger')}>
+                  <button type="button" className="glass-btn glass-btn-emerald" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => setView('ledger')}>
                     <ArrowLeft className="icon" /> Back to Loan File
                   </button>
                 </div>
               </div>
 
               <div className="glass-card" style={{ padding: '24px' }}>
-                <div style={{ overflowX: 'auto' }}>
+                
+                {/* Desktop View Table */}
+                <div className="desktop-only" style={{ overflowX: 'auto' }}>
                   <table className="glass-table">
                     <thead>
                       <tr>
@@ -4290,6 +4305,59 @@ export default function LendApp() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile View Card List */}
+                <div className="mobile-only mobile-card-list">
+                  {displayEvents.map((entry, idx) => (
+                    <div key={idx} className={`mobile-row-card ${entry.change === 'decrease' ? 'mobile-row-card-success' : 'mobile-row-card-warning'}`}>
+                      <div className="mobile-row-card-header">
+                        <strong style={{ fontSize: '15px' }}>{entry.type}</strong>
+                        <span className={`badge ${entry.change === 'decrease' ? 'badge-active' : 'badge-pending'}`}>
+                          {entry.change === 'increase' ? 'Charged' : 'Paid'}
+                        </span>
+                      </div>
+                      <div className="mobile-row-card-grid-compact" style={{ gridTemplateColumns: '1fr' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          <strong>Date/Time:</strong> {new Date(entry.date).toLocaleString()}
+                        </div>
+                        {entry.details && (
+                          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '6px 8px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                            <strong>Calc Log:</strong> {entry.details}
+                          </div>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px' }}>
+                          <div>
+                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Principal Chg:</span>
+                            <span className="mobile-row-card-value" style={{ 
+                              fontSize: '12px',
+                              color: entry.bucket === 'principal' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                            }}>
+                              {entry.bucket === 'principal' ? (entry.change === 'increase' ? `+${entry.amount.toLocaleString()}` : `-${entry.amount.toLocaleString()}`) : '-'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Interest Chg:</span>
+                            <span className="mobile-row-card-value" style={{ 
+                              fontSize: '12px',
+                              color: entry.bucket === 'interest' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                            }}>
+                              {entry.bucket === 'interest' ? (entry.change === 'increase' ? `+${entry.amount.toLocaleString()}` : `-${entry.amount.toLocaleString()}`) : '-'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Principal Bal:</span>
+                            <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Interest Bal:</span>
+                            <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
               </div>
             </div>
           );
