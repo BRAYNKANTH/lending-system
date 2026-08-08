@@ -5,6 +5,7 @@ import { validateImageDataUrl } from '@/lib/services/image.js';
 import { notifyLoanCreation } from '@/lib/services/notification.js';
 import { isValidSriLankanNIC, addInterval } from '@/lib/loanSchedule.js';
 import { normalizePhone } from '@/lib/phone.js';
+import { stripLoanMediaList } from '@/lib/stripMedia.js';
 import bcrypt from 'bcryptjs';
 import { generateTempPassword } from '@/lib/tempPassword.js';
 
@@ -339,7 +340,7 @@ export async function GET(request) {
     if (borrowerId && role === 'admin') query = query.where('loans.borrower_id', borrowerId);
 
     const loans = await query.orderBy('loans.created_at', 'desc');
-    return NextResponse.json(loans);
+    return NextResponse.json(stripLoanMediaList(loans));
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Fetch loans error:', error);
