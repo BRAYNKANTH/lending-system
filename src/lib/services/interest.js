@@ -76,12 +76,12 @@ export async function runInterestAccruals() {
 
         // Post Ledger Entries (Double-Entry Ledger) — one combined posting
         // for the whole catch-up batch.
-        // A: Debit loan_receivable (Asset increases)
+        // A: Debit loan_receivable_interest (Asset increases)
         // B: Credit interest_revenue (Revenue increases)
         await trx('ledger_entries').insert([
           {
             loan_id: dbLoan.id,
-            account: 'loan_receivable',
+            account: 'loan_receivable_interest',
             type: 'debit',
             amount: totalAccrued
           },

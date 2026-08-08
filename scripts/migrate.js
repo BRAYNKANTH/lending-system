@@ -252,7 +252,7 @@ async function createSchemaAndSeed() {
     table.uuid('id').primary().defaultTo(db.fn.uuid());
     table.uuid('loan_id').references('id').inTable('loans').onDelete('SET NULL');
     table.uuid('transaction_id').references('id').inTable('transactions').onDelete('SET NULL');
-    table.string('account', 30).notNullable(); // 'cash_agent', 'cash_office', 'loan_receivable', 'interest_revenue'
+    table.string('account', 30).notNullable(); // 'cash_agent', 'cash_office', 'loan_receivable_principal', 'loan_receivable_interest', 'interest_revenue', 'penalty_revenue', 'written_off_expense'
     table.string('type', 10).notNullable(); // 'debit', 'credit'
     table.decimal('amount', 15, 2).notNullable();
     table.timestamp('created_at').defaultTo(db.fn.now());
@@ -396,17 +396,17 @@ async function createSchemaAndSeed() {
   console.log('Interest accruals seeded.');
 
   await db('ledger_entries').insert([
-    { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'loan_receivable', type: 'debit', amount: 100000.00, created_at: new Date(baseDate.getTime() - 3 * 24 * 60 * 60 * 1000) },
+    { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'loan_receivable_principal', type: 'debit', amount: 100000.00, created_at: new Date(baseDate.getTime() - 3 * 24 * 60 * 60 * 1000) },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'cash_office', type: 'credit', amount: 100000.00, created_at: new Date(baseDate.getTime() - 3 * 24 * 60 * 60 * 1000) },
-    { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'loan_receivable', type: 'debit', amount: 2000.00, created_at: lastAccrualDaily },
+    { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'loan_receivable_interest', type: 'debit', amount: 2000.00, created_at: lastAccrualDaily },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', account: 'interest_revenue', type: 'credit', amount: 2000.00, created_at: lastAccrualDaily },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c2222222-2222-2222-2222-222222222222', account: 'cash_agent', type: 'debit', amount: 2000.00, created_at: lastAccrualDaily },
-    { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c2222222-2222-2222-2222-222222222222', account: 'loan_receivable', type: 'credit', amount: 2000.00, created_at: lastAccrualDaily },
+    { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c2222222-2222-2222-2222-222222222222', account: 'loan_receivable_interest', type: 'credit', amount: 2000.00, created_at: lastAccrualDaily },
     { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c1111111-1111-1111-1111-111111111111', account: 'cash_agent', type: 'debit', amount: 15000.00, created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000) },
-    { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c1111111-1111-1111-1111-111111111111', account: 'loan_receivable', type: 'credit', amount: 15000.00, created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000) },
-    { loan_id: 'b2222222-2222-2222-2222-222222222222', account: 'loan_receivable', type: 'debit', amount: 250000.00, created_at: new Date(baseDate.getTime() - 10 * 24 * 60 * 60 * 1000) },
+    { loan_id: 'b1111111-1111-1111-1111-111111111111', transaction_id: 'c1111111-1111-1111-1111-111111111111', account: 'loan_receivable_principal', type: 'credit', amount: 15000.00, created_at: new Date(baseDate.getTime() - 12 * 60 * 60 * 1000) },
+    { loan_id: 'b2222222-2222-2222-2222-222222222222', account: 'loan_receivable_principal', type: 'debit', amount: 250000.00, created_at: new Date(baseDate.getTime() - 10 * 24 * 60 * 60 * 1000) },
     { loan_id: 'b2222222-2222-2222-2222-222222222222', account: 'cash_office', type: 'credit', amount: 250000.00, created_at: new Date(baseDate.getTime() - 10 * 24 * 60 * 60 * 1000) },
-    { loan_id: 'b2222222-2222-2222-2222-222222222222', account: 'loan_receivable', type: 'debit', amount: 12500.00, created_at: lastAccrualWeekly },
+    { loan_id: 'b2222222-2222-2222-2222-222222222222', account: 'loan_receivable_interest', type: 'debit', amount: 12500.00, created_at: lastAccrualWeekly },
     { loan_id: 'b2222222-2222-2222-2222-222222222222', account: 'interest_revenue', type: 'credit', amount: 12500.00, created_at: lastAccrualWeekly }
   ]);
   console.log('Ledger entries seeded.');

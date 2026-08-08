@@ -3,11 +3,12 @@ import bcrypt from 'bcryptjs';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { normalizePhone } from '@/lib/phone.js';
+import { generateTempPassword } from '@/lib/tempPassword.js';
 
 export async function POST(request) {
   try {
     const user = await requireAuth(request, ['admin']);
-    const { name, phone, password, role } = await request.json();
+    const { name, phone, password, role, email, gender } = await request.json();
 
     if (!name || !phone || !role) {
       return NextResponse.json({ message: 'Name, phone, and role are required.' }, { status: 400 });
@@ -25,19 +26,44 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Phone number is already registered.' }, { status: 400 });
     }
 
+    let cleanEmail = null;
+    if (email && email.trim()) {
+      cleanEmail = email.trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        return NextResponse.json({ message: 'Invalid email format.' }, { status: 400 });
+      }
+      const existingEmail = await db('users').where({ email: cleanEmail }).first();
+      if (existingEmail) {
+        return NextResponse.json({ message: 'Email address is already registered to another user.' }, { status: 400 });
+      }
+    }
+
     let passwordHash;
+    let tempPassword = null;
+    let mustChangePassword = false;
     if (role === 'borrower') {
       // Borrowers don't log in — this is a deliberately invalid bcrypt hash
       // that bcrypt.compare() always rejects, regardless of any password
       // supplied in the request.
       passwordHash = 'NO_LOGIN_ACCESS';
-    } else {
+    } else if (password) {
       const salt = await bcrypt.genSalt(10);
       passwordHash = await bcrypt.hash(password, salt);
+    } else {
+      // Shouldn't be reachable given the check above, but generate a real
+      // temp password rather than ever leaving passwordHash undefined.
+      tempPassword = generateTempPassword();
+      mustChangePassword = true;
+      const salt = await bcrypt.genSalt(10);
+      passwordHash = await bcrypt.hash(tempPassword, salt);
     }
 
     const [userId] = await db('users').insert({
-      name, phone,
+      name: name.trim(),
+      phone: phone.trim().replace(/\s+/g, ''),
+      email: cleanEmail,
+      gender: gender || null,
       password_hash: passwordHash,
       role,
       is_active: true,
@@ -52,7 +78,8 @@ export async function POST(request) {
 
     return NextResponse.json({
       message: 'User registered successfully.',
-      userId: userId.id || userId
+      userId: userId.id || userId,
+      temporaryPassword: tempPassword
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });

@@ -64,13 +64,13 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
       })
       .returning('*');
 
-    // 3. Post double-entry ledger entries. loan_receivable represents the
-    // client's total amount owed (principal + unpaid interest combined) —
-    // either payment type clears part of that same receivable, so the
-    // ledger posting is identical; only the loan's own bookkeeping below
-    // distinguishes which component was paid down.
+    // 3. Post double-entry ledger entries. The receivable is split into a
+    // principal account and an interest account so the trial balance can
+    // report principal-at-risk separately from interest-at-risk — which of
+    // the two this credit clears depends on paymentType.
     // A: Debit cash_agent or cash_office depending on payment method
     const debitAccount = (paymentMethod && paymentMethod !== 'cash') ? 'cash_office' : 'cash_agent';
+    const receivableAccount = paymentType === 'interest' ? 'loan_receivable_interest' : 'loan_receivable_principal';
     await trx('ledger_entries').insert([
       {
         loan_id: loanId,
@@ -82,7 +82,7 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
       {
         loan_id: loanId,
         transaction_id: transaction.id || transaction,
-        account: 'loan_receivable',
+        account: receivableAccount,
         type: 'credit',
         amount: payAmount
       }

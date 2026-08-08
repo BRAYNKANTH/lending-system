@@ -6,10 +6,11 @@ const ACCOUNT_LABELS = {
   cash_agent: 'Cash in Agent Hands',
   cash_in_transit: 'Cash in Transit (Remitted, Unverified)',
   cash_office: 'Cash at Office',
-  loan_receivable: 'Loans Receivable',
+  loan_receivable_principal: 'Loans Receivable (Principal)',
+  loan_receivable_interest: 'Loans Receivable (Interest)',
   interest_revenue: 'Interest Revenue',
   penalty_revenue: 'Penalty Revenue',
-  bad_debt_expense: 'Bad Debt Written Off'
+  written_off_expense: 'Bad Debt Written Off'
 };
 
 // Consolidated ledger / trial balance report (Admin only)

@@ -37,10 +37,13 @@ export async function POST(request, { params }) {
         throw new Error('This loan has no outstanding balance to write off.');
       }
 
-      await trx('ledger_entries').insert([
-        { loan_id: id, account: 'bad_debt_expense', type: 'debit', amount: totalWriteOff },
-        { loan_id: id, account: 'loan_receivable', type: 'credit', amount: totalWriteOff }
-      ]);
+      // One combined expense debit, split across both receivable accounts
+      // it's clearing — keeps debits == credits while still crediting the
+      // correct principal vs. interest receivable.
+      const ledgerRows = [{ loan_id: id, account: 'written_off_expense', type: 'debit', amount: totalWriteOff }];
+      if (principal > 0) ledgerRows.push({ loan_id: id, account: 'loan_receivable_principal', type: 'credit', amount: principal });
+      if (interest > 0) ledgerRows.push({ loan_id: id, account: 'loan_receivable_interest', type: 'credit', amount: interest });
+      await trx('ledger_entries').insert(ledgerRows);
 
       await trx('loans').where({ id }).update({
         status: 'written_off',

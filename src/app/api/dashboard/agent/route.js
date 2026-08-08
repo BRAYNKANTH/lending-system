@@ -16,9 +16,13 @@ export async function GET(request) {
       .sum('amount as total');
     const collectionsToday = parseFloat(collectionsTodayResult[0].total) || 0;
 
+    // All statuses, not just active — the UI toggles between Active,
+    // Defaulted, and Closed (fully_paid/written_off) tabs. Previously this
+    // hardcoded status='active', so agents could never see a defaulted or
+    // closed loan on their own route at all.
     const assignedLoans = await db('loans')
       .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
-      .where({ assigned_agent_id: agentId, 'loans.status': 'active' })
+      .where({ assigned_agent_id: agentId })
       .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone')
       .orderBy('loans.principal_outstanding', 'desc');
 
@@ -42,9 +46,10 @@ export async function GET(request) {
       .limit(10);
 
     const cashInHand = await getAgentCashInHand(agentId);
+    const activeCount = assignedLoans.filter((l) => l.status === 'active').length;
 
     return NextResponse.json({
-      summary: { collectionsToday, assignedCount: assignedLoans.length, ...cashInHand },
+      summary: { collectionsToday, assignedCount: activeCount, ...cashInHand },
       assignedLoans,
       collectionHistory
     });

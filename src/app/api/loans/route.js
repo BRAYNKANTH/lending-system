@@ -279,7 +279,7 @@ export async function POST(request) {
       const loanId = newLoan.id || newLoan;
 
       await trx('ledger_entries').insert([
-        { loan_id: loanId, account: 'loan_receivable', type: 'debit', amount: principal },
+        { loan_id: loanId, account: 'loan_receivable_principal', type: 'debit', amount: principal },
         { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal }
       ]);
 

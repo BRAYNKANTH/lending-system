@@ -31,7 +31,7 @@ export async function POST(request, { params }) {
       const newInterestBalance = parseFloat(loan.interest_balance) + penaltyAmount;
 
       await trx('ledger_entries').insert([
-        { loan_id: id, account: 'loan_receivable', type: 'debit', amount: penaltyAmount },
+        { loan_id: id, account: 'loan_receivable_interest', type: 'debit', amount: penaltyAmount },
         { loan_id: id, account: 'penalty_revenue', type: 'credit', amount: penaltyAmount }
       ]);
 
