@@ -8,6 +8,11 @@ const ACCOUNT_LABELS = {
   cash_office: 'Cash at Office',
   loan_receivable_principal: 'Loans Receivable (Principal)',
   loan_receivable_interest: 'Loans Receivable (Interest)',
+  // Legacy — entries posted before the principal/interest split (see the
+  // "Audit fixes" changes) still carry this old combined account name.
+  // Kept here purely so old rows render a readable label instead of the
+  // raw snake_case key; nothing posts to this account anymore.
+  loan_receivable: 'Loans Receivable (Legacy, Pre-Split)',
   interest_revenue: 'Interest Revenue',
   penalty_revenue: 'Penalty Revenue',
   written_off_expense: 'Bad Debt Written Off'

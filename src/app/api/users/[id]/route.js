@@ -162,7 +162,9 @@ export async function PATCH(request, { params }) {
       description: `Admin updated user '${targetUser.name}' (${id}): ${changes.join(', ')}.`
     });
 
-    const updatedUser = await db('users').where({ id }).first();
+    // Never select('*') for a response that reaches the client — this
+    // previously sent the bcrypt password_hash straight back in the JSON.
+    const updatedUser = await db('users').where({ id }).select('id', 'name', 'email', 'phone', 'gender', 'role', 'is_active', 'must_change_password', 'created_at').first();
     return NextResponse.json({ message: 'User updated successfully.', user: updatedUser });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
