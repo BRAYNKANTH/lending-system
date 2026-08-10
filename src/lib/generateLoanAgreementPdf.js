@@ -1,0 +1,225 @@
+'use client';
+
+import { jsPDF } from 'jspdf';
+
+// Loads a static asset (served from /public) as a PNG data URL so jsPDF can
+// embed it — jsPDF's addImage() needs either a data URL or a canvas/image
+// element, not a bare path, and the browser fetch+canvas round trip is the
+// standard client-side way to get there without a server round trip.
+function loadImageAsDataUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => reject(new Error(`Failed to load ${url}`));
+    img.src = url;
+  });
+}
+
+const COLORS = {
+  ink: [26, 26, 26],
+  muted: [100, 108, 122],
+  accent: [37, 84, 232],
+  boxBg: [244, 247, 253],
+  boxBorder: [211, 222, 245]
+};
+
+/**
+ * Builds a formatted, downloadable Loan Agreement PDF (with the company
+ * logo) from the same loanStatement shape already used by the on-screen
+ * agreement modal ({ loan, guarantor }), and triggers a browser download.
+ * Runs entirely client-side — no server round trip, no headless-browser
+ * infra needed on Vercel.
+ */
+export async function downloadLoanAgreementPdf(loanStatement) {
+  const { loan, guarantor } = loanStatement;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 54;
+  const contentWidth = pageWidth - marginX * 2;
+  const footerY = pageHeight - 36;
+  let y = 54;
+  let pageNum = 1;
+
+  const drawFooter = () => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.muted);
+    doc.text('STN Micro Credit Company (Pvt) Ltd — System-generated loan agreement', marginX, footerY);
+    doc.text(`Page ${pageNum}`, pageWidth - marginX, footerY, { align: 'right' });
+  };
+
+  // Ensures upcoming content has room before the footer; starts a fresh
+  // page (with its own footer) if it doesn't.
+  const ensureSpace = (needed) => {
+    if (y + needed > footerY - 10) {
+      drawFooter();
+      doc.addPage();
+      pageNum += 1;
+      y = 54;
+    }
+  };
+
+  // --- Header: logo + company name ---
+  try {
+    const logoDataUrl = await loadImageAsDataUrl('/stn_logo.png');
+    doc.addImage(logoDataUrl, 'PNG', marginX, y, 52, 52);
+  } catch {
+    // Logo failed to load (offline, blocked, etc.) — proceed text-only
+    // rather than failing the whole download.
+  }
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.setTextColor(...COLORS.ink);
+  doc.text('STN MICRO CREDIT', marginX + 64, y + 22);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...COLORS.muted);
+  doc.text('Company (Pvt) Ltd — Cash Lending & Micro Credit Services', marginX + 64, y + 37);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(...COLORS.muted);
+  doc.text(`Ref: ${loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}`, pageWidth - marginX, y + 22, { align: 'right' });
+  doc.text(`Date: ${new Date(loan.created_at).toLocaleDateString()}`, pageWidth - marginX, y + 37, { align: 'right' });
+
+  y += 66;
+  doc.setDrawColor(...COLORS.accent);
+  doc.setLineWidth(1.4);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 30;
+
+  // --- Title ---
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(...COLORS.ink);
+  doc.text('LOAN AGREEMENT', pageWidth / 2, y, { align: 'center' });
+  y += 26;
+
+  // --- Intro paragraph ---
+  const introText = `This agreement is entered into on ${new Date(loan.created_at).toLocaleDateString()} between STN Micro Credit Company (Pvt) Ltd (the "Lender") and ${loan.borrower_name} (NIC: ${loan.nic_number || 'N/A'}, Address: ${loan.borrower_address || 'N/A'}) (the "Borrower").`;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(...COLORS.ink);
+  const introLines = doc.splitTextToSize(introText, contentWidth);
+  doc.text(introLines, marginX, y);
+  y += introLines.length * 14 + 18;
+
+  // --- Key facts box ---
+  const facts = [
+    ['Principal Amount', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`],
+    ['Interest Rate', `${loan.interest_rate}%`],
+    ['Collection Frequency', loan.interest_type === 'daily' ? 'Daily' : loan.interest_type === 'weekly' ? 'Weekly' : 'Monthly'],
+    ['Loan Term', loan.collection_mode === 'fixed_term' ? `Fixed Term (${loan.duration_periods || '-'} periods)` : 'Open-Ended'],
+  ];
+  const boxHeight = Math.ceil(facts.length / 2) * 24 + 20;
+  ensureSpace(boxHeight + 10);
+  doc.setFillColor(...COLORS.boxBg);
+  doc.setDrawColor(...COLORS.boxBorder);
+  doc.roundedRect(marginX, y, contentWidth, boxHeight, 4, 4, 'FD');
+  const colW = contentWidth / 2;
+  facts.forEach(([label, value], i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const fx = marginX + 16 + col * colW;
+    const fy = y + 22 + row * 24;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...COLORS.muted);
+    doc.text(label.toUpperCase(), fx, fy);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.ink);
+    doc.text(value, fx, fy + 13);
+  });
+  y += boxHeight + 26;
+
+  // --- Numbered clauses ---
+  let clauseNum = 1;
+  const addClause = (title, body) => {
+    ensureSpace(40);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.ink);
+    doc.text(`${clauseNum}. ${title}`, marginX, y);
+    y += 15;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(60, 60, 60);
+    const lines = doc.splitTextToSize(body, contentWidth);
+    ensureSpace(lines.length * 13 + 14);
+    doc.text(lines, marginX, y);
+    y += lines.length * 13 + 18;
+    clauseNum += 1;
+  };
+
+  addClause(
+    'Loan Amount',
+    `The Lender agrees to give the Borrower a loan of LKR ${parseFloat(loan.principal_amount).toLocaleString()}.`
+  );
+
+  addClause(
+    'Interest & Repayment',
+    `Interest is charged at ${loan.interest_rate}% of the principal, payable every ${loan.interest_type === 'daily' ? 'day' : loan.interest_type === 'weekly' ? 'week' : 'month'}. The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered settled once the full principal of LKR ${parseFloat(loan.principal_amount).toLocaleString()} has been repaid, regardless of the interest payment schedule.`
+  );
+
+  if (loan.loan_purpose) {
+    addClause('Purpose of Loan', loan.loan_purpose);
+  }
+
+  if (guarantor) {
+    addClause(
+      'Guarantor',
+      `${guarantor.full_name} (NIC: ${guarantor.nic_number}), residing at ${guarantor.address}, stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.`
+    );
+  }
+
+  addClause(
+    'Default',
+    'If the Borrower fails to pay interest or repay the principal as agreed, the Lender has the right to take legal action to recover the outstanding amount.'
+  );
+
+  addClause(
+    'Declaration',
+    'Both parties confirm they have read, understood, and agree to all the terms stated above.'
+  );
+
+  // --- Signature block ---
+  const signatories = [
+    { role: 'Lender', name: 'STN Micro Credit Company (Pvt) Ltd' },
+    { role: 'Borrower', name: loan.borrower_name },
+    ...(guarantor ? [{ role: 'Guarantor', name: guarantor.full_name }] : [])
+  ];
+  ensureSpace(90);
+  y += 20;
+  const sigColWidth = contentWidth / signatories.length;
+  signatories.forEach((s, i) => {
+    const sx = marginX + i * sigColWidth;
+    doc.setDrawColor(...COLORS.ink);
+    doc.setLineWidth(0.7);
+    doc.line(sx, y, sx + sigColWidth - 20, y);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...COLORS.ink);
+    doc.text(s.role, sx, y + 14);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...COLORS.muted);
+    const nameLines = doc.splitTextToSize(s.name, sigColWidth - 20);
+    doc.text(nameLines, sx, y + 27);
+    doc.text('Date: _______________', sx, y + 27 + nameLines.length * 11 + 12);
+  });
+
+  drawFooter();
+
+  const fileRef = loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`;
+  const safeBorrowerName = (loan.borrower_name || 'Borrower').replace(/[^a-z0-9]+/gi, '-');
+  doc.save(`Loan-Agreement-${fileRef}-${safeBorrowerName}.pdf`);
+}

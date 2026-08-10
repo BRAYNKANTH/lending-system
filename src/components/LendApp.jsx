@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
+import { downloadLoanAgreementPdf } from '@/lib/generateLoanAgreementPdf.js';
 import {
   Home, Banknote, ClipboardList, Users, Landmark, KeyRound, LogOut,
   ArrowLeft, ArrowRight, ScrollText, Check, X, Phone, IdCard, ShieldCheck,
@@ -35,6 +36,7 @@ export default function LendApp() {
   const [loanStatement, setLoanStatement] = useState(null);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [showLoanAgreement, setShowLoanAgreement] = useState(false);
+  const [downloadingAgreement, setDownloadingAgreement] = useState(false);
   const [backfillDate, setBackfillDate] = useState('');
 
   // Admin: Cash & Tools view data (users, remittances, ledger report)
@@ -606,6 +608,22 @@ export default function LendApp() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Downloads a formatted Loan Agreement PDF (with the company logo) for
+  // the currently open loan statement — runs client-side via jsPDF, no
+  // server round trip needed.
+  const handleDownloadAgreement = async () => {
+    if (!loanStatement) return;
+    setDownloadingAgreement(true);
+    try {
+      await downloadLoanAgreementPdf(loanStatement);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+      showToast('Could not generate the PDF. Please try again.');
+    } finally {
+      setDownloadingAgreement(false);
     }
   };
 
@@ -1496,8 +1514,11 @@ export default function LendApp() {
               <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowLoanAgreement(false)}>
                 Close
               </button>
-              <button type="button" className="glass-btn glass-btn-emerald" onClick={() => window.print()}>
+              <button type="button" className="glass-btn glass-btn-secondary" onClick={() => window.print()}>
                 <Printer className="icon" /> Print
+              </button>
+              <button type="button" className="glass-btn glass-btn-emerald" onClick={handleDownloadAgreement} disabled={downloadingAgreement}>
+                <Download className="icon" /> {downloadingAgreement ? 'Generating...' : 'Download PDF'}
               </button>
             </div>
           </div>
@@ -3921,7 +3942,10 @@ export default function LendApp() {
                 {/* Actions group with flex layout */}
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', width: '100%', maxWidth: '360px' }}>
                   <button className="glass-btn glass-btn-secondary" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => setShowLoanAgreement(true)}>
-                    <FileText className="icon" /> Print Agreement
+                    <FileText className="icon" /> View Agreement
+                  </button>
+                  <button className="glass-btn" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={handleDownloadAgreement} disabled={downloadingAgreement}>
+                    <Download className="icon" /> {downloadingAgreement ? 'Generating...' : 'Download PDF'}
                   </button>
                   <button className="glass-btn glass-btn-emerald" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
                     <ArrowLeft className="icon" /> Go Back
