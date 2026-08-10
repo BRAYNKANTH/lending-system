@@ -4767,6 +4767,10 @@ export default function LendApp() {
                 <span className="bottom-nav-icon"><Banknote /></span>
                 <span className="bottom-nav-label">Collect</span>
               </button>
+              <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}>
+                <span className="bottom-nav-icon"><CreditCard /></span>
+                <span className="bottom-nav-label">Record</span>
+              </button>
               <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'history' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('history'); }}>
                 <span className="bottom-nav-icon"><ScrollText /></span>
                 <span className="bottom-nav-label">History</span>
