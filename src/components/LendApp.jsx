@@ -102,12 +102,13 @@ export default function LendApp() {
     assigned_agent_id: '',
     nic_number: '',
     nic_photo: '',
+    address_proof: '',
     collection_mode: 'open_ended',
     duration_periods: ''
   });
   const [includeGuarantor, setIncludeGuarantor] = useState(false);
   const emptyGuarantor = {
-    full_name: '', nic_number: '', nic_photo: '',
+    full_name: '', nic_number: '', nic_photo: '', address_proof: '',
     address: '', phone: '',
     protected_under_debt_act: false, has_pending_court_cases: false,
     monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
@@ -846,6 +847,7 @@ export default function LendApp() {
     if (!newLoan.borrower_address || !newLoan.borrower_address.trim()) return false;
     if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) return false;
     if (!newLoan.date_of_birth) return false;
+    if (!newLoan.address_proof) return false;
     if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) return false;
     if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) return false;
     if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) return false;
@@ -877,6 +879,10 @@ export default function LendApp() {
     if (!newLoan.date_of_birth) {
       errors.date_of_birth = "Borrower's date of birth is required.";
       if (!firstErrorField) firstErrorField = "date_of_birth";
+    }
+    if (!newLoan.address_proof) {
+      errors.address_proof = "Borrower's address proof photo is required.";
+      if (!firstErrorField) firstErrorField = "address_proof";
     }
     if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) {
       errors.principal_amount = "Principal amount must be a positive number.";
@@ -930,6 +936,10 @@ export default function LendApp() {
       if (!g.nic_photo) {
         errors[`guarantor_${i}_nic_photo`] = "A NIC photo is required for the guarantor.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_photo`;
+      }
+      if (!g.address_proof) {
+        errors[`guarantor_${i}_address_proof`] = "An address proof photo is required for the guarantor.";
+        if (!firstErrorField) firstErrorField = `guarantor_${i}_address_proof`;
       }
       if (!g.phone || !g.phone.trim()) {
         errors[`guarantor_${i}_phone`] = "Guarantor phone number is required.";
@@ -1014,6 +1024,7 @@ export default function LendApp() {
         assigned_agent_id: '',
         nic_number: '',
         nic_photo: '',
+        address_proof: '',
         collection_mode: 'open_ended',
         duration_periods: ''
       });
@@ -1251,6 +1262,18 @@ export default function LendApp() {
     }
   };
 
+  // File to base64 converter for borrower address proof photo
+  const handleAddressProofChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewLoan(prev => ({ ...prev, address_proof: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   // Updates one field on one guarantor form in the guarantorForms array.
   const updateGuarantorField = (index, field, value) => {
     setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, [field]: value } : g)));
@@ -1264,6 +1287,18 @@ export default function LendApp() {
       const reader = new FileReader();
       reader.onloadend = () => {
         updateGuarantorField(index, 'nic_photo', reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // File to base64 converter for a guarantor's address proof photo
+  const handleGuarantorAddressProofChange = (index, e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        updateGuarantorField(index, 'address_proof', reader.result);
       };
       reader.readAsDataURL(file);
     }
@@ -3152,6 +3187,18 @@ export default function LendApp() {
                                   )}
                                 </div>
                               </div>
+
+                              <div>
+                                <label id="address_proof" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ADDRESS PROOF (e.g. utility bill) *</label>
+                                <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors.address_proof ? 'var(--accent-rose)' : '', borderWidth: validationErrors.address_proof ? '2px' : '' }} onChange={e => { handleAddressProofChange(e); clearFieldError('address_proof'); }} />
+                                {newLoan.address_proof && (
+                                  <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <img src={newLoan.address_proof} alt="Address proof preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                    <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                  </div>
+                                )}
+                                {validationErrors.address_proof && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.address_proof}</span>}
+                              </div>
                             </div>
 
                             {/* --- SECTION 2: BORROWER PROFILE DETAILS --- */}
@@ -3349,6 +3396,18 @@ export default function LendApp() {
                                     </div>
                                   )}
                                   {validationErrors[`guarantor_${i}_nic_photo`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_photo`]}</span>}
+                                </div>
+
+                                <div>
+                                  <label id={`guarantor_${i}_address_proof`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address Proof (e.g. utility bill) *</label>
+                                  <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address_proof`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address_proof`] ? '2px' : '' }} onChange={e => { handleGuarantorAddressProofChange(i, e); clearFieldError(`guarantor_${i}_address_proof`); }} />
+                                  {g.address_proof && (
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                      <img src={g.address_proof} alt="Guarantor address proof preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                    </div>
+                                  )}
+                                  {validationErrors[`guarantor_${i}_address_proof`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address_proof`]}</span>}
                                 </div>
 
                                 <div>
@@ -4403,6 +4462,12 @@ export default function LendApp() {
                         <div><strong>Spouse NIC:</strong> {loanStatement.loan.spouse_nic || '-'}</div>
                         <div style={{ gridColumn: '1 / -1' }}><strong>Spouse Occupation:</strong> {loanStatement.loan.spouse_occupation || '-'}</div>
                       </div>
+                      {loanStatement.loan.address_proof_url && (
+                        <div style={{ marginTop: '14px' }}>
+                          <strong style={{ display: 'block', marginBottom: '6px', fontSize: '13px' }}>Address Proof:</strong>
+                          <img src={loanStatement.loan.address_proof_url} alt="Borrower address proof" style={{ width: '160px', height: '105px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-glass)' }} />
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="glass-card">
@@ -4434,9 +4499,20 @@ export default function LendApp() {
                           </div>
                         )}
                       </div>
-                      {gtor.nic_photo_url && (
-                        <img src={gtor.nic_photo_url} alt={`${gtor.full_name} NIC`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)', marginBottom: '12px' }} />
-                      )}
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                        {gtor.nic_photo_url && (
+                          <div>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>NIC Photo</span>
+                            <img src={gtor.nic_photo_url} alt={`${gtor.full_name} NIC`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
+                          </div>
+                        )}
+                        {gtor.address_proof_url && (
+                          <div>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>Address Proof</span>
+                            <img src={gtor.address_proof_url} alt={`${gtor.full_name} address proof`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
+                          </div>
+                        )}
+                      </div>
                       <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
                         <div><strong>Name:</strong> {gtor.full_name}</div>
                         <div><strong>NIC:</strong> {gtor.nic_number}</div>

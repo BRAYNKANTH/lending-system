@@ -191,6 +191,12 @@ async function runIncrementalMigrations() {
   // Guarantor NIC photo — mirrors loans.nic_photo_url (base64 data URL,
   // stored directly in the DB since Vercel's filesystem is ephemeral).
   await addColumnIfMissing('guarantors', 'nic_photo_url', (t) => t.text('nic_photo_url').nullable());
+
+  // Address proof photo (e.g. a utility bill or similar), required at loan
+  // creation for both the borrower and every guarantor — same base64-in-DB
+  // storage pattern as the NIC photos.
+  await addColumnIfMissing('loans', 'address_proof_url', (t) => t.text('address_proof_url').nullable());
+  await addColumnIfMissing('guarantors', 'address_proof_url', (t) => t.text('address_proof_url').nullable());
 }
 
 async function createSchemaAndSeed() {
@@ -230,6 +236,7 @@ async function createSchemaAndSeed() {
     table.string('reference_number', 50).unique().nullable();
     table.string('nic_number', 50);
     table.text('nic_photo_url');
+    table.text('address_proof_url');
     table.date('date_of_birth').nullable();
     table.text('borrower_address').nullable();
     table.text('default_reason').nullable();
@@ -333,6 +340,7 @@ async function createSchemaAndSeed() {
     table.string('phone', 20).notNullable();
     table.string('email', 100);
     table.text('nic_photo_url');
+    table.text('address_proof_url');
     table.boolean('protected_under_debt_act').defaultTo(false);
     table.boolean('has_pending_court_cases').defaultTo(false);
     table.decimal('monthly_income_business', 15, 2).defaultTo(0);
