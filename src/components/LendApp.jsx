@@ -2533,7 +2533,17 @@ export default function LendApp() {
                             <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>BID AMOUNT (கழிவு / DISCOUNT) *</label>
                             <input required type="number" inputMode="decimal" min="0" max={parseFloat(selectedTicket.total_value)} className="glass-input" placeholder="e.g. 130000" value={auctionForm.bid_amount} onChange={e => setAuctionForm(prev => ({ ...prev, bid_amount: e.target.value }))} />
                           </div>
-                          
+
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>ROUND WINNER</label>
+                            <select className="glass-input" value={auctionForm.winner_member_id} onChange={e => setAuctionForm(prev => ({ ...prev, winner_member_id: e.target.value }))}>
+                              <option value="">-- No Winner Selected Yet --</option>
+                              {ticketMembers.filter(m => !ticketAuctions.some(a => a.winner_member_id === m.id)).map(m => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                              ))}
+                            </select>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>Only shows members who haven't already won a previous round.</span>
+                          </div>
 
                           <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
