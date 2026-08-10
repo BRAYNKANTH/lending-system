@@ -181,6 +181,10 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   --menu-accent: #7c5cf0;
 }
 
+.menu-card-gold {
+  --menu-accent: var(--accent-gold);
+}
+
 .menu-card-icon {
   width: 64px;
   height: 64px;
@@ -732,6 +736,20 @@ table.desktop-only {
   }
   .mobile-only {
     display: block !important;
+  }
+
+  /* Agent "Collect" screen bundles a full payment form and a full customer
+     roster side-by-side on desktop (.responsive-grid-2-col). On mobile that
+     grid collapses to one column, so both panels stack — meaning an agent
+     has to scroll past the whole form to reach their customer list, or past
+     the whole list to get back to the form. Below the breakpoint, show only
+     the panel matching the mobile sub-tab; desktop is untouched since this
+     rule doesn't exist above 768px. */
+  .agent-collect-panel {
+    display: none;
+  }
+  .agent-collect-panel.active {
+    display: block;
   }
 }
 

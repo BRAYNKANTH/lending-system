@@ -19,6 +19,7 @@ export default function LendApp() {
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'loans', 'agents'
   const [agentSubView, setAgentSubView] = useState('collect'); // 'collect', 'history'
   const [agentCustomerTab, setAgentCustomerTab] = useState('active'); // 'active', 'defaulted', 'closed'
+  const [agentCollectMobileTab, setAgentCollectMobileTab] = useState('form'); // mobile-only: 'form', 'customers'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -1596,6 +1597,7 @@ export default function LendApp() {
               <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}><ClipboardList className="icon" /> Check Loans</button>
               <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}><Users className="icon" /> Agent Route</button>
               <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Users & Cash Tools</button>
+              <button className={`nav-link-btn ${view === 'interest-center' ? 'active' : ''}`} onClick={() => { setView('interest-center'); setSelectedLoanId(null); setLoanStatement(null); }}><TrendingUp className="icon" /> Interest Center</button>
               <button className={`nav-link-btn ${view === 'payment-history' ? 'active' : ''}`} onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); }}><Receipt className="icon" /> Payment History</button>
               <button className={`nav-link-btn ${view === 'audit-log' ? 'active' : ''}`} onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); }}><ScrollText className="icon" /> Audit Log</button>
             </div>
@@ -2095,10 +2097,28 @@ export default function LendApp() {
                     </div>
                   </div>
 
-                </div>
+                  <div className="menu-card menu-card-gold" onClick={() => setView('interest-center')}>
+                    <span className="menu-card-icon"><TrendingUp /></span>
+                    <div>
+                      <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-gold)' }}>Interest Accrual Center</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: '1.5' }}>Revenue breakdown by collection frequency, formulas, and recent accrual logs</p>
+                    </div>
+                  </div>
 
-                {/* Interest Accrual & Formula Dashboard */}
-                <div className="glass-card" style={{ marginTop: '16px' }}>
+                </div>
+              </div>
+            )}
+
+            {/* View: Interest Accrual & Formula Dashboard — pulled out of the
+                dashboard home so it doesn't force every admin to scroll past
+                a reporting page just to reach "What do you want to do?". */}
+            {view === 'interest-center' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                  <ArrowLeft className="icon" /> Back to Main Menu
+                </button>
+
+                <div className="glass-card">
                   <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <TrendingUp className="icon" /> Interest Accrual & Calculations Center
                   </h2>
@@ -3338,11 +3358,31 @@ export default function LendApp() {
                   </div>
                 </div>
 
+                {/* Mobile-only switcher: below 768px the two panels below stack
+                    into one long scroll, so let the agent jump straight to
+                    whichever one they need instead of scrolling past both
+                    every time. No effect on desktop, which keeps showing
+                    both panels side by side. */}
+                <div className="mobile-only" style={{ display: 'flex', gap: '8px', background: 'var(--bg-tertiary)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
+                  <button type="button"
+                    className={`glass-btn ${agentCollectMobileTab === 'form' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                    style={{ flex: 1, padding: '8px', fontSize: '13px', border: 'none' }}
+                    onClick={() => setAgentCollectMobileTab('form')}>
+                    <Banknote className="icon" /> Record Payment
+                  </button>
+                  <button type="button"
+                    className={`glass-btn ${agentCollectMobileTab === 'customers' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                    style={{ flex: 1, padding: '8px', fontSize: '13px', border: 'none' }}
+                    onClick={() => setAgentCollectMobileTab('customers')}>
+                    <ClipboardCheck className="icon" /> My Customers
+                  </button>
+                </div>
+
                 {/* Quick entry for agent collection */}
                 <div className="responsive-grid-2-col">
-                  
+
                   {/* Collection Submission Form */}
-                  <div className="glass-card">
+                  <div className={`glass-card agent-collect-panel ${agentCollectMobileTab === 'form' ? 'active' : ''}`}>
                     <h3 style={{ fontSize: '26px', marginBottom: '8px' }}><Banknote className="icon" /> Record Payment</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }}>Select a customer and enter the cash collected from them.</p>
                     
@@ -3444,7 +3484,7 @@ export default function LendApp() {
                   </div>
 
                   {/* My Customers — Pending / Active / Defaulted / Closed / Rejected */}
-                  <div className="glass-card">
+                  <div className={`glass-card agent-collect-panel ${agentCollectMobileTab === 'customers' ? 'active' : ''}`}>
                     <h3 style={{ fontSize: '24px', marginBottom: '12px' }}><ClipboardCheck className="icon" /> My Customers</h3>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
                       {['pending', 'active', 'defaulted', 'closed', 'rejected'].map(tab => {
@@ -3508,7 +3548,7 @@ export default function LendApp() {
                                       <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loan.id, 'not_paid')} disabled={loading}>
                                         <X className="icon" /> Missed
                                       </button>
-                                      <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => resetPaymentForm(loan.id)}>
+                                      <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => { resetPaymentForm(loan.id); setAgentCollectMobileTab('form'); }}>
                                         Full Form
                                       </button>
                                     </div>
