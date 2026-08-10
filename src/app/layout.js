@@ -22,17 +22,21 @@ const outfit = Outfit({
 });
 
 export const metadata = {
-  title: 'STN MICRO CREDIT',
+  title: 'STN MICRO CREDIT COMPANY (PVT) LTD',
   description: 'Cash Lending & Agent Collection Management System',
   manifest: '/manifest.webmanifest',
   icons: {
-    icon: '/favicon.ico',
-    apple: '/icons/apple-touch-icon.png'
+    icon: [
+      { url: '/stn_emblem.png?v=2', type: 'image/png' },
+      { url: '/favicon.ico?v=2' }
+    ],
+    shortcut: '/stn_emblem.png?v=2',
+    apple: '/icons/apple-touch-icon.png?v=2'
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'STN Credit'
+    title: 'STN Micro Credit'
   }
 };
 

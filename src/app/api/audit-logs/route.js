@@ -14,10 +14,18 @@ export async function GET(request) {
     const actionType = request.nextUrl.searchParams.get('actionType');
     const actorId = request.nextUrl.searchParams.get('actorId');
     const search = request.nextUrl.searchParams.get('search');
+    const from = request.nextUrl.searchParams.get('from');
+    const to = request.nextUrl.searchParams.get('to');
 
     let query = db('audit_logs').leftJoin('users', 'audit_logs.actor_id', 'users.id');
     if (actionType) query = query.where('audit_logs.action_type', actionType);
     if (actorId) query = query.where('audit_logs.actor_id', actorId);
+    if (from) query = query.where('audit_logs.created_at', '>=', new Date(from));
+    if (to) {
+      const endTo = new Date(to);
+      endTo.setHours(23, 59, 59, 999);
+      query = query.where('audit_logs.created_at', '<=', endTo);
+    }
     if (search) query = query.whereILike('audit_logs.description', `%${search}%`);
 
     const countResult = await query.clone().count('audit_logs.id as count').first();

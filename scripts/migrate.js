@@ -169,6 +169,19 @@ async function runIncrementalMigrations() {
 
   // Add gender column to users table
   await addColumnIfMissing('users', 'gender', (t) => t.string('gender', 10).nullable());
+
+  // reference_number existed in the fresh-install schema but was never
+  // added here — a DB that went through incremental migrations instead of
+  // a fresh install would never actually get this column.
+  await addColumnIfMissing('loans', 'reference_number', (t) => t.string('reference_number', 50).unique().nullable());
+
+  // Agent-submitted loan applications ("status": 'pending') need
+  // admin sign-off before they're actually disbursed — see the loans
+  // create/approve/reject routes.
+  await addColumnIfMissing('loans', 'approved_by', (t) => t.uuid('approved_by').references('id').inTable('users').onDelete('SET NULL'));
+  await addColumnIfMissing('loans', 'approved_at', (t) => t.timestamp('approved_at').nullable());
+  await addColumnIfMissing('loans', 'loan_rejection_reason', (t) => t.text('loan_rejection_reason').nullable());
+  await addColumnIfMissing('loans', 'rejected_at', (t) => t.timestamp('rejected_at').nullable());
 }
 
 async function createSchemaAndSeed() {
@@ -202,7 +215,7 @@ async function createSchemaAndSeed() {
     // the running unpaid-interest amount, cleared by interest payments.
     table.decimal('principal_outstanding', 15, 2).notNullable();
     table.decimal('interest_balance', 15, 2).notNullable().defaultTo(0);
-    table.string('status', 20).defaultTo('active'); // 'pending', 'active', 'fully_paid', 'defaulted', 'written_off'
+    table.string('status', 20).defaultTo('active'); // 'pending', 'active', 'fully_paid', 'defaulted', 'written_off', 'rejected'
     table.timestamp('last_accrual_date').defaultTo(db.fn.now());
     table.timestamp('next_accrual_date').notNullable();
     table.string('reference_number', 50).unique().nullable();
@@ -214,6 +227,10 @@ async function createSchemaAndSeed() {
     table.decimal('write_off_amount', 15, 2).nullable();
     table.text('write_off_reason').nullable();
     table.timestamp('written_off_at').nullable();
+    table.uuid('approved_by').references('id').inTable('users').onDelete('SET NULL');
+    table.timestamp('approved_at').nullable();
+    table.text('loan_rejection_reason').nullable();
+    table.timestamp('rejected_at').nullable();
     table.text('loan_purpose').nullable();
     table.integer('dependents_count').nullable();
     table.decimal('monthly_income', 15, 2).nullable();

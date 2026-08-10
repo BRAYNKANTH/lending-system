@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
@@ -8,7 +8,8 @@ import {
   Printer, FileText, TrendingUp, Bell, BarChart3, Zap, AlertTriangle,
   Briefcase, Truck, BookOpen, ArrowDown, User, Settings, Ban, Receipt,
   Search, CreditCard, Smartphone, PiggyBank, UserPlus, Trash2, ClipboardCheck,
-  CircleCheck, CircleAlert, RefreshCcw, Download, ChevronRight
+  CircleCheck, CircleAlert, RefreshCcw, Download, ChevronRight, Calendar,
+  Plus, ThumbsUp, ThumbsDown, Clock
 } from 'lucide-react';
 
 export default function LendApp() {
@@ -56,11 +57,29 @@ export default function LendApp() {
   const [settingsTab, setSettingsTab] = useState('profile');
   const [profileForm, setProfileForm] = useState({ name: '', phone: '', email: '' });
   const [settingsError, setSettingsError] = useState('');
+  const [collectionSummaryMode, setCollectionSummaryMode] = useState('today'); // 'today' or 'all-time'
 
   // Admin: loan edit/default/penalty controls on the statement view
   const [loanEditForm, setLoanEditForm] = useState({ interest_rate: '', assigned_agent_id: '' });
   const [defaultReason, setDefaultReason] = useState('');
   const [penaltyForm, setPenaltyForm] = useState({ amount: '', reason: '' });
+
+  // Configurable Overdue Reminder Days Threshold (default 3 days)
+  const [overdueDaysThreshold, setOverdueDaysThreshold] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return Math.max(1, parseInt(localStorage.getItem('stn_overdue_threshold_days') || '3', 10));
+    }
+    return 3;
+  });
+
+  const handleUpdateOverdueThreshold = (newDays) => {
+    const parsed = Math.max(1, parseInt(newDays, 10) || 3);
+    setOverdueDaysThreshold(parsed);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('stn_overdue_threshold_days', String(parsed));
+    }
+    showToast(`Overdue alert threshold updated to ${parsed} days.`);
+  };
 
   // Form states
   const [loginPhone, setLoginPhone] = useState('');
@@ -589,6 +608,47 @@ export default function LendApp() {
     }
   };
 
+  // Admin: approve an agent-submitted loan application — this is the moment
+  // it actually disburses.
+  const handleApproveLoan = async () => {
+    if (!selectedLoanId) return;
+    if (!window.confirm('Approve this loan application? This disburses the cash and starts interest accruing.')) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.post(`/loans/${selectedLoanId}/approve`, {});
+      showToast('Loan application approved and disbursed.');
+      viewStatement(selectedLoanId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Admin: reject an agent-submitted loan application — nothing was ever
+  // disbursed, so this just closes out the application.
+  const handleRejectLoan = async () => {
+    if (!selectedLoanId) return;
+    const reason = window.prompt('Reason for rejecting this loan application:');
+    if (reason === null) return; // cancelled
+    if (!reason.trim()) {
+      setError('A reason is required to reject a loan application.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await api.post(`/loans/${selectedLoanId}/reject`, { reason });
+      showToast('Loan application rejected.');
+      viewStatement(selectedLoanId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Admin: apply a manual penalty / late fee
   const handleApplyPenalty = async (e) => {
     e.preventDefault();
@@ -884,7 +944,11 @@ export default function LendApp() {
         borrower_profile: borrowerProfileForm
       };
       await api.post('/loans', payload);
-      showToast(`Loan disbursed to ${newLoan.borrower_name} successfully! Notification sent.`);
+      showToast(
+        user.role === 'agent'
+          ? `Loan application for ${newLoan.borrower_name} submitted — awaiting admin approval.`
+          : `Loan disbursed to ${newLoan.borrower_name} successfully! Notification sent.`
+      );
       setNewLoan({
         borrower_name: '',
         borrower_phone: '',
@@ -1294,8 +1358,9 @@ export default function LendApp() {
       {selectedReceipt && (
         <div className="receipt-print-only">
           <div className="print-header">
-            <div className="print-title">LendBuddy Ledger</div>
-            <div style={{ fontSize: '9pt', color: '#555555' }}>Official Payment Receipt</div>
+            <img src="/stn_logo.png" alt="STN Micro Credit Logo" style={{ height: '44px', width: 'auto', marginBottom: '6px' }} />
+            <div className="print-title">STN MICRO CREDIT COMPANY (PVT) LTD</div>
+            <div style={{ fontSize: '9pt', color: '#555555', fontWeight: 'bold' }}>Official Payment Receipt</div>
           </div>
 
           <div className="print-row">
@@ -1514,8 +1579,9 @@ export default function LendApp() {
       {token && user && (
         <header className="app-header animate-fade-in">
           <div className="app-header-info">
-            <h1 style={{ fontSize: '24px' }}>
-              <span className="app-brand-mark"><Banknote className="icon" /></span> STN MICRO CREDIT
+            <h1 style={{ fontSize: '22px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <img src="/stn_emblem.png?v=2" alt="STN Micro Credit Logo" style={{ height: '42px', width: 'auto', objectFit: 'contain' }} />
+              <span style={{ fontWeight: '800', letterSpacing: '0.5px' }}>STN MICRO CREDIT</span>
             </h1>
             <span className="badge badge-active">{user.role}</span>
           </div>
@@ -1525,6 +1591,8 @@ export default function LendApp() {
             <div className="desktop-header-nav">
               <button className={`nav-link-btn ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}><Home className="icon" /> Home</button>
               <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}><Banknote className="icon" /> Give Loan</button>
+              <button className={`nav-link-btn ${view === 'next-day-tasklist' ? 'active' : ''}`} onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); }}><Calendar className="icon" /> Next Day Tasklist</button>
+              <button className={`nav-link-btn ${view === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); }}><CreditCard className="icon" /> Record Payment</button>
               <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}><ClipboardList className="icon" /> Check Loans</button>
               <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}><Users className="icon" /> Agent Route</button>
               <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Users & Cash Tools</button>
@@ -1534,9 +1602,12 @@ export default function LendApp() {
           )}
           {user.role === 'agent' && (
             <div className="desktop-header-nav">
-              <button className={`nav-link-btn ${agentSubView === 'collect' ? 'active' : ''}`} onClick={() => setAgentSubView('collect')}><Banknote className="icon" /> Collect Payments</button>
-              <button className={`nav-link-btn ${agentSubView === 'history' ? 'active' : ''}`} onClick={() => setAgentSubView('history')}><ScrollText className="icon" /> Collection History</button>
-              <button className={`nav-link-btn ${agentSubView === 'remit' ? 'active' : ''}`} onClick={() => setAgentSubView('remit')}><Landmark className="icon" /> Remit Cash</button>
+              <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setGiveLoanStep(1); }}><Banknote className="icon" /> Give Loan</button>
+              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}><CreditCard className="icon" /> Collect Payments</button>
+              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'next-day-tasklist' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('next-day-tasklist'); }}><Calendar className="icon" /> Next Day Tasklist</button>
+              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}><CreditCard className="icon" /> Record Payment</button>
+              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'history' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('history'); }}><ScrollText className="icon" /> Collection History</button>
+              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'remit' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('remit'); }}><Landmark className="icon" /> Remit Cash</button>
             </div>
           )}
           {user.role === 'borrower' && (
@@ -1746,9 +1817,12 @@ export default function LendApp() {
         {/* ----------------- LOGIN PAGE ----------------- */}
         {!token && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
-            <div className="glass-card" style={{ width: '100%', maxWidth: '400px' }}>
-              <h2 style={{ fontSize: '28px', textAlign: 'center', marginBottom: '8px' }}>STN MICRO CREDIT</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center', marginBottom: '24px' }}>Easy loan tracking and collections</p>
+            <div className="glass-card" style={{ width: '100%', maxWidth: '420px', padding: '32px 28px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+                <img src="/stn_logo.png" alt="STN Micro Credit Logo" style={{ width: '140px', height: 'auto', margin: '0 auto 12px auto', display: 'block', borderRadius: '8px' }} />
+                <h2 style={{ fontSize: '26px', margin: '0 0 4px 0', fontWeight: '800', color: 'var(--text-primary)' }}>STN MICRO CREDIT</h2>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-gold)', textTransform: 'uppercase', letterSpacing: '1.5px', display: 'block' }}>Company (Pvt) Ltd</span>
+              </div>
 
               {!showForgotPassword ? (
                 <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1807,41 +1881,173 @@ export default function LendApp() {
             {view === 'dashboard' && (
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                 {/* KPI Metrics row */}
-                <div className="grid-cols-analytics">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+
+                  {/* Card 0: Pending Approvals — only shown when there's something to review */}
+                  {adminData.summary.pendingApprovalsCount > 0 && (
+                    <div className="kpi-card" style={{ borderLeft: '4px solid var(--accent-amber)', cursor: 'pointer' }} onClick={() => setView('loans')}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <span className="kpi-lbl">Pending Approvals</span>
+                          <h3 className="kpi-val" style={{ color: 'var(--accent-amber)' }}>
+                            {adminData.summary.pendingApprovalsCount} Loan{adminData.summary.pendingApprovalsCount === 1 ? '' : 's'}
+                          </h3>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                            Submitted by agents, awaiting your review
+                          </span>
+                        </div>
+                        <div className="kpi-icon-bubble" style={{ background: '#fffbeb', color: '#b45309' }}>
+                          <Clock style={{ width: '22px', height: '22px' }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card 1: Active Loans & Outstanding Principal */}
                   <div className="kpi-card kpi-card-blue">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
                         <span className="kpi-lbl">Active Loans</span>
                         <h3 className="kpi-val">{adminData.summary.totalActiveLoans}</h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                          Out Principal: <strong>LKR {adminData.summary.totalPrincipalOutstanding.toLocaleString()}</strong>
+                        </span>
                       </div>
                       <div className="kpi-icon-bubble blue">
                         <ClipboardList style={{ width: '22px', height: '22px' }} />
                       </div>
                     </div>
                   </div>
+
+                  {/* Card 2: Total Disbursed */}
                   <div className="kpi-card kpi-card-blue">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
                         <span className="kpi-lbl">Total Disbursed</span>
                         <h3 className="kpi-val">LKR {adminData.summary.totalMoneyLent.toLocaleString()}</h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                          Total Capital Issued
+                        </span>
                       </div>
                       <div className="kpi-icon-bubble blue">
                         <Banknote style={{ width: '22px', height: '22px' }} />
                       </div>
                     </div>
                   </div>
+
+                  {/* Card 3: Collection Progress with Filter Selector */}
                   <div className="kpi-card kpi-card-emerald">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <span className="kpi-lbl">Collections Progress</span>
+                      <div style={{ display: 'flex', background: 'var(--bg-tertiary)', padding: '2px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                        <button
+                          type="button"
+                          onClick={() => setCollectionSummaryMode('today')}
+                          style={{
+                            padding: '3px 8px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                            background: collectionSummaryMode === 'today' ? 'var(--accent-emerald)' : 'transparent',
+                            color: collectionSummaryMode === 'today' ? '#fff' : 'var(--text-secondary)'
+                          }}
+                        >
+                          Today
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCollectionSummaryMode('all-time')}
+                          style={{
+                            padding: '3px 8px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                            background: collectionSummaryMode === 'all-time' ? 'var(--accent-emerald)' : 'transparent',
+                            color: collectionSummaryMode === 'all-time' ? '#fff' : 'var(--text-secondary)'
+                          }}
+                        >
+                          All-Time
+                        </button>
+                      </div>
+                    </div>
+                    {collectionSummaryMode === 'today' ? (
+                      <div>
+                        <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>
+                          LKR {(adminData.dailyReport?.collectionsToday || 0).toLocaleString()}
+                        </h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                          Target Today: <strong>LKR {(adminData.summary.expectedTodayTarget || 0).toLocaleString()}</strong>
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>
+                          LKR {adminData.summary.totalRepayments.toLocaleString()}
+                        </h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                          Total Cash Collected All-Time
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card 4: Agent Cash in Hand */}
+                  <div className="kpi-card kpi-card-blue">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <span className="kpi-lbl">Total Collected</span>
-                        <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {adminData.summary.totalRepayments.toLocaleString()}</h3>
+                        <span className="kpi-lbl">Agent Cash in Hand</span>
+                        <h3 className="kpi-val" style={{ color: 'var(--accent-amber)' }}>
+                          LKR {(adminData.summary.agentCashInHand || 0).toLocaleString()}
+                        </h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                          Collected by agents, unremitted
+                        </span>
                       </div>
-                      <div className="kpi-icon-bubble emerald">
-                        <TrendingUp style={{ width: '22px', height: '22px' }} />
+                      <div className="kpi-icon-bubble" style={{ background: '#fef3c7', color: '#d97706' }}>
+                        <Briefcase style={{ width: '22px', height: '22px' }} />
                       </div>
                     </div>
                   </div>
+
+                  {/* Card 5: Overdue Loans Summary */}
+                  <div className="kpi-card" style={{ borderLeft: '4px solid var(--accent-rose)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <span className="kpi-lbl">Overdue Summary</span>
+                        <h3 className="kpi-val" style={{ color: 'var(--accent-rose)' }}>
+                          {adminData.summary.totalOverdue} Loans
+                        </h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                          Overdue Balance: <strong>LKR {(adminData.summary.totalOverdueAmount || 0).toLocaleString()}</strong>
+                        </span>
+                      </div>
+                      <div className="kpi-icon-bubble" style={{ background: '#ffe4e6', color: '#e11d48' }}>
+                        <AlertTriangle style={{ width: '22px', height: '22px' }} />
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
+
+                {/* Pending loan applications awaiting admin review */}
+                {adminData.pendingApprovals && adminData.pendingApprovals.length > 0 && (
+                  <div className="glass-card" style={{ borderLeft: '4px solid var(--accent-amber)' }}>
+                    <h3 style={{ fontSize: '24px', marginBottom: '16px', color: 'var(--accent-amber)' }}><Clock className="icon" /> Loan Applications Awaiting Approval</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {adminData.pendingApprovals.map(loan => (
+                        <div key={loan.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', padding: '14px 16px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px' }}>
+                          <div>
+                            <strong style={{ display: 'block', fontSize: '15px' }}>{loan.borrower_name}</strong>
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                              Submitted by <strong>{loan.submitted_by_name || 'Office'}</strong> · {new Date(loan.created_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--accent-amber)' }}>LKR {parseFloat(loan.principal_amount).toLocaleString()}</span>
+                            <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px', fontWeight: '700' }} onClick={() => viewStatement(loan.id)}>
+                              Review &rarr;
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Big Action Icon Buttons */}
                 <h2 style={{ fontSize: '32px', textAlign: 'center', marginTop: '24px', marginBottom: '12px', fontWeight: 'bold', color: 'var(--text-primary)' }}>
@@ -1854,6 +2060,22 @@ export default function LendApp() {
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-emerald)' }}>Give New Loan</h3>
                       <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: '1.5' }}>Type borrower name and phone number to disburse cash instantly</p>
+                    </div>
+                  </div>
+
+                  <div className="menu-card menu-card-give" onClick={() => setView('next-day-tasklist')}>
+                    <span className="menu-card-icon"><Calendar /></span>
+                    <div>
+                      <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-emerald)' }}>Next Day Tasklist</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: '1.5' }}>View scheduled collections for tomorrow categorized by Daily, Weekly, and Monthly routes</p>
+                    </div>
+                  </div>
+
+                  <div className="menu-card menu-card-check" onClick={() => setView('record-payment')}>
+                    <span className="menu-card-icon"><CreditCard /></span>
+                    <div>
+                      <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-blue)' }}>Record Payment</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: '1.5' }}>Inline daily collection sheet: check full due or enter custom partial amounts (e.g. 200) on the same line</p>
                     </div>
                   </div>
 
@@ -1913,16 +2135,16 @@ export default function LendApp() {
                       <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '12px' }}><BarChart3 className="icon" /> Interest Posting Formulas</h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', lineHeight: '1.4' }}>
                         <div>
-                          <strong style={{ color: 'var(--accent-blue)', display: 'block', marginBottom: '4px' }}>Daily Accrual Formula:</strong>
-                          <span style={{ color: 'var(--text-secondary)' }}><code>Interest = Principal × (Rate / 100)</code> applied every 24 hours.</span>
+                          <strong style={{ color: 'var(--accent-blue)', display: 'block', marginBottom: '4px' }}>Daily Collection Formula:</strong>
+                          <span style={{ color: 'var(--text-secondary)' }}><code>Daily Interest = (Principal × Rate / 100) / 30</code> accrued every 24h. Over 60 days = 2 months interest.</span>
                         </div>
                         <div>
-                          <strong style={{ color: 'var(--accent-blue)', display: 'block', marginBottom: '4px' }}>Weekly Accrual Formula:</strong>
-                          <span style={{ color: 'var(--text-secondary)' }}><code>Interest = Principal × (Rate / 100)</code> applied every 7 days.</span>
+                          <strong style={{ color: 'var(--accent-blue)', display: 'block', marginBottom: '4px' }}>Weekly Collection Formula:</strong>
+                          <span style={{ color: 'var(--text-secondary)' }}><code>Weekly Interest = (Principal × Rate / 100) / 4</code> accrued every 7 days.</span>
                         </div>
                         <div>
-                          <strong style={{ color: 'var(--accent-blue)', display: 'block', marginBottom: '4px' }}>Monthly Accrual Formula:</strong>
-                          <span style={{ color: 'var(--text-secondary)' }}><code>Interest = Principal × (Rate / 100)</code> applied every 30 days.</span>
+                          <strong style={{ color: 'var(--accent-blue)', display: 'block', marginBottom: '4px' }}>Monthly Collection Formula:</strong>
+                          <span style={{ color: 'var(--text-secondary)' }}><code>Monthly Interest = Principal × Rate / 100</code> accrued on calendar month dates (e.g. Mar 4th → Apr 4th → May 4th).</span>
                         </div>
                       </div>
                     </div>
@@ -1957,370 +2179,6 @@ export default function LendApp() {
                         </table>
                       </div>
                     )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {view === 'create-loan' && (
-              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => {
-                    setView('dashboard');
-                    setGiveLoanStep(1);
-                  }}>
-                    <ArrowLeft className="icon" /> Back to Main Menu
-                  </button>
-                </div>
-
-                <div className="glass-card" style={{ maxWidth: '900px', margin: '0 auto', width: '100%', padding: '0', overflow: 'hidden' }}>
-                  <div className="wizard-layout">
-                    {/* Stepper Navigation Sidebar */}
-                    <div className="wizard-sidebar">
-                      <h4 className="wizard-title" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', margin: '0 0 10px', fontWeight: 'bold' }}>LOAN WIZARD</h4>
-                      
-                      <button 
-                        type="button"
-                        className={`step-indicator ${giveLoanStep === 1 ? 'active' : 'completed'}`}
-                        onClick={() => setGiveLoanStep(1)}
-                        style={{ border: 'none', background: 'none', cursor: 'pointer' }}
-                      >
-                        <div className="step-number">1</div>
-                        <div>
-                          <div className="step-label">Borrower & Loan</div>
-                          <span className="step-subtext">KYC, Profile & Terms</span>
-                        </div>
-                      </button>
-
-                      <button 
-                        type="button"
-                        className={`step-indicator ${giveLoanStep === 2 ? 'active' : includeGuarantor ? '' : 'disabled'}`}
-                        disabled={!includeGuarantor}
-                        onClick={() => {
-                          if (includeGuarantor && validateStep1()) {
-                            setGiveLoanStep(2);
-                          }
-                        }}
-                        style={{ border: 'none', background: 'none', cursor: includeGuarantor ? 'pointer' : 'not-allowed' }}
-                      >
-                        <div className="step-number">2</div>
-                        <div>
-                          <div className="step-label">Guarantor Details</div>
-                          <span className="step-subtext">{includeGuarantor ? 'Required step' : 'Optional (Skipped)'}</span>
-                        </div>
-                      </button>
-                    </div>
-
-                    {/* Wizard Body / Form Content */}
-                    <div className="wizard-body">
-                      <h3 style={{ fontSize: '28px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Banknote className="icon" style={{ color: 'var(--accent-blue)', fontSize: '24px' }} /> Give New Loan
-                      </h3>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
-                        {giveLoanStep === 1 
-                          ? "Step 1 of 2: Borrower profile, KYC information, and loan interest terms."
-                          : "Step 2 of 2: Enter details for the guarantor backing this loan."
-                        }
-                      </p>
-
-                      <form noValidate onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        {giveLoanStep === 1 && (
-                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            {/* --- SECTION 1: BORROWER DETAILS --- */}
-                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                <User className="icon" /> 1. BORROWER PERSONAL DETAILS
-                              </p>
-                              
-                              <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER NAME *</label>
-                                <input id="borrower_name" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_name ? '2px' : '' }} placeholder="e.g. Bandara Perera" value={newLoan.borrower_name} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_name: e.target.value })); clearFieldError('borrower_name'); }} />
-                                {validationErrors.borrower_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_name}</span>}
-                              </div>
-
-                              <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER MOBILE NUMBER (SRI LANKA) *</label>
-                                <input id="borrower_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.borrower_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_phone ? '2px' : '' }} placeholder="e.g. 0771234567 or +94771234567" value={newLoan.borrower_phone} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_phone: e.target.value })); clearFieldError('borrower_phone'); }} />
-                                {validationErrors.borrower_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_phone}</span>}
-                              </div>
-
-                              <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER ADDRESS *</label>
-                                <input id="borrower_address" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_address ? '2px' : '' }} placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_address: e.target.value })); clearFieldError('borrower_address'); }} />
-                                {validationErrors.borrower_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_address}</span>}
-                              </div>
-
-                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER EMAIL (OPTIONAL)</label>
-                                  <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
-                                </div>
-                              </div>
-
-                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC NUMBER *</label>
-                                  <input id="nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => { setNewLoan(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('nic_number'); }} />
-                                  {validationErrors.nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.nic_number}</span>}
-                                </div>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO</label>
-                                  <input type="file" accept="image/*" className="glass-input" onChange={handleNICPhotoChange} />
-                                  {newLoan.nic_photo && (
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                      <img src={newLoan.nic_photo} alt="NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* --- SECTION 2: BORROWER PROFILE DETAILS --- */}
-                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                <ClipboardList className="icon" /> 2. BORROWER PROFILE DETAILS
-                              </p>
-
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
-                                  <input id="loan_purpose" type="text" className="glass-input" style={{ borderColor: validationErrors.loan_purpose ? 'var(--accent-rose)' : '', borderWidth: validationErrors.loan_purpose ? '2px' : '' }} placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value })); clearFieldError('loan_purpose'); }} />
-                                  {validationErrors.loan_purpose && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.loan_purpose}</span>}
-                                </div>
-
-                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Number of Dependents *</label>
-                                    <input id="dependents_count" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.dependents_count ? 'var(--accent-rose)' : '', borderWidth: validationErrors.dependents_count ? '2px' : '' }} value={borrowerProfileForm.dependents_count} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value })); clearFieldError('dependents_count'); }} />
-                                    {validationErrors.dependents_count && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.dependents_count}</span>}
-                                  </div>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
-                                    <input id="monthly_income" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.monthly_income ? 'var(--accent-rose)' : '', borderWidth: validationErrors.monthly_income ? '2px' : '' }} value={borrowerProfileForm.monthly_income} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value })); clearFieldError('monthly_income'); }} />
-                                    {validationErrors.monthly_income && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.monthly_income}</span>}
-                                  </div>
-                                </div>
-
-                                <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Spouse Details (if applicable)</p>
-                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Name</label>
-                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_name} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_name: e.target.value }))} />
-                                  </div>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse NIC Number</label>
-                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_nic} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_nic: e.target.value }))} />
-                                  </div>
-                                </div>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Occupation</label>
-                                  <input type="text" className="glass-input" value={borrowerProfileForm.spouse_occupation} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_occupation: e.target.value }))} />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* --- SECTION 3: LOAN DETAILS & AGENT --- */}
-                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                <Landmark className="icon" /> 3. LOAN SCHEDULING DETAILS
-                              </p>
-
-                              <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PRINCIPAL AMOUNT (LKR) *</label>
-                                <input id="principal_amount" type="number" min="1" className="glass-input" style={{ borderColor: validationErrors.principal_amount ? 'var(--accent-rose)' : '', borderWidth: validationErrors.principal_amount ? '2px' : '' }} placeholder="e.g. 50000" value={newLoan.principal_amount} onChange={e => { setNewLoan(prev => ({ ...prev, principal_amount: e.target.value })); clearFieldError('principal_amount'); }} />
-                                {validationErrors.principal_amount && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.principal_amount}</span>}
-                              </div>
-
-                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>INTEREST RATE (%) *</label>
-                                  <input id="interest_rate" type="number" step="0.01" min="0" className="glass-input" style={{ borderColor: validationErrors.interest_rate ? 'var(--accent-rose)' : '', borderWidth: validationErrors.interest_rate ? '2px' : '' }} placeholder="2.00" value={newLoan.interest_rate} onChange={e => { setNewLoan(prev => ({ ...prev, interest_rate: e.target.value })); clearFieldError('interest_rate'); }} />
-                                  {validationErrors.interest_rate && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.interest_rate}</span>}
-                                </div>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ACCRUAL FREQUENCY</label>
-                                  <select required className="glass-input" value={newLoan.interest_type} onChange={e => setNewLoan(prev => ({ ...prev, interest_type: e.target.value }))}>
-                                    <option value="daily">Daily Accumulation</option>
-                                    <option value="weekly">Weekly Accumulation</option>
-                                    <option value="monthly">Monthly Accumulation</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>LOAN TERM</label>
-                                  <select required className="glass-input" value={newLoan.collection_mode} onChange={e => setNewLoan(prev => ({ ...prev, collection_mode: e.target.value }))}>
-                                    <option value="open_ended">Open-Ended (Runs until fully paid)</option>
-                                    <option value="fixed_term">Fixed Term (Set duration)</option>
-                                  </select>
-                                </div>
-                                {newLoan.collection_mode === 'fixed_term' && (
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
-                                      DURATION (in {newLoan.interest_type === 'daily' ? 'days' : newLoan.interest_type === 'weekly' ? 'weeks' : 'months'}) *
-                                    </label>
-                                    <input type="number" min="1" required className="glass-input" placeholder="e.g. 30" value={newLoan.duration_periods} onChange={e => setNewLoan(prev => ({ ...prev, duration_periods: e.target.value }))} />
-                                  </div>
-                                )}
-                              </div>
-
-                              {newLoan.principal_amount > 0 && newLoan.interest_rate > 0 && (
-                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0' }}>
-                                  {(() => {
-                                    const p = parseFloat(newLoan.principal_amount) || 0;
-                                    const r = parseFloat(newLoan.interest_rate) || 0;
-                                    const perPeriod = p * (r / 100);
-                                    return `Interest-only loan: borrower owes LKR ${perPeriod.toLocaleString(undefined, { maximumFractionDigits: 2 })} interest every ${newLoan.interest_type === 'daily' ? 'day' : newLoan.interest_type === 'weekly' ? 'week' : 'month'} until the LKR ${p.toLocaleString()} principal is repaid in full (whenever the borrower is ready).`;
-                                  })()}
-                                </p>
-                              )}
-
-                              <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ASSIGN COLLECTION AGENT</label>
-                                <select className="glass-input" value={newLoan.assigned_agent_id} onChange={e => setNewLoan(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
-                                  <option value="">-- No Agent (Self Collect) --</option>
-                                  {agentsList.map(a => (
-                                    <option key={a.id} value={a.id}>{a.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* --- SECTION 4: GUARANTOR CHECKBOX --- */}
-                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'rgba(255,255,255,0.01)' }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', margin: 0 }}>
-                                <input type="checkbox" checked={includeGuarantor} onChange={e => {
-                                  setIncludeGuarantor(e.target.checked);
-                                  if (!e.target.checked && giveLoanStep === 2) {
-                                    setGiveLoanStep(1);
-                                  }
-                                }} />
-                                <ShieldCheck className="icon" /> ADD GUARANTOR DETAILS (OPTIONAL)
-                              </label>
-                              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '24px', marginTop: '-8px' }}>
-                                Checking this will add a second step to fill in the guarantor personal, income and expense details.
-                              </span>
-                            </div>
-
-                            {/* Navigation Buttons for Step 1 */}
-                            {includeGuarantor ? (
-                              <button 
-                                type="button" 
-                                className="glass-btn glass-btn-emerald" 
-                                onClick={handleNextStep}
-                                style={{ width: '100%', marginTop: '10px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px' }}
-                              >
-                                Continue to Guarantor Details <ArrowRight className="icon" />
-                              </button>
-                            ) : (
-                              <button 
-                                type="submit" 
-                                className="glass-btn glass-btn-emerald" 
-                                disabled={loading} 
-                                style={{ width: '100%', marginTop: '10px', padding: '16px', fontSize: '15px' }}
-                              >
-                                Disburse Cash Loan
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {giveLoanStep === 2 && includeGuarantor && (
-                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS
-                              </p>
-
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
-                                    <input id="guarantor_full_name" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_full_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_full_name ? '2px' : '' }} value={guarantorForm.full_name} onChange={e => { setGuarantorForm(prev => ({ ...prev, full_name: e.target.value })); clearFieldError('guarantor_full_name'); }} />
-                                    {validationErrors.guarantor_full_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_full_name}</span>}
-                                  </div>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                                    <input id="guarantor_nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={guarantorForm.nic_number} onChange={e => { setGuarantorForm(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('guarantor_nic_number'); }} />
-                                    {validationErrors.guarantor_nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_nic_number}</span>}
-                                  </div>
-                                </div>
-
-                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity / Citizenship</label>
-                                    <input type="text" className="glass-input" value={guarantorForm.ethnicity} onChange={e => setGuarantorForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
-                                  <input id="guarantor_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.guarantor_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_phone ? '2px' : '' }} value={guarantorForm.phone} onChange={e => { setGuarantorForm(prev => ({ ...prev, phone: e.target.value })); clearFieldError('guarantor_phone'); }} />
-                                  {validationErrors.guarantor_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_phone}</span>}
-                                </div>
-
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                                  <input id="guarantor_address" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_address ? '2px' : '' }} value={guarantorForm.address} onChange={e => { setGuarantorForm(prev => ({ ...prev, address: e.target.value })); clearFieldError('guarantor_address'); }} />
-                                  {validationErrors.guarantor_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_address}</span>}
-                                </div>
-
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                                    <input type="checkbox" checked={guarantorForm.protected_under_debt_act} onChange={e => setGuarantorForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
-                                    Protected under the state debt recovery act or any other law?
-                                  </label>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                                    <input type="checkbox" checked={guarantorForm.has_pending_court_cases} onChange={e => setGuarantorForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
-                                    Any court judgments/cases registered against them?
-                                  </label>
-                                </div>
-
-                                <div>
-                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
-                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                                    <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorForm.monthly_income_business} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorForm.monthly_income_agriculture} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_income_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
-                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                                    <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorForm.monthly_expense_food} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorForm.monthly_expense_rent} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_expense_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Navigation Buttons for Step 2 */}
-                            <div style={{ display: 'flex', gap: '12px' }}>
-                              <button 
-                                type="button" 
-                                className="glass-btn glass-btn-secondary" 
-                                onClick={() => setGiveLoanStep(1)}
-                                style={{ flex: 1, padding: '16px', fontSize: '15px' }}
-                              >
-                                Back to Step 1
-                              </button>
-                              <button 
-                                type="submit" 
-                                className="glass-btn glass-btn-emerald" 
-                                disabled={loading} 
-                                style={{ flex: 2, padding: '16px', fontSize: '15px' }}
-                              >
-                                Disburse Cash Loan
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </form>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -2509,7 +2367,8 @@ export default function LendApp() {
                   {[
                     { key: 'cash', label: 'Cash & Remittances', Icon: Briefcase },
                     { key: 'ledger', label: 'Ledger Report', Icon: BookOpen },
-                    { key: 'users', label: 'User Management', Icon: User }
+                    { key: 'users', label: 'User Management', Icon: User },
+                    { key: 'reminders', label: 'Reminder Settings & Alerts', Icon: Bell }
                   ].map(({ key, label, Icon }) => (
                     <button
                       key={key}
@@ -2874,6 +2733,121 @@ export default function LendApp() {
                 </>
                 )}
 
+                {adminToolsTab === 'reminders' && (
+                  <div className="glass-card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
+                      <div>
+                        <h3 style={{ fontSize: '22px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Bell className="icon" style={{ color: 'var(--accent-amber)' }} /> Overdue Reminder Settings & Alert Controls
+                        </h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>
+                          Configure automated overdue alert thresholds. If payments are not recorded within this threshold, automated notifications and alerts are triggered.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Setting Form */}
+                    <div style={{ padding: '18px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '12px', marginBottom: '24px', maxWidth: '520px' }}>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        OVERDUE REMINDER THRESHOLD (DAYS)
+                      </label>
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          max="30"
+                          className="glass-input"
+                          value={overdueDaysThreshold}
+                          onChange={e => handleUpdateOverdueThreshold(e.target.value)}
+                          style={{ width: '120px', padding: '10px', fontSize: '16px', fontWeight: 'bold' }}
+                        />
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Days uncollected past due</span>
+                      </div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '8px' }}>
+                        Active loans uncollected for more than {overdueDaysThreshold} days will trigger overdue alerts for Admins and Agents.
+                      </span>
+                    </div>
+
+                    {/* Overdue Loans Table */}
+                    <h4 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '12px' }}>
+                      Active Loans Overdue ({overdueDaysThreshold}+ Days)
+                    </h4>
+                    {(() => {
+                      const now = new Date();
+                      const overdueLoansList = (adminData.overdueLoans || []).filter(l => {
+                        if (l.status !== 'active') return false;
+                        const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
+                        const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
+                        return diffDays >= overdueDaysThreshold;
+                      });
+
+                      if (overdueLoansList.length === 0) {
+                        return (
+                          <div className="empty-state">
+                            <div className="empty-state-icon"><CircleCheck style={{ width: '28px', height: '28px', color: 'var(--accent-emerald)' }} /></div>
+                            <h4 className="empty-state-title">No Loans Past {overdueDaysThreshold} Days Overdue</h4>
+                            <p className="empty-state-text">All active customer accounts are up to date within the configured threshold.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table className="glass-table">
+                            <thead>
+                              <tr>
+                                <th>Loan Ref ID</th>
+                                <th>Borrower</th>
+                                <th>Category</th>
+                                <th>Uncollected Interest</th>
+                                <th>Days Overdue</th>
+                                <th>Collector</th>
+                                <th>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {overdueLoansList.map(l => {
+                                const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
+                                const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
+                                return (
+                                  <tr key={l.id}>
+                                    <td style={{ fontWeight: 'bold' }}>{l.reference_number || `STN-${String(l.id).padStart(3, '0')}`}</td>
+                                    <td>
+                                      <strong>{l.borrower_name}</strong>
+                                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>{l.borrower_phone}</span>
+                                    </td>
+                                    <td style={{ textTransform: 'capitalize' }}>{l.interest_type}</td>
+                                    <td style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString()}</td>
+                                    <td>
+                                      <span className="badge badge-defaulted">{diffDays} Days Overdue</span>
+                                    </td>
+                                    <td>{l.agent_name || 'Office Staff'}</td>
+                                    <td>
+                                      <button
+                                        className="glass-btn glass-btn-secondary"
+                                        style={{ padding: '6px 10px', fontSize: '12px' }}
+                                        onClick={() => {
+                                          if (l.interest_type !== 'daily') {
+                                            showToast(`Sent SMS reminder to ${l.borrower_name} (${l.borrower_phone})`);
+                                          } else {
+                                            showToast(`In-app alert recorded for ${l.borrower_name}. (Daily loans exclude SMS)`);
+                                          }
+                                        }}
+                                      >
+                                        Send Alert
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {/* Edit User Modal (Admin only) */}
                 {editingUser && (
                   <div className="receipt-modal-overlay" onClick={() => setEditingUser(null)}>
@@ -2940,14 +2914,413 @@ export default function LendApp() {
               </div>
             )}
 
+            {view === 'record-payment' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                    <ArrowLeft className="icon" /> Back to Main Menu
+                  </button>
+                </div>
+                <RecordDailyPaymentsTab loans={[]} onRefresh={fetchDashboardData} showToast={showToast} />
+              </div>
+            )}
+
+            {view === 'next-day-tasklist' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                    <ArrowLeft className="icon" /> Back to Main Menu
+                  </button>
+                </div>
+                <NextDayTasklistTab loans={[]} onSelectLoan={(id) => { setSelectedLoanId(id); setView('loans'); }} onNavigateRecordPayment={() => setView('record-payment')} />
+              </div>
+            )}
+
           </div>
         )}
 
-        {/* Removed duplicate helper from here as it is integrated inside Tab 2 */}
+            {token && user && (user.role === 'admin' || user.role === 'agent') && view === 'create-loan' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => {
+                    setView('dashboard');
+                    setGiveLoanStep(1);
+                  }}>
+                    <ArrowLeft className="icon" /> Back to Main Menu
+                  </button>
+                </div>
+
+                <div className="glass-card" style={{ maxWidth: '900px', margin: '0 auto', width: '100%', padding: '0', overflow: 'hidden' }}>
+                  <div className="wizard-layout">
+                    {/* Stepper Navigation Sidebar */}
+                    <div className="wizard-sidebar">
+                      <h4 className="wizard-title" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', margin: '0 0 10px', fontWeight: 'bold' }}>LOAN WIZARD</h4>
+                      
+                      <button 
+                        type="button"
+                        className={`step-indicator ${giveLoanStep === 1 ? 'active' : 'completed'}`}
+                        onClick={() => setGiveLoanStep(1)}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer' }}
+                      >
+                        <div className="step-number">1</div>
+                        <div>
+                          <div className="step-label">Borrower & Loan</div>
+                          <span className="step-subtext">KYC, Profile & Terms</span>
+                        </div>
+                      </button>
+
+                      <button 
+                        type="button"
+                        className={`step-indicator ${giveLoanStep === 2 ? 'active' : includeGuarantor ? '' : 'disabled'}`}
+                        disabled={!includeGuarantor}
+                        onClick={() => {
+                          if (includeGuarantor && validateStep1()) {
+                            setGiveLoanStep(2);
+                          }
+                        }}
+                        style={{ border: 'none', background: 'none', cursor: includeGuarantor ? 'pointer' : 'not-allowed' }}
+                      >
+                        <div className="step-number">2</div>
+                        <div>
+                          <div className="step-label">Guarantor Details</div>
+                          <span className="step-subtext">{includeGuarantor ? 'Required step' : 'Optional (Skipped)'}</span>
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Wizard Body / Form Content */}
+                    <div className="wizard-body">
+                      <h3 style={{ fontSize: '28px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Banknote className="icon" style={{ color: 'var(--accent-blue)', fontSize: '24px' }} /> Give New Loan
+                      </h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
+                        {giveLoanStep === 1 
+                          ? "Step 1 of 2: Borrower profile, KYC information, and loan interest terms."
+                          : "Step 2 of 2: Enter details for the guarantor backing this loan."
+                        }
+                      </p>
+
+                      <form noValidate onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {giveLoanStep === 1 && (
+                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* --- SECTION 1: BORROWER DETAILS --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <User className="icon" /> 1. BORROWER PERSONAL DETAILS
+                              </p>
+                              
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER NAME *</label>
+                                <input id="borrower_name" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_name ? '2px' : '' }} placeholder="e.g. Bandara Perera" value={newLoan.borrower_name} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_name: e.target.value })); clearFieldError('borrower_name'); }} />
+                                {validationErrors.borrower_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_name}</span>}
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER MOBILE NUMBER (SRI LANKA) *</label>
+                                <input id="borrower_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.borrower_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_phone ? '2px' : '' }} placeholder="e.g. 0771234567 or +94771234567" value={newLoan.borrower_phone} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_phone: e.target.value })); clearFieldError('borrower_phone'); }} />
+                                {validationErrors.borrower_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_phone}</span>}
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER ADDRESS *</label>
+                                <input id="borrower_address" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_address ? '2px' : '' }} placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_address: e.target.value })); clearFieldError('borrower_address'); }} />
+                                {validationErrors.borrower_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_address}</span>}
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER EMAIL (OPTIONAL)</label>
+                                  <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
+                                </div>
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC NUMBER *</label>
+                                  <input id="nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => { setNewLoan(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('nic_number'); }} />
+                                  {validationErrors.nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.nic_number}</span>}
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO</label>
+                                  <input type="file" accept="image/*" className="glass-input" onChange={handleNICPhotoChange} />
+                                  {newLoan.nic_photo && (
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                      <img src={newLoan.nic_photo} alt="NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* --- SECTION 2: BORROWER PROFILE DETAILS --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <ClipboardList className="icon" /> 2. BORROWER PROFILE DETAILS
+                              </p>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
+                                  <input id="loan_purpose" type="text" className="glass-input" style={{ borderColor: validationErrors.loan_purpose ? 'var(--accent-rose)' : '', borderWidth: validationErrors.loan_purpose ? '2px' : '' }} placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value })); clearFieldError('loan_purpose'); }} />
+                                  {validationErrors.loan_purpose && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.loan_purpose}</span>}
+                                </div>
+
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Number of Dependents *</label>
+                                    <input id="dependents_count" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.dependents_count ? 'var(--accent-rose)' : '', borderWidth: validationErrors.dependents_count ? '2px' : '' }} value={borrowerProfileForm.dependents_count} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value })); clearFieldError('dependents_count'); }} />
+                                    {validationErrors.dependents_count && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.dependents_count}</span>}
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
+                                    <input id="monthly_income" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.monthly_income ? 'var(--accent-rose)' : '', borderWidth: validationErrors.monthly_income ? '2px' : '' }} value={borrowerProfileForm.monthly_income} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value })); clearFieldError('monthly_income'); }} />
+                                    {validationErrors.monthly_income && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.monthly_income}</span>}
+                                  </div>
+                                </div>
+
+                                <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Spouse Details (if applicable)</p>
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Name</label>
+                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_name} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_name: e.target.value }))} />
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse NIC Number</label>
+                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_nic} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_nic: e.target.value }))} />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Occupation</label>
+                                  <input type="text" className="glass-input" value={borrowerProfileForm.spouse_occupation} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_occupation: e.target.value }))} />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* --- SECTION 3: LOAN DETAILS & AGENT --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <Landmark className="icon" /> 3. LOAN SCHEDULING DETAILS
+                              </p>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PRINCIPAL AMOUNT (LKR) *</label>
+                                <input id="principal_amount" type="number" min="1" className="glass-input" style={{ borderColor: validationErrors.principal_amount ? 'var(--accent-rose)' : '', borderWidth: validationErrors.principal_amount ? '2px' : '' }} placeholder="e.g. 50000" value={newLoan.principal_amount} onChange={e => { setNewLoan(prev => ({ ...prev, principal_amount: e.target.value })); clearFieldError('principal_amount'); }} />
+                                {validationErrors.principal_amount && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.principal_amount}</span>}
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>INTEREST RATE (%) *</label>
+                                  <input id="interest_rate" type="number" step="0.01" min="0" className="glass-input" style={{ borderColor: validationErrors.interest_rate ? 'var(--accent-rose)' : '', borderWidth: validationErrors.interest_rate ? '2px' : '' }} placeholder="2.00" value={newLoan.interest_rate} onChange={e => { setNewLoan(prev => ({ ...prev, interest_rate: e.target.value })); clearFieldError('interest_rate'); }} />
+                                  {validationErrors.interest_rate && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.interest_rate}</span>}
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ACCRUAL FREQUENCY</label>
+                                  <select required className="glass-input" value={newLoan.interest_type} onChange={e => setNewLoan(prev => ({ ...prev, interest_type: e.target.value }))}>
+                                    <option value="daily">Daily Accumulation</option>
+                                    <option value="weekly">Weekly Accumulation</option>
+                                    <option value="monthly">Monthly Accumulation</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>LOAN TERM</label>
+                                  <select required className="glass-input" value={newLoan.collection_mode} onChange={e => setNewLoan(prev => ({ ...prev, collection_mode: e.target.value }))}>
+                                    <option value="open_ended">Open-Ended (Runs until fully paid)</option>
+                                    <option value="fixed_term">Fixed Term (Set duration)</option>
+                                  </select>
+                                </div>
+                                {newLoan.collection_mode === 'fixed_term' && (
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
+                                      DURATION (in {newLoan.interest_type === 'daily' ? 'days' : newLoan.interest_type === 'weekly' ? 'weeks' : 'months'}) *
+                                    </label>
+                                    <input type="number" min="1" required className="glass-input" placeholder="e.g. 30" value={newLoan.duration_periods} onChange={e => setNewLoan(prev => ({ ...prev, duration_periods: e.target.value }))} />
+                                  </div>
+                                )}
+                              </div>
+
+                              {newLoan.principal_amount > 0 && newLoan.interest_rate > 0 && (
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0' }}>
+                                  {(() => {
+                                    const p = parseFloat(newLoan.principal_amount) || 0;
+                                    const r = parseFloat(newLoan.interest_rate) || 0;
+                                    const monthlyInt = p * (r / 100);
+                                    const perPeriod = newLoan.interest_type === 'daily' ? monthlyInt / 30 : newLoan.interest_type === 'weekly' ? monthlyInt / 4 : monthlyInt;
+                                    return `Monthly interest: LKR ${monthlyInt.toLocaleString(undefined, { maximumFractionDigits: 2 })} (at ${r}% monthly rate). Collection mode '${newLoan.interest_type}': borrower is charged LKR ${perPeriod.toLocaleString(undefined, { maximumFractionDigits: 2 })} per ${newLoan.interest_type === 'daily' ? 'day (30 days = 1 month of interest)' : newLoan.interest_type === 'weekly' ? 'week' : 'month'}.`;
+                                  })()}
+                                </p>
+                              )}
+
+                              {user.role === 'agent' ? (
+                                <div style={{ padding: '12px 14px', background: 'var(--accent-blue-light)', borderRadius: 'var(--radius-md)', fontSize: '13px', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <ClipboardCheck className="icon" /> You'll be the collection agent for this loan once it's approved.
+                                </div>
+                              ) : (
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ASSIGN COLLECTION AGENT</label>
+                                  <select className="glass-input" value={newLoan.assigned_agent_id} onChange={e => setNewLoan(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
+                                    <option value="">-- No Agent (Self Collect) --</option>
+                                    {agentsList.map(a => (
+                                      <option key={a.id} value={a.id}>{a.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* --- SECTION 4: GUARANTOR CHECKBOX --- */}
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'rgba(255,255,255,0.01)' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', margin: 0 }}>
+                                <input type="checkbox" checked={includeGuarantor} onChange={e => {
+                                  setIncludeGuarantor(e.target.checked);
+                                  if (!e.target.checked && giveLoanStep === 2) {
+                                    setGiveLoanStep(1);
+                                  }
+                                }} />
+                                <ShieldCheck className="icon" /> ADD GUARANTOR DETAILS (OPTIONAL)
+                              </label>
+                              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '24px', marginTop: '-8px' }}>
+                                Checking this will add a second step to fill in the guarantor personal, income and expense details.
+                              </span>
+                            </div>
+
+                            {/* Navigation Buttons for Step 1 */}
+                            {includeGuarantor ? (
+                              <button 
+                                type="button" 
+                                className="glass-btn glass-btn-emerald" 
+                                onClick={handleNextStep}
+                                style={{ width: '100%', marginTop: '10px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px' }}
+                              >
+                                Continue to Guarantor Details <ArrowRight className="icon" />
+                              </button>
+                            ) : (
+                              <button
+                                type="submit"
+                                className="glass-btn glass-btn-emerald"
+                                disabled={loading}
+                                style={{ width: '100%', marginTop: '10px', padding: '16px', fontSize: '15px' }}
+                              >
+                                {user.role === 'agent' ? <><ClipboardCheck className="icon" /> Submit for Approval</> : 'Disburse Cash Loan'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {giveLoanStep === 2 && includeGuarantor && (
+                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS
+                              </p>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                                    <input id="guarantor_full_name" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_full_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_full_name ? '2px' : '' }} value={guarantorForm.full_name} onChange={e => { setGuarantorForm(prev => ({ ...prev, full_name: e.target.value })); clearFieldError('guarantor_full_name'); }} />
+                                    {validationErrors.guarantor_full_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_full_name}</span>}
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
+                                    <input id="guarantor_nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={guarantorForm.nic_number} onChange={e => { setGuarantorForm(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('guarantor_nic_number'); }} />
+                                    {validationErrors.guarantor_nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_nic_number}</span>}
+                                  </div>
+                                </div>
+
+                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity / Citizenship</label>
+                                    <input type="text" className="glass-input" value={guarantorForm.ethnicity} onChange={e => setGuarantorForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
+                                  <input id="guarantor_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.guarantor_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_phone ? '2px' : '' }} value={guarantorForm.phone} onChange={e => { setGuarantorForm(prev => ({ ...prev, phone: e.target.value })); clearFieldError('guarantor_phone'); }} />
+                                  {validationErrors.guarantor_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_phone}</span>}
+                                </div>
+
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                                  <input id="guarantor_address" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_address ? '2px' : '' }} value={guarantorForm.address} onChange={e => { setGuarantorForm(prev => ({ ...prev, address: e.target.value })); clearFieldError('guarantor_address'); }} />
+                                  {validationErrors.guarantor_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_address}</span>}
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                    <input type="checkbox" checked={guarantorForm.protected_under_debt_act} onChange={e => setGuarantorForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
+                                    Protected under the state debt recovery act or any other law?
+                                  </label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                    <input type="checkbox" checked={guarantorForm.has_pending_court_cases} onChange={e => setGuarantorForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
+                                    Any court judgments/cases registered against them?
+                                  </label>
+                                </div>
+
+                                <div>
+                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
+                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                                    <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorForm.monthly_income_business} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorForm.monthly_income_agriculture} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_income_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
+                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                                    <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorForm.monthly_expense_food} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorForm.monthly_expense_rent} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_expense_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Navigation Buttons for Step 2 */}
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                              <button 
+                                type="button" 
+                                className="glass-btn glass-btn-secondary" 
+                                onClick={() => setGiveLoanStep(1)}
+                                style={{ flex: 1, padding: '16px', fontSize: '15px' }}
+                              >
+                                Back to Step 1
+                              </button>
+                              <button
+                                type="submit"
+                                className="glass-btn glass-btn-emerald"
+                                disabled={loading}
+                                style={{ flex: 2, padding: '16px', fontSize: '15px' }}
+                              >
+                                {user.role === 'agent' ? <><ClipboardCheck className="icon" /> Submit for Approval</> : 'Disburse Cash Loan'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
         {/* ----------------- AGENT DASHBOARD ----------------- */}
         {token && user && user.role === 'agent' && view === 'dashboard' && agentData && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+            
+            {agentSubView === 'next-day-tasklist' && (
+              <NextDayTasklistTab loans={agentData.assignedLoans} onNavigateRecordPayment={() => setAgentSubView('record-payment')} />
+            )}
+            
+            {agentSubView === 'record-payment' && (
+              <RecordDailyPaymentsTab loans={agentData.assignedLoans} onRefresh={fetchDashboardData} showToast={showToast} />
+            )}
             
             {agentSubView === 'collect' && (
               <>
@@ -3070,18 +3443,18 @@ export default function LendApp() {
                     </form>
                   </div>
 
-                  {/* My Customers — Active / Defaulted / Closed */}
+                  {/* My Customers — Pending / Active / Defaulted / Closed / Rejected */}
                   <div className="glass-card">
                     <h3 style={{ fontSize: '24px', marginBottom: '12px' }}><ClipboardCheck className="icon" /> My Customers</h3>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                      {['active', 'defaulted', 'closed'].map(tab => {
+                      {['pending', 'active', 'defaulted', 'closed', 'rejected'].map(tab => {
                         const count = agentData.assignedLoans.filter(l => tab === 'closed' ? ['fully_paid', 'written_off'].includes(l.status) : l.status === tab).length;
                         return (
                           <button key={tab} type="button"
-                            className={`glass-btn ${agentCustomerTab === tab ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                            className={`glass-btn ${agentCustomerTab === tab ? (tab === 'pending' ? 'glass-btn-amber' : tab === 'rejected' ? 'glass-btn-secondary' : 'glass-btn-emerald') : 'glass-btn-secondary'}`}
                             style={{ padding: '6px 14px', fontSize: '12px', textTransform: 'capitalize' }}
                             onClick={() => setAgentCustomerTab(tab)}>
-                            {tab} ({count})
+                            {tab === 'pending' ? 'Pending Approval' : tab} ({count})
                           </button>
                         );
                       })}
@@ -3371,7 +3744,55 @@ export default function LendApp() {
 
           return (
             <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              
+
+              {/* Pending approval banner — the whole point of this loan
+                  file view (all the tabs below: Passbook, Borrower Profile,
+                  Guarantor Info) is that admin can review every detail an
+                  agent submitted before deciding, so the approve/reject
+                  actions live right here at the top rather than buried in a
+                  separate review screen. */}
+              {loanStatement.loan.status === 'pending' && (
+                <div className="glass-card" style={{ border: '2px solid var(--accent-amber, #d97706)', background: 'var(--accent-blue-light)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Clock className="icon" style={{ width: '28px', height: '28px', color: '#b45309' }} />
+                      <div>
+                        <h3 style={{ fontSize: '18px', margin: 0 }}>Pending Approval</h3>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                          {loanStatement.loan.agent_name ? `Submitted by ${loanStatement.loan.agent_name}. ` : ''}
+                          No cash has been disbursed yet — review the details below before deciding.
+                        </p>
+                      </div>
+                    </div>
+                    {user.role === 'admin' && (
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button className="glass-btn glass-btn-emerald" onClick={handleApproveLoan} disabled={loading}>
+                          <ThumbsUp className="icon" /> Approve
+                        </button>
+                        <button className="glass-btn glass-btn-rose" onClick={handleRejectLoan} disabled={loading}>
+                          <ThumbsDown className="icon" /> Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {loanStatement.loan.status === 'rejected' && (
+                <div className="glass-card" style={{ border: '2px solid var(--accent-rose)', background: 'rgba(239, 68, 68, 0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Ban className="icon" style={{ width: '28px', height: '28px', color: 'var(--accent-rose)' }} />
+                    <div>
+                      <h3 style={{ fontSize: '18px', margin: 0 }}>Application Rejected</h3>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                        Reason: {loanStatement.loan.loan_rejection_reason || 'No reason recorded.'}
+                        {loanStatement.loan.rejected_at && ` — ${new Date(loanStatement.loan.rejected_at).toLocaleString()}`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Header info card */}
               <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
                 <div style={{ flex: '1 1 300px' }}>
@@ -4298,15 +4719,19 @@ export default function LendApp() {
           )}
           {user.role === 'agent' && (
             <>
-              <button className={`bottom-nav-item ${agentSubView === 'collect' ? 'active' : ''}`} onClick={() => setAgentSubView('collect')}>
+              <button className={`bottom-nav-item ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setGiveLoanStep(1); }}>
+                <span className="bottom-nav-icon"><Plus /></span>
+                <span className="bottom-nav-label">Give Loan</span>
+              </button>
+              <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}>
                 <span className="bottom-nav-icon"><Banknote /></span>
                 <span className="bottom-nav-label">Collect</span>
               </button>
-              <button className={`bottom-nav-item ${agentSubView === 'history' ? 'active' : ''}`} onClick={() => setAgentSubView('history')}>
+              <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'history' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('history'); }}>
                 <span className="bottom-nav-icon"><ScrollText /></span>
                 <span className="bottom-nav-label">History</span>
               </button>
-              <button className={`bottom-nav-item ${agentSubView === 'remit' ? 'active' : ''}`} onClick={() => setAgentSubView('remit')}>
+              <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'remit' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('remit'); }}>
                 <span className="bottom-nav-icon"><Landmark /></span>
                 <span className="bottom-nav-label">Remit</span>
               </button>
@@ -4326,40 +4751,59 @@ export default function LendApp() {
   );
 }
 
-// Subcomponent to load all loans in Admin view with Search & Filters
 function LoansLoader({ onSelect, fetchTrigger }) {
   const [loans, setLoans] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [agents, setAgents] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'fully_paid'
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [agentFilter, setAgentFilter] = useState('all');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
   const PAGE_SIZE = 20;
 
   useEffect(() => {
     setLoading(true);
-    api.get('/loans')
-      .then(data => setLoans(data))
+    Promise.all([
+      api.get('/loans'),
+      api.get('/users/agents').catch(() => [])
+    ])
+      .then(([loansData, agentsData]) => {
+        setLoans(Array.isArray(loansData) ? loansData : []);
+        setAgents(Array.isArray(agentsData) ? agentsData : []);
+      })
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
   }, [fetchTrigger]);
 
-  // Reset to page 1 whenever the visible result set changes
-  useEffect(() => {
-    setPage(1);
-  }, [searchTerm, statusFilter, fetchTrigger]);
+  useEffect(() => { setPage(1); }, [searchTerm, statusFilter, typeFilter, agentFilter, fromDate, toDate, fetchTrigger]);
+
+  const clearAllFilters = () => {
+    setSearchTerm(''); setStatusFilter('all'); setTypeFilter('all');
+    setAgentFilter('all'); setFromDate(''); setToDate('');
+  };
 
   if (loading) return <div className="glass-card" style={{ marginTop: '24px' }}><SkeletonCards count={4} lines={2} /></div>;
 
-  // Filter loans based on search and status selector
   const filteredLoans = loans.filter(loan => {
-    const matchesSearch =
-      loan.borrower_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.borrower_phone.includes(searchTerm) ||
-      (loan.reference_number && loan.reference_number.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesFilter = statusFilter === 'all' || loan.status === statusFilter;
-    return matchesSearch && matchesFilter;
+    const q = searchTerm.trim().toLowerCase();
+    const matchesSearch = !q ||
+      loan.borrower_name.toLowerCase().includes(q) ||
+      loan.borrower_phone.includes(q) ||
+      (loan.nic_number && loan.nic_number.toLowerCase().includes(q)) ||
+      (loan.reference_number && loan.reference_number.toLowerCase().includes(q));
+    const matchesStatus = statusFilter === 'all' || loan.status === statusFilter;
+    const matchesType = typeFilter === 'all' || loan.interest_type === typeFilter;
+    const matchesAgent = agentFilter === 'all' || String(loan.assigned_agent_id) === String(agentFilter);
+    let matchesDate = true;
+    if (fromDate) matchesDate = matchesDate && new Date(loan.created_at) >= new Date(fromDate);
+    if (toDate) { const e = new Date(toDate); e.setHours(23,59,59,999); matchesDate = matchesDate && new Date(loan.created_at) <= e; }
+    return matchesSearch && matchesStatus && matchesType && matchesAgent && matchesDate;
   });
 
+  const hasActiveFilters = searchTerm || statusFilter !== 'all' || typeFilter !== 'all' || agentFilter !== 'all' || fromDate || toDate;
   const totalPages = Math.max(1, Math.ceil(filteredLoans.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pagedLoans = filteredLoans.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -4369,265 +4813,346 @@ function LoansLoader({ onSelect, fetchTrigger }) {
       `loans-${new Date().toISOString().slice(0, 10)}.csv`,
       ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Principal Outstanding', 'Interest Due', 'Agent', 'Status'],
       filteredLoans.map(loan => [
-        new Date(loan.created_at).toLocaleDateString(),
-        loan.borrower_name,
-        loan.borrower_phone,
-        loan.nic_number || '',
-        parseFloat(loan.principal_amount).toFixed(2),
-        loan.interest_type,
-        loan.interest_rate,
-        parseFloat(loan.principal_outstanding).toFixed(2),
-        parseFloat(loan.interest_balance).toFixed(2),
-        loan.agent_name || 'Self-Collect',
-        loan.status
+        new Date(loan.created_at).toLocaleDateString(), loan.borrower_name, loan.borrower_phone,
+        loan.nic_number || '', parseFloat(loan.principal_amount).toFixed(2), loan.interest_type,
+        loan.interest_rate, parseFloat(loan.principal_outstanding).toFixed(2),
+        parseFloat(loan.interest_balance).toFixed(2), loan.agent_name || 'Self-Collect', loan.status
       ])
     );
   };
 
-  return (
-    <div className="glass-card" style={{ marginTop: '24px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '24px' }}><ClipboardList className="icon" /> Loan List</h3>
+  const totalPrincipal = filteredLoans.reduce((s, l) => s + (parseFloat(l.principal_amount) || 0), 0);
+  const totalOutstanding = filteredLoans.reduce((s, l) => s + (parseFloat(l.principal_outstanding) || 0), 0);
+  const totalInterest = filteredLoans.reduce((s, l) => s + (parseFloat(l.interest_balance) || 0), 0);
+  const activeCount = filteredLoans.filter(l => l.status === 'active').length;
+  const paidCount = filteredLoans.filter(l => l.status === 'fully_paid').length;
+  const typeColor = { daily: 'var(--accent-blue)', weekly: 'var(--accent-amber)', monthly: 'var(--accent-emerald)' };
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Simple Search Input */}
-          <input
-            type="text"
-            className="glass-input"
-            placeholder="Search name or phone..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            style={{ padding: '8px 12px' }}
-          />
-          <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '8px 14px', fontSize: '12px' }} onClick={handleExportCsv} disabled={filteredLoans.length === 0}>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '8px' }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
+        <div>
+          <h2 style={{ fontSize: '26px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+            <ClipboardList style={{ color: 'var(--accent-blue)', width: '28px', height: '28px' }} />
+            Loan Directory
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>
+            {hasActiveFilters
+              ? <><strong style={{ color: 'var(--accent-blue)' }}>{filteredLoans.length}</strong> of {loans.length} loans match your filters</>
+              : <><strong style={{ color: 'var(--text-primary)' }}>{loans.length}</strong> total loan accounts</>}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {hasActiveFilters && (
+            <button type="button" className="glass-btn glass-btn-rose" style={{ padding: '8px 16px', fontSize: '12px', fontWeight: '700' }} onClick={clearAllFilters}>
+              <RefreshCcw className="icon" /> Clear Filters
+            </button>
+          )}
+          <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '8px 16px', fontSize: '12px' }} onClick={handleExportCsv} disabled={filteredLoans.length === 0}>
             <Download className="icon" /> Export CSV
           </button>
         </div>
       </div>
 
-      {/* Solid filter buttons (easily approachable) */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <button 
-          type="button" 
-          className={`glass-btn ${statusFilter === 'all' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} 
-          style={{ padding: '6px 12px', fontSize: '12px' }}
-          onClick={() => setStatusFilter('all')}
-        >
-          All ({loans.length})
-        </button>
-        <button 
-          type="button" 
-          className={`glass-btn ${statusFilter === 'active' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} 
-          style={{ padding: '6px 12px', fontSize: '12px' }}
-          onClick={() => setStatusFilter('active')}
-        >
-          Active Loans ({loans.filter(l => l.status === 'active').length})
-        </button>
-        <button 
-          type="button" 
-          className={`glass-btn ${statusFilter === 'fully_paid' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} 
-          style={{ padding: '6px 12px', fontSize: '12px' }}
-          onClick={() => setStatusFilter('fully_paid')}
-        >
-          Fully Paid ({loans.filter(l => l.status === 'fully_paid').length})
-        </button>
+      {/* Summary KPI Strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+        {[
+          { label: 'Total Disbursed', val: `LKR ${Math.round(totalPrincipal).toLocaleString()}`, color: 'var(--accent-blue)', icon: '💰' },
+          { label: 'Principal Outstanding', val: `LKR ${Math.round(totalOutstanding).toLocaleString()}`, color: 'var(--accent-rose)', icon: '📊' },
+          { label: 'Interest Due', val: `LKR ${Math.round(totalInterest).toLocaleString()}`, color: 'var(--accent-amber)', icon: '📈' },
+          { label: 'Active / Unpaid', val: activeCount, color: 'var(--accent-emerald)', icon: '🟢' },
+          { label: 'Fully Paid', val: paidCount, color: 'var(--text-secondary)', icon: '✅' },
+        ].map(k => (
+          <div key={k.label} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '14px 16px' }}>
+            <span style={{ fontSize: '18px' }}>{k.icon}</span>
+            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginTop: '4px' }}>{k.label}</span>
+            <span style={{ fontSize: '18px', fontWeight: '800', color: k.color, display: 'block' }}>{k.val}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter Panel */}
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'flex-end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔍 Search</label>
+            <div style={{ position: 'relative' }}>
+              <Search style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', width: '14px', height: '14px', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+              <input type="text" className="glass-input" placeholder="Name, phone, NIC, reference…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ paddingLeft: '32px', fontSize: '13px' }} />
+            </div>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 From Date</label>
+            <input type="date" className="glass-input" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ fontSize: '13px' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 To Date</label>
+            <input type="date" className="glass-input" value={toDate} onChange={e => setToDate(e.target.value)} style={{ fontSize: '13px' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔄 Collection Type</label>
+            <select className="glass-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ fontSize: '13px' }}>
+              <option value="all">All Types</option>
+              <option value="daily">Daily Collection</option>
+              <option value="weekly">Weekly Collection</option>
+              <option value="monthly">Monthly Collection</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>👤 Assigned Agent</label>
+            <select className="glass-input" value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{ fontSize: '13px' }}>
+              <option value="all">All Agents</option>
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-light)' }}>
+          <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status:</span>
+          {[
+            { val: 'all', label: `All (${loans.length})`, activeClass: 'glass-btn-blue' },
+            { val: 'pending', label: `Pending Approval (${loans.filter(l => l.status === 'pending').length})`, activeClass: 'glass-btn-amber' },
+            { val: 'active', label: `Active (${loans.filter(l => l.status === 'active').length})`, activeClass: 'glass-btn-emerald' },
+            { val: 'fully_paid', label: `Paid (${loans.filter(l => l.status === 'fully_paid').length})`, activeClass: 'glass-btn-secondary' },
+            { val: 'defaulted', label: `Defaulted (${loans.filter(l => l.status === 'defaulted').length})`, activeClass: 'glass-btn-rose' },
+            { val: 'rejected', label: `Rejected (${loans.filter(l => l.status === 'rejected').length})`, activeClass: 'glass-btn-secondary' },
+          ].map(f => (
+            <button key={f.val} type="button"
+              className={`glass-btn ${statusFilter === f.val ? f.activeClass : 'glass-btn-secondary'}`}
+              style={{ padding: '5px 14px', fontSize: '12px', fontWeight: statusFilter === f.val ? '700' : '500' }}
+              onClick={() => setStatusFilter(f.val)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {hasActiveFilters && (
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active:</span>
+            {searchTerm && <span style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>"{searchTerm}"</span>}
+            {statusFilter !== 'all' && <span style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>{statusFilter}</span>}
+            {typeFilter !== 'all' && <span style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--accent-amber)', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>{typeFilter}</span>}
+            {agentFilter !== 'all' && <span style={{ background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>{agents.find(a => String(a.id) === agentFilter)?.name || 'Agent'}</span>}
+            {fromDate && <span style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>From {fromDate}</span>}
+            {toDate && <span style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>To {toDate}</span>}
+          </div>
+        )}
       </div>
 
       {filteredLoans.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">
-            <Search style={{ width: '28px', height: '28px' }} />
+        <div className="glass-card">
+          <div className="empty-state">
+            <div className="empty-state-icon"><Search style={{ width: '28px', height: '28px' }} /></div>
+            <h4 className="empty-state-title">No Matching Loans Found</h4>
+            <p className="empty-state-text">{hasActiveFilters ? 'No loans match your current filters. Try clearing or adjusting them.' : 'No loan accounts exist yet.'}</p>
+            {hasActiveFilters && <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '8px 18px', fontSize: '13px' }} onClick={clearAllFilters}><RefreshCcw className="icon" /> Clear All Filters</button>}
           </div>
-          <h4 className="empty-state-title">No Matching Loans Found</h4>
-          <p className="empty-state-text">
-            {searchTerm ? `No loan accounts match "${searchTerm}". Try clearing your search term or changing the status filter.` : 'No loans exist under this category.'}
-          </p>
-          {searchTerm && (
-            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => setSearchTerm('')}>
-              Clear Search Filter
-            </button>
-          )}
         </div>
       ) : (
-        <>
-          {/* Desktop Table View */}
+        <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="desktop-only" style={{ overflowX: 'auto' }}>
-            <table className="glass-table">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
-                <tr>
-                  <th>Date Given</th>
-                  <th>Borrower</th>
-                  <th>Loan Amount</th>
-                  <th>Interest Type</th>
-                  <th>Rate</th>
-                  <th>Principal Outstanding</th>
-                  <th>Interest Due</th>
-                  <th>Collection Agent</th>
-                  <th>Status</th>
-                  <th>Action</th>
+                <tr style={{ background: 'var(--bg-tertiary)', borderBottom: '2px solid var(--border-light)' }}>
+                  {['Date Given', 'Borrower', 'Amount', 'Type', 'Rate', 'Principal Due', 'Interest Due', 'Agent', 'Status', ''].map(h => (
+                    <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {pagedLoans.map(loan => (
-                  <tr key={loan.id}>
-                    <td>{new Date(loan.created_at).toLocaleDateString()}</td>
-                    <td>
-                      <strong style={{ display: 'block' }}>
-                        {loan.borrower_name}
-                        {loan.reference_number && (
-                          <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(59,130,246,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'normal' }}>
-                            {loan.reference_number}
-                          </span>
-                        )}
-                      </strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}><IdCard className="icon" /> NIC: {loan.nic_number}</span>}
-                    </td>
-                    <td>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
-                    <td style={{ textTransform: 'capitalize' }}>{loan.interest_type}</td>
-                    <td>{loan.interest_rate}%</td>
-                    <td style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}>LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</td>
-                    <td style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}>LKR {parseFloat(loan.interest_balance).toLocaleString()}</td>
-                    <td>{loan.agent_name || 'Lender Office Staff'}</td>
-                    <td>
-                      <span className={`status-pill ${loan.status === 'active' ? 'status-pill-active' : loan.status === 'fully_paid' ? 'status-pill-paid' : 'status-pill-defaulted'}`}>
-                        <span className="status-pill-dot" />
-                        {loan.status === 'active' ? 'Unpaid' : loan.status === 'fully_paid' ? 'Paid' : loan.status}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => onSelect(loan.id)}>
-                        Check Loan Account
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {pagedLoans.map((loan, i) => {
+                  const isActive = loan.status === 'active';
+                  const isPaid = loan.status === 'fully_paid';
+                  const isPending = loan.status === 'pending';
+                  const isRejected = loan.status === 'rejected';
+                  return (
+                    <tr key={loan.id}
+                      style={{ borderBottom: '1px solid var(--border-light)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)', cursor: 'pointer', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.06)'}
+                      onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
+                      onClick={() => onSelect(loan.id)}>
+                      <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontSize: '12px' }}>{new Date(loan.created_at).toLocaleDateString()}</td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <strong style={{ display: 'block', fontSize: '13px' }}>{loan.borrower_name}</strong>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                        {loan.nic_number && <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}><IdCard className="icon" /> {loan.nic_number}</span>}
+                        {loan.reference_number && <span style={{ fontSize: '10px', background: 'rgba(59,130,246,0.12)', color: 'var(--accent-blue)', padding: '1px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '2px' }}>{loan.reference_number}</span>}
+                      </td>
+                      <td style={{ padding: '12px 14px', fontWeight: '700', whiteSpace: 'nowrap' }}>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span style={{ background: (typeColor[loan.interest_type] || '#666') + '22', color: typeColor[loan.interest_type] || 'var(--text-secondary)', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
+                          {loan.interest_type}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{loan.interest_rate}%</td>
+                      <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.principal_outstanding) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap' }}>
+                        {parseFloat(loan.principal_outstanding) > 0 ? `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}` : 'Settled'}
+                      </td>
+                      <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.interest_balance) > 0 ? 'var(--accent-amber)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {parseFloat(loan.interest_balance) > 0 ? `LKR ${parseFloat(loan.interest_balance).toLocaleString()}` : '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-secondary)' }}>{loan.agent_name || <em style={{ color: 'var(--text-muted)' }}>Office</em>}</td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span className={`status-pill ${isActive ? 'status-pill-active' : isPaid ? 'status-pill-paid' : isPending ? 'status-pill-pending' : isRejected ? 'status-pill-rejected' : 'status-pill-defaulted'}`}>
+                          <span className="status-pill-dot" />{isActive ? 'Active' : isPaid ? 'Paid' : isPending ? 'Pending Approval' : isRejected ? 'Rejected' : loan.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <button className="glass-btn glass-btn-secondary" style={{ padding: '5px 12px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }} onClick={e => { e.stopPropagation(); onSelect(loan.id); }}>View &rarr;</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-
-          {/* Mobile Card List View */}
-          <div className="mobile-only mobile-card-list">
-            {pagedLoans.map(loan => (
-              <div 
-                key={loan.id} 
-                className={`mobile-row-card ${loan.status === 'active' ? 'mobile-row-card-warning' : loan.status === 'fully_paid' ? 'mobile-row-card-success' : 'mobile-row-card-danger'}`}
-                onClick={() => onSelect(loan.id)}
-                style={{ cursor: 'pointer', transition: 'transform 0.1s ease, box-shadow 0.1s ease' }}
-              >
-                <div className="mobile-row-card-header">
-                  <div>
-                    <strong className="mobile-row-card-title" style={{ display: 'block' }}>
-                      {loan.borrower_name}
-                      {loan.reference_number && (
-                        <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(59,130,246,0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'normal' }}>
-                          {loan.reference_number}
-                        </span>
-                      )}
-                    </strong>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                    {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}><IdCard className="icon" /> NIC: {loan.nic_number}</span>}
+          <div className="mobile-only" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {pagedLoans.map(loan => {
+              const isActive = loan.status === 'active';
+              const isPaid = loan.status === 'fully_paid';
+              const isPending = loan.status === 'pending';
+              const isRejected = loan.status === 'rejected';
+              const bc = isActive ? 'var(--accent-amber)' : isPaid ? 'var(--accent-emerald)' : isPending ? 'var(--accent-blue)' : isRejected ? 'var(--text-muted)' : 'var(--accent-rose)';
+              return (
+                <div key={loan.id} onClick={() => onSelect(loan.id)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '14px 16px', cursor: 'pointer', borderLeft: `4px solid ${bc}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                    <div>
+                      <strong style={{ fontSize: '15px', display: 'block' }}>{loan.borrower_name}</strong>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}><IdCard className="icon" /> {loan.nic_number}</span>}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                      <span className={`status-pill ${isActive ? 'status-pill-active' : isPaid ? 'status-pill-paid' : isPending ? 'status-pill-pending' : isRejected ? 'status-pill-rejected' : 'status-pill-defaulted'}`}><span className="status-pill-dot" />{isActive ? 'Active' : isPaid ? 'Paid' : isPending ? 'Pending' : isRejected ? 'Rejected' : loan.status}</span>
+                      <span style={{ background: (typeColor[loan.interest_type] || '#666') + '22', color: typeColor[loan.interest_type], padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: '700', textTransform: 'capitalize' }}>{loan.interest_type}</span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className={`status-pill ${loan.status === 'active' ? 'status-pill-active' : loan.status === 'fully_paid' ? 'status-pill-paid' : 'status-pill-defaulted'}`}>
-                      <span className="status-pill-dot" />
-                      {loan.status === 'active' ? 'Unpaid' : loan.status === 'fully_paid' ? 'Paid' : loan.status}
-                    </span>
-                    <span style={{ color: 'var(--text-muted)', display: 'flex' }}><ChevronRight /></span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {[['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null], ['Rate', `${loan.interest_rate}%`, null], ['Principal Due', `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}`, 'var(--accent-rose)'], ['Interest Due', `LKR ${parseFloat(loan.interest_balance).toLocaleString()}`, 'var(--accent-amber)']].map(([lbl, val, col]) => (
+                      <div key={lbl} style={{ background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '8px' }}>
+                        <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>{lbl}</span>
+                        <span style={{ fontWeight: '700', fontSize: '12px', color: col || 'var(--text-primary)' }}>{val}</span>
+                      </div>
+                    ))}
                   </div>
-                </div>
-                <div className="mobile-row-card-grid-compact">
-                  <div>
-                    <span className="mobile-row-card-label">Principal:</span>
-                    <span className="mobile-row-card-value"> LKR {parseFloat(loan.principal_amount).toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <span className="mobile-row-card-label">Given:</span>
-                    <span className="mobile-row-card-value"> {new Date(loan.created_at).toLocaleDateString()}</span>
-                  </div>
-                  <div>
-                    <span className="mobile-row-card-label">Interest:</span>
-                    <span className="mobile-row-card-value" style={{ textTransform: 'capitalize' }}> {loan.interest_type} ({loan.interest_rate}%)</span>
-                  </div>
-                  <div>
-                    <span className="mobile-row-card-label">Principal Due:</span>
-                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}> LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</span>
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <span className="mobile-row-card-label">Interest Due:</span>
-                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}> LKR {parseFloat(loan.interest_balance).toLocaleString()}</span>
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <span className="mobile-row-card-label">Collector:</span>
-                    <span className="mobile-row-card-value"> {loan.agent_name || 'Lender Office Staff'}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-light)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                    <span>{loan.agent_name || 'Office'} · {new Date(loan.created_at).toLocaleDateString()}</span>
+                    <span style={{ color: 'var(--accent-blue)', fontWeight: '700' }}>View →</span>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-
-          {/* Pagination controls */}
           {totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
-              <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={currentPage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
-                ← Prev
-              </button>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Page {currentPage} of {totalPages} ({filteredLoans.length} loans)</span>
-              <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={currentPage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
-                Next →
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', padding: '16px', borderTop: '1px solid var(--border-light)', flexWrap: 'wrap' }}>
+              <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '7px 16px', fontSize: '12px' }} disabled={currentPage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>← Prev</button>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map(p => (
+                  <button key={p} type="button" onClick={() => setPage(p)} style={{ width: '32px', height: '32px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', border: 'none', cursor: 'pointer', background: currentPage === p ? 'var(--accent-blue)' : 'var(--bg-tertiary)', color: currentPage === p ? '#fff' : 'var(--text-secondary)', transition: 'all 0.2s' }}>{p}</button>
+                ))}
+              </div>
+              <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '7px 16px', fontSize: '12px' }} disabled={currentPage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next →</button>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{filteredLoans.length} total</span>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
 }
 
-// Quick placeholder lists
-function AllLoansTable() {
-  return null;
-}
 
-// Full, paginated audit trail — every mutating action in the app writes to
-// audit_logs, but until this there was no page to actually browse it.
+// Full, paginated audit trail with multi-criteria filtering
 function AuditLogLoader() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [actionType, setActionType] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), limit: '25' });
     if (search) params.set('search', search);
     if (actionType) params.set('actionType', actionType);
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
     api.get(`/audit-logs?${params.toString()}`)
       .then(res => setData(res))
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
-  }, [page, search, actionType]);
+  }, [page, search, actionType, fromDate, toDate]);
 
-  // Reset to page 1 whenever the filters change
   useEffect(() => {
     setPage(1);
-  }, [search, actionType]);
+  }, [search, actionType, fromDate, toDate]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setActionType('');
+    setFromDate('');
+    setToDate('');
+  };
+
+  const hasActiveFilters = search || actionType || fromDate || toDate;
 
   return (
     <div className="glass-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '24px' }}><ScrollText className="icon" /> Audit Log</h3>
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ fontSize: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ScrollText className="icon" style={{ color: 'var(--accent-blue)' }} /> Audit Log
+          </h3>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {data ? `Showing page ${data.page} of ${data.totalPages} (${data.total} total log entries)` : 'System activity trail'}
+          </span>
+        </div>
+
+        {hasActiveFilters && (
+          <button type="button" className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={clearFilters}>
+            <RefreshCcw className="icon" /> Reset Filters
+          </button>
+        )}
+      </div>
+
+      {/* Filter Toolbar */}
+      <div style={{ padding: '14px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>SEARCH DESCRIPTION</label>
           <input
             type="text"
             className="glass-input"
             placeholder="Search description..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ padding: '8px 12px', maxWidth: '220px' }}
+            style={{ padding: '7px 10px', fontSize: '13px' }}
           />
-          <select className="glass-input" style={{ padding: '8px 12px' }} value={actionType} onChange={e => setActionType(e.target.value)}>
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>FROM DATE</label>
+          <input
+            type="date"
+            className="glass-input"
+            value={fromDate}
+            onChange={e => setFromDate(e.target.value)}
+            style={{ padding: '7px 10px', fontSize: '13px' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>TO DATE</label>
+          <input
+            type="date"
+            className="glass-input"
+            value={toDate}
+            onChange={e => setToDate(e.target.value)}
+            style={{ padding: '7px 10px', fontSize: '13px' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>ACTION TYPE</label>
+          <select className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={actionType} onChange={e => setActionType(e.target.value)}>
             <option value="">All Action Types</option>
             {(data?.actionTypes || []).map(t => (
               <option key={t} value={t}>{t}</option>
@@ -4639,7 +5164,11 @@ function AuditLogLoader() {
       {loading && !data ? (
         <SkeletonCards count={5} lines={2} />
       ) : !data || data.data.length === 0 ? (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', padding: '16px 0' }}>No matching audit log entries found.</p>
+        <div className="empty-state">
+          <div className="empty-state-icon"><Search style={{ width: '28px', height: '28px' }} /></div>
+          <h4 className="empty-state-title">No Audit Log Entries Found</h4>
+          <p className="empty-state-text">No audit actions match the current filter selection.</p>
+        </div>
       ) : (
         <>
           <div style={{ overflowX: 'auto' }}>
@@ -4680,60 +5209,51 @@ function AuditLogLoader() {
   );
 }
 
-// Shared loading skeleton — a few shimmering placeholder cards shown while
-// a list is loading, instead of a bare "Loading..." line.
-function SkeletonCards({ count = 3, lines = 3 }) {
-  return (
-    <div>
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="skeleton-card">
-          {Array.from({ length: lines }).map((__, j) => (
-            <span key={j} className="skeleton skeleton-line" />
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Shared CSV download helper — same pattern the ledger report export uses.
-function downloadCsv(filename, headerCols, rows) {
-  const escape = (v) => {
-    const s = v === null || v === undefined ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const header = headerCols.map(escape).join(',') + '\n';
-  const body = rows.map((row) => row.map(escape).join(',')).join('\n');
-  const blob = new Blob([header + body], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-// Full, paginated payment history across all agents/borrowers — the backend
-// endpoint (/api/payments/history) already supported this with pagination,
-// but nothing in the UI ever called it.
+// Full, paginated payment history across all agents/borrowers with multi-criteria filters
 function PaymentHistoryLoader() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [paymentType, setPaymentType] = useState('');
 
   useEffect(() => {
     setLoading(true);
-    api.get(`/payments/history?page=${page}&limit=25`)
+    const params = new URLSearchParams({ page: String(page), limit: '25' });
+    if (search) params.set('search', search);
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+    if (paymentMethod) params.set('paymentMethod', paymentMethod);
+    if (paymentType) params.set('paymentType', paymentType);
+
+    api.get(`/payments/history?${params.toString()}`)
       .then(res => setData(res))
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, search, fromDate, toDate, paymentMethod, paymentType]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, fromDate, toDate, paymentMethod, paymentType]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setFromDate('');
+    setToDate('');
+    setPaymentMethod('');
+    setPaymentType('');
+  };
+
+  const hasActiveFilters = search || fromDate || toDate || paymentMethod || paymentType;
 
   const handleExportCsv = () => {
     if (!data) return;
     downloadCsv(
       `payment-history-page-${data.page}-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Date', 'Borrower', 'Agent', 'Type', 'Amount', 'Method', 'Notes'],
+      ['Date', 'Borrower', 'Agent', 'Type', 'Amount', 'Method', 'Security Code', 'Notes'],
       data.data.map(tx => [
         new Date(tx.payment_date).toLocaleString(),
         tx.borrower_name,
@@ -4741,6 +5261,7 @@ function PaymentHistoryLoader() {
         tx.payment_type,
         parseFloat(tx.amount).toFixed(2),
         tx.payment_method,
+        tx.idempotency_key || '',
         tx.notes || ''
       ])
     );
@@ -4749,10 +5270,78 @@ function PaymentHistoryLoader() {
   return (
     <div className="glass-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '24px' }}><Receipt className="icon" /> Payment History</h3>
-        <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={handleExportCsv} disabled={!data || data.data.length === 0}>
-          <Download className="icon" /> Export CSV (this page)
-        </button>
+        <div>
+          <h3 style={{ fontSize: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Receipt className="icon" style={{ color: 'var(--accent-blue)' }} /> Payment History Log
+          </h3>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {data ? `Showing page ${data.page} of ${data.totalPages} (${data.total} total payments)` : 'Transaction ledger'}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="glass-btn glass-btn-secondary" style={{ padding: '8px 14px', fontSize: '12px' }} onClick={handleExportCsv} disabled={!data || data.data.length === 0}>
+            <Download className="icon" /> Export CSV ({data?.data?.length || 0})
+          </button>
+          {hasActiveFilters && (
+            <button type="button" className="glass-btn glass-btn-rose" style={{ padding: '8px 14px', fontSize: '12px' }} onClick={clearFilters}>
+              <RefreshCcw className="icon" /> Reset Filters
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Advanced Filter Toolbar */}
+      <div style={{ padding: '14px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>SEARCH (NAME / PHONE / NIC / CODE)</label>
+          <input
+            type="text"
+            className="glass-input"
+            placeholder="e.g. Bandara, 1990..., idemp..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ padding: '7px 10px', fontSize: '13px' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>FROM DATE</label>
+          <input
+            type="date"
+            className="glass-input"
+            value={fromDate}
+            onChange={e => setFromDate(e.target.value)}
+            style={{ padding: '7px 10px', fontSize: '13px' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>TO DATE</label>
+          <input
+            type="date"
+            className="glass-input"
+            value={toDate}
+            onChange={e => setToDate(e.target.value)}
+            style={{ padding: '7px 10px', fontSize: '13px' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>PAYMENT METHOD</label>
+          <select className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+            <option value="">All Methods</option>
+            <option value="cash">Cash Collection</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="mobile_wallet">Mobile Wallet</option>
+            <option value="card">Card Payment</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>PAYMENT TYPE</label>
+          <select className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={paymentType} onChange={e => setPaymentType(e.target.value)}>
+            <option value="">All Types</option>
+            <option value="interest">Interest Payment</option>
+            <option value="principal">Principal Repayment</option>
+          </select>
+        </div>
       </div>
 
       {loading && !data ? (
@@ -4817,7 +5406,13 @@ function projectCurrentInterestBalance(loan) {
 
   const principal = parseFloat(loan.principal_amount) || 0;
   const rate = parseFloat(loan.interest_rate) || 0;
-  const interestPerPeriod = principal * (rate / 100);
+  const monthlyInterest = principal * (rate / 100);
+  let interestPerPeriod = monthlyInterest;
+  if (loan.interest_type === 'daily') {
+    interestPerPeriod = monthlyInterest / 30;
+  } else if (loan.interest_type === 'weekly') {
+    interestPerPeriod = monthlyInterest / 4;
+  }
   if (interestPerPeriod <= 0) return stored;
 
   const now = new Date();
@@ -4836,4 +5431,505 @@ function projectCurrentInterestBalance(loan) {
   }
 
   return stored + periods * interestPerPeriod;
+}
+
+// Record Daily Payments Component - Inline daily collection entry table
+function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedRows, setSelectedRows] = useState({});
+  const [submittingIds, setSubmittingIds] = useState({});
+  const [fetchedLoans, setFetchedLoans] = useState([]);
+  const [loadingLoans, setLoadingLoans] = useState(false);
+
+  useEffect(() => {
+    if (!loans || loans.length === 0) {
+      setLoadingLoans(true);
+      api.get('/loans?status=active')
+        .then(res => setFetchedLoans(Array.isArray(res) ? res : []))
+        .catch(err => console.error('Fetch loans error:', err))
+        .finally(() => setLoadingLoans(false));
+    }
+  }, [loans?.length]);
+
+  const activeSource = (loans && loans.length > 0) ? loans : fetchedLoans;
+  const dailyLoans = activeSource.filter(l => l.status === 'active' && l.interest_type === 'daily');
+
+  const filteredLoans = dailyLoans.filter(l => {
+    if (!searchTerm) return true;
+    const term = searchTerm.trim().toLowerCase();
+    return (
+      (l.borrower_name || '').toLowerCase().includes(term) ||
+      (l.borrower_phone || '').includes(term) ||
+      (l.nic_number || '').toLowerCase().includes(term) ||
+      (l.reference_number || '').toLowerCase().includes(term) ||
+      String(l.id).includes(term)
+    );
+  });
+
+  const updateRowField = (loanId, field, value) => {
+    setSelectedRows(prev => {
+      const current = prev[loanId] || { fullPaid: false, amount: '', paymentType: 'interest' };
+      return {
+        ...prev,
+        [loanId]: { ...current, [field]: value }
+      };
+    });
+  };
+
+  const handleToggleFullPaid = (loan, checked) => {
+    const totalDue = parseFloat(loan.interest_balance) > 0 
+      ? parseFloat(loan.interest_balance) 
+      : (parseFloat(loan.principal_amount) * (parseFloat(loan.interest_rate) / 100)) / 30;
+
+    setSelectedRows(prev => {
+      const current = prev[loan.id] || { paymentType: 'interest' };
+      return {
+        ...prev,
+        [loan.id]: {
+          ...current,
+          fullPaid: checked,
+          amount: checked ? Math.round(totalDue).toString() : ''
+        }
+      };
+    });
+  };
+
+  const handleSavePaymentRow = async (loan) => {
+    const row = selectedRows[loan.id] || {};
+    const amountVal = parseFloat(row.amount);
+    if (!amountVal || amountVal <= 0) {
+      if (showToast) showToast('Please enter a valid payment amount.');
+      return;
+    }
+
+    const paymentType = row.paymentType || 'interest';
+
+    setSubmittingIds(prev => ({ ...prev, [loan.id]: true }));
+    try {
+      const idempotencyKey = `idemp_daily_${loan.id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      await api.post('/payments', {
+        loan_id: loan.id,
+        amount: amountVal,
+        payment_type: paymentType,
+        notes: `Recorded via Record Payment table`,
+        payment_method: 'cash',
+        idempotency_key: idempotencyKey
+      });
+
+      if (showToast) {
+        showToast(`Recorded LKR ${amountVal.toLocaleString()} ${paymentType} payment for ${loan.borrower_name}!`);
+      }
+
+      // Clear completed row input
+      setSelectedRows(prev => {
+        const copy = { ...prev };
+        delete copy[loan.id];
+        return copy;
+      });
+
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      if (showToast) showToast(err.message || 'Payment recording failed.');
+    } finally {
+      setSubmittingIds(prev => ({ ...prev, [loan.id]: false }));
+    }
+  };
+
+  const handleSaveAllSelected = async () => {
+    const activeEntries = Object.entries(selectedRows).filter(([_, r]) => parseFloat(r.amount) > 0);
+    if (activeEntries.length === 0) {
+      if (showToast) showToast('No payment amounts entered.');
+      return;
+    }
+
+    for (const [loanId] of activeEntries) {
+      const loan = dailyLoans.find(l => String(l.id) === String(loanId));
+      if (loan) {
+        await handleSavePaymentRow(loan);
+      }
+    }
+  };
+
+  return (
+    <div className="glass-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ fontSize: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CreditCard className="icon" style={{ color: 'var(--accent-blue)' }} /> Record Payment (Daily Collections)
+          </h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>
+            All-in-one line daily collection sheet. Check full due or enter custom partial amounts (e.g. 200) directly on the same line.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            className="glass-input"
+            placeholder="Search borrower or ID..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{ padding: '8px 12px', minWidth: '220px' }}
+          />
+          <button
+            type="button"
+            className="glass-btn glass-btn-emerald"
+            style={{ padding: '8px 16px', fontSize: '13px' }}
+            onClick={handleSaveAllSelected}
+          >
+            <Check className="icon" /> Save All Entered
+          </button>
+        </div>
+      </div>
+
+      {filteredLoans.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">
+            <Search style={{ width: '28px', height: '28px' }} />
+          </div>
+          <h4 className="empty-state-title">No Daily Collection Loans Found</h4>
+          <p className="empty-state-text">
+            {searchTerm ? `No daily collection loans match "${searchTerm}".` : 'There are no active daily collection loans currently.'}
+          </p>
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="glass-table">
+            <thead>
+              <tr>
+                <th style={{ whiteSpace: 'nowrap' }}>Loan Ref ID</th>
+                <th style={{ whiteSpace: 'nowrap' }}>Borrower Name</th>
+                <th style={{ whiteSpace: 'nowrap' }}>Interest Due</th>
+                <th style={{ whiteSpace: 'nowrap' }}>Full Due</th>
+                <th style={{ whiteSpace: 'nowrap' }}>Payment Amount (LKR)</th>
+                <th style={{ whiteSpace: 'nowrap' }}>Type</th>
+                <th style={{ whiteSpace: 'nowrap' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredLoans.map(loan => {
+                const totalInterestDue = parseFloat(loan.interest_balance) || 0;
+                const dailyDue = (parseFloat(loan.principal_amount) * (parseFloat(loan.interest_rate) / 100)) / 30;
+                const row = selectedRows[loan.id] || { fullPaid: false, amount: '', paymentType: 'interest' };
+                const isSubmitting = submittingIds[loan.id];
+
+                return (
+                  <tr key={loan.id} style={{ transition: 'background-color 0.15s ease' }}>
+                    {/* 1. Loan Ref ID */}
+                    <td style={{ whiteSpace: 'nowrap', fontWeight: 'bold' }}>
+                      <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                        {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
+                      </span>
+                    </td>
+
+                    {/* 2. Borrower Name */}
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <strong style={{ display: 'block', fontSize: '14px' }}>{loan.borrower_name}</strong>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                    </td>
+
+                    {/* 3. Due Payment */}
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 'bold', color: totalInterestDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
+                        LKR {totalInterestDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        Daily: LKR {dailyDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}/day
+                      </span>
+                    </td>
+
+                    {/* 4. Full Due Checkbox */}
+                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                        <input
+                          type="checkbox"
+                          checked={row.fullPaid}
+                          onChange={e => handleToggleFullPaid(loan, e.target.checked)}
+                          style={{ width: '16px', height: '16px', accentColor: 'var(--accent-emerald)', cursor: 'pointer' }}
+                        />
+                        Full Due
+                      </label>
+                    </td>
+
+                    {/* 5. Custom Partial Payment Input */}
+                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="e.g. 200"
+                          value={row.amount}
+                          onChange={e => updateRowField(loan.id, 'amount', e.target.value)}
+                          className="glass-input"
+                          style={{ width: '130px', padding: '6px 10px', fontSize: '14px', fontWeight: 'bold' }}
+                        />
+                      </div>
+                    </td>
+
+                    {/* 6. Payment Type */}
+                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <select
+                        value={row.paymentType || 'interest'}
+                        onChange={e => updateRowField(loan.id, 'paymentType', e.target.value)}
+                        className="glass-input"
+                        style={{ padding: '6px 8px', fontSize: '12px', width: '100px' }}
+                      >
+                        <option value="interest">Interest</option>
+                        <option value="principal">Principal</option>
+                      </select>
+                    </td>
+
+                    {/* 7. Action Button */}
+                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <button
+                        type="button"
+                        className="glass-btn glass-btn-emerald"
+                        style={{ padding: '6px 14px', fontSize: '12px' }}
+                        onClick={() => handleSavePaymentRow(loan)}
+                        disabled={isSubmitting || !row.amount}
+                      >
+                        {isSubmitting ? 'Saving...' : 'Save'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Next-Day Tasklist Component - Shows tomorrow's expected collections categorized into Daily, Weekly, and Monthly
+function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('all');
+  const [fetchedLoans, setFetchedLoans] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!loans || loans.length === 0) {
+      setLoading(true);
+      api.get('/loans?status=active')
+        .then(res => setFetchedLoans(Array.isArray(res) ? res : []))
+        .catch(err => console.error(err))
+        .finally(() => setLoading(false));
+    }
+  }, [loans?.length]);
+
+  const sourceLoans = (loans && loans.length > 0) ? loans : fetchedLoans;
+  const activeLoans = sourceLoans.filter(l => l.status === 'active');
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+
+  const tomorrowEnd = new Date(tomorrow);
+  tomorrowEnd.setHours(23, 59, 59, 999);
+
+  const dailyDueTomorrow = activeLoans.filter(l => l.interest_type === 'daily');
+
+  const weeklyDueTomorrow = activeLoans.filter(l => {
+    if (l.interest_type !== 'weekly') return false;
+    if (!l.next_accrual_date) return true;
+    const nextAcc = new Date(l.next_accrual_date);
+    return nextAcc <= tomorrowEnd;
+  });
+
+  const monthlyDueTomorrow = activeLoans.filter(l => {
+    if (l.interest_type !== 'monthly') return false;
+    if (!l.next_accrual_date) return true;
+    const nextAcc = new Date(l.next_accrual_date);
+    return nextAcc <= tomorrowEnd;
+  });
+
+  const calcExpectedAmount = (l) => {
+    const principal = parseFloat(l.principal_amount) || 0;
+    const rate = parseFloat(l.interest_rate) || 0;
+    const monthlyInterest = (principal * rate) / 100;
+
+    if (l.interest_type === 'daily') return monthlyInterest / 30;
+    if (l.interest_type === 'weekly') return monthlyInterest / 4;
+    return monthlyInterest;
+  };
+
+  const totalDailyAmt = dailyDueTomorrow.reduce((sum, l) => sum + calcExpectedAmount(l), 0);
+  const totalWeeklyAmt = weeklyDueTomorrow.reduce((sum, l) => sum + calcExpectedAmount(l), 0);
+  const totalMonthlyAmt = monthlyDueTomorrow.reduce((sum, l) => sum + calcExpectedAmount(l), 0);
+  const totalExpectedTomorrow = totalDailyAmt + totalWeeklyAmt + totalMonthlyAmt;
+
+  let displayedList = [];
+  if (activeTab === 'daily') displayedList = dailyDueTomorrow;
+  else if (activeTab === 'weekly') displayedList = weeklyDueTomorrow;
+  else if (activeTab === 'monthly') displayedList = monthlyDueTomorrow;
+  else displayedList = [...dailyDueTomorrow, ...weeklyDueTomorrow, ...monthlyDueTomorrow];
+
+  if (searchTerm) {
+    const term = searchTerm.toLowerCase();
+    displayedList = displayedList.filter(l =>
+      (l.borrower_name || '').toLowerCase().includes(term) ||
+      (l.borrower_phone || '').includes(term) ||
+      (l.reference_number || '').toLowerCase().includes(term) ||
+      (l.nic_number || '').toLowerCase().includes(term)
+    );
+  }
+
+  return (
+    <div className="glass-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ fontSize: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Calendar className="icon" style={{ color: 'var(--accent-emerald)' }} /> Next-Day Collection Tasklist ({tomorrow.toLocaleDateString()})
+          </h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>
+            Scheduled collection tasklist for tomorrow. View and plan route collections categorized by frequency.
+          </p>
+        </div>
+
+        <input
+          type="text"
+          className="glass-input"
+          placeholder="Search borrower or NIC..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          style={{ padding: '8px 12px', minWidth: '220px' }}
+        />
+      </div>
+
+      {/* KPI Cards Summary for Tomorrow */}
+      <div className="responsive-grid-equal-4-col" style={{ marginBottom: '24px' }}>
+        <div className="kpi-card kpi-card-emerald">
+          <span className="kpi-lbl">Total Expected Tomorrow</span>
+          <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {Math.round(totalExpectedTomorrow).toLocaleString()}</h3>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Combined collections</span>
+        </div>
+        <div className="kpi-card kpi-card-blue">
+          <span className="kpi-lbl">Daily Route</span>
+          <h3 className="kpi-val">{dailyDueTomorrow.length} Loans</h3>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalDailyAmt).toLocaleString()}</span>
+        </div>
+        <div className="kpi-card kpi-card-amber">
+          <span className="kpi-lbl">Weekly Route</span>
+          <h3 className="kpi-val">{weeklyDueTomorrow.length} Loans</h3>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalWeeklyAmt).toLocaleString()}</span>
+        </div>
+        <div className="kpi-card kpi-card-rose">
+          <span className="kpi-lbl">Monthly Route</span>
+          <h3 className="kpi-val">{monthlyDueTomorrow.length} Loans</h3>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalMonthlyAmt).toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* Category Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className={`glass-btn ${activeTab === 'all' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+          style={{ padding: '6px 14px', fontSize: '12px' }}
+          onClick={() => setActiveTab('all')}
+        >
+          All Tomorrow ({dailyDueTomorrow.length + weeklyDueTomorrow.length + monthlyDueTomorrow.length})
+        </button>
+        <button
+          type="button"
+          className={`glass-btn ${activeTab === 'daily' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+          style={{ padding: '6px 14px', fontSize: '12px' }}
+          onClick={() => setActiveTab('daily')}
+        >
+          Daily Collections ({dailyDueTomorrow.length})
+        </button>
+        <button
+          type="button"
+          className={`glass-btn ${activeTab === 'weekly' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+          style={{ padding: '6px 14px', fontSize: '12px' }}
+          onClick={() => setActiveTab('weekly')}
+        >
+          Weekly Collections ({weeklyDueTomorrow.length})
+        </button>
+        <button
+          type="button"
+          className={`glass-btn ${activeTab === 'monthly' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+          style={{ padding: '6px 14px', fontSize: '12px' }}
+          onClick={() => setActiveTab('monthly')}
+        >
+          Monthly Collections ({monthlyDueTomorrow.length})
+        </button>
+      </div>
+
+      {/* Tasklist Table */}
+      {loading ? (
+        <SkeletonCards count={4} lines={2} />
+      ) : displayedList.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon"><Calendar style={{ width: '28px', height: '28px' }} /></div>
+          <h4 className="empty-state-title">No Collections Scheduled Tomorrow</h4>
+          <p className="empty-state-text">No active loan collections fall under this route category for tomorrow.</p>
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="glass-table">
+            <thead>
+              <tr>
+                <th>Loan Ref ID</th>
+                <th>Borrower Name</th>
+                <th>Category</th>
+                <th>Expected Interest Due</th>
+                <th>Current Interest Balance</th>
+                <th>Assigned Agent</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedList.map(loan => {
+                const expectedAmt = calcExpectedAmount(loan);
+                const currentBal = parseFloat(loan.interest_balance) || 0;
+
+                return (
+                  <tr key={loan.id}>
+                    <td style={{ whiteSpace: 'nowrap', fontWeight: 'bold' }}>
+                      <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                        {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
+                      </span>
+                    </td>
+                    <td>
+                      <strong style={{ display: 'block' }}>{loan.borrower_name}</strong>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>NIC: {loan.nic_number}</span>}
+                    </td>
+                    <td style={{ textTransform: 'capitalize' }}>
+                      <span className={`badge ${loan.interest_type === 'daily' ? 'badge-active' : 'badge-pending'}`}>
+                        {loan.interest_type} collection
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 'bold', color: 'var(--accent-emerald)' }}>
+                      LKR {Math.round(expectedAmt).toLocaleString()}
+                    </td>
+                    <td style={{ fontWeight: 'bold', color: currentBal > 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>
+                      LKR {currentBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td>{loan.agent_name || 'Office Collector'}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="glass-btn glass-btn-emerald"
+                        style={{ padding: '6px 12px', fontSize: '12px' }}
+                        onClick={() => {
+                          if (onNavigateRecordPayment) onNavigateRecordPayment(loan);
+                          else if (onSelectLoan) onSelectLoan(loan.id);
+                        }}
+                      >
+                        Record Payment
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }

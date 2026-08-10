@@ -50,9 +50,16 @@ export async function notifyPasswordReset({ user, tempPassword }) {
  * Triggers alerts for loan creation.
  */
 export async function notifyLoanCreation({ borrower, principal, interestType, rate }) {
-  const calculatedInterest = Number(principal) * (Number(rate) / 100);
+  const monthlyInterest = Number(principal) * (Number(rate) / 100);
+  let calculatedInterest = monthlyInterest;
+  if (interestType === 'daily') {
+    calculatedInterest = monthlyInterest / 30;
+  } else if (interestType === 'weekly') {
+    calculatedInterest = monthlyInterest / 4;
+  }
+
   const frequencyText = interestType.toLowerCase(); // 'daily', 'weekly', 'monthly'
-  const borrowerMsg = `Dear ${borrower.name}, you have successfully got a loan of Rs. ${Number(principal).toLocaleString()} for the ${frequencyText} interest on ${rate}%, and according to that your ${frequencyText} payment is Rs. ${calculatedInterest.toLocaleString()}.`;
+  const borrowerMsg = `Dear ${borrower.name}, you have successfully got a loan of Rs. ${Number(principal).toLocaleString()} at monthly rate ${rate}%. Your ${frequencyText} collection amount is Rs. ${calculatedInterest.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
 
   await sendNotification({
     recipientName: borrower.name,
@@ -63,15 +70,62 @@ export async function notifyLoanCreation({ borrower, principal, interestType, ra
 }
 
 /**
+ * Alerts an admin that an agent submitted a loan application awaiting
+ * approval — nothing has actually disbursed yet.
+ */
+export async function notifyLoanPendingApproval({ admin, borrower, principal, submittedByName }) {
+  await sendNotification({
+    recipientName: admin.name,
+    phone: admin.phone,
+    message: `New loan application awaiting your approval: LKR ${Number(principal).toLocaleString()} for ${borrower.name}, submitted by ${submittedByName}. Review and approve/reject in the app.`,
+    role: 'admin'
+  });
+}
+
+/**
+ * Alerts the borrower (loan now real) and the submitting agent when an
+ * admin approves a pending loan application.
+ */
+export async function notifyLoanApplicationApproved({ borrower, principal, interestType, rate, submittedBy }) {
+  await notifyLoanCreation({ borrower, principal, interestType, rate });
+
+  if (submittedBy) {
+    await sendNotification({
+      recipientName: submittedBy.name,
+      phone: submittedBy.phone,
+      message: `Your loan application for ${borrower.name} (LKR ${Number(principal).toLocaleString()}) has been approved and disbursed.`,
+      role: submittedBy.role
+    });
+  }
+}
+
+/**
+ * Alerts the submitting agent when an admin rejects their loan
+ * application. The borrower isn't SMS'd directly — the agent who met them
+ * in person is better placed to explain why.
+ */
+export async function notifyLoanApplicationRejected({ submittedBy, borrowerName, principal, reason }) {
+  if (!submittedBy) return;
+  await sendNotification({
+    recipientName: submittedBy.name,
+    phone: submittedBy.phone,
+    message: `Your loan application for ${borrowerName} (LKR ${Number(principal).toLocaleString()}) was rejected. Reason: ${reason}`,
+    role: submittedBy.role
+  });
+}
+
+/**
  * Triggers alerts for collections. paymentType distinguishes an interest
  * payment (recurring, doesn't close the loan) from a principal payment
  * (reduces the fixed loan amount, closes the loan at zero).
  */
-export async function notifyPaymentReceived({ borrower, admin, agent, amount, paymentType, principalOutstanding, interestBalance }) {
+export async function notifyPaymentReceived({ borrower, admin, agent, amount, paymentType, principalOutstanding, interestBalance, interestType }) {
   const formattedAmount = Number(amount).toLocaleString();
   const kind = paymentType === 'interest' ? 'interest' : 'principal';
 
-  const borrowerMsg = `Dear ${borrower.name},
+  // RULE: Exclude daily collection payments from borrower SMS notifications. Only send for weekly & monthly.
+  if (interestType !== 'daily') {
+    const borrowerMsg = `Dear ${borrower.name},
 
 You have successfully paid LKR ${formattedAmount} (${kind}) for your loan.
 
@@ -84,12 +138,15 @@ Receipt Details:
 Thank you,
 STN CREDIT`;
 
-  await sendNotification({
-    recipientName: borrower.name,
-    phone: borrower.phone,
-    message: borrowerMsg,
-    role: 'borrower'
-  });
+    await sendNotification({
+      recipientName: borrower.name,
+      phone: borrower.phone,
+      message: borrowerMsg,
+      role: 'borrower'
+    });
+  } else {
+    console.log(`Skipped borrower SMS receipt for Daily collection loan ID (${borrower.name}).`);
+  }
 
   if (admin) {
     const agentName = agent ? agent.name : 'Unknown';

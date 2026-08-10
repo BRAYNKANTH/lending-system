@@ -45,7 +45,13 @@ export async function runInterestAccruals(loanId) {
         // a sanity ceiling against a corrupted next_accrual_date.
         const principal = parseFloat(dbLoan.principal_amount);
         const rate = parseFloat(dbLoan.interest_rate);
-        const interestPerPeriod = principal * (rate / 100);
+        const monthlyInterest = principal * (rate / 100);
+        let interestPerPeriod = monthlyInterest;
+        if (dbLoan.interest_type === 'daily') {
+          interestPerPeriod = monthlyInterest / 30;
+        } else if (dbLoan.interest_type === 'weekly') {
+          interestPerPeriod = monthlyInterest / 4;
+        }
 
         let periodsAccrued = 0;
         let totalAccrued = 0;
@@ -61,7 +67,9 @@ export async function runInterestAccruals(loanId) {
           totalAccrued += interestPerPeriod;
           periodsAccrued += 1;
 
-          const logText = `Principal: ${principal} | Rate: ${rate}% | Type: ${dbLoan.interest_type} | Accrual period for ${nextDate.toISOString().slice(0, 10)}`;
+          const logText = dbLoan.interest_type === 'daily'
+            ? `Principal: ${principal} | Monthly Rate: ${rate}% | Daily Accrual (Monthly/30): LKR ${interestPerPeriod.toFixed(2)} | Date: ${nextDate.toISOString().slice(0, 10)}`
+            : `Principal: ${principal} | Rate: ${rate}% | Type: ${dbLoan.interest_type} | Accrual period for ${nextDate.toISOString().slice(0, 10)}`;
           await trx('interest_accruals').insert({
             loan_id: dbLoan.id,
             amount_accrued: interestPerPeriod,

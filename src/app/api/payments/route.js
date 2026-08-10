@@ -70,6 +70,7 @@ export async function POST(request) {
       agent: result.agent,
       amount: result.amount,
       paymentType: result.paymentType,
+      interestType: result.interestType,
       principalOutstanding: result.newPrincipalOutstanding,
       interestBalance: result.newInterestBalance
     }).catch((err) => console.error('Notification failed:', err));
@@ -105,7 +106,7 @@ export async function POST(request) {
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Payment collection error:', error);
-    if (error.message?.includes('exceeds outstanding') || error.message?.includes('already been fully paid') || error.message?.includes('defaulted') || error.message?.includes('written off') || error.message?.includes("must be 'interest' or 'principal'")) {
+    if (error.message?.includes('exceeds outstanding') || error.message?.includes('already been fully paid') || error.message?.includes('defaulted') || error.message?.includes('written off') || error.message?.includes('awaiting admin approval') || error.message?.includes('was rejected') || error.message?.includes("must be 'interest' or 'principal'")) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }
     return NextResponse.json({ message: 'Internal server error while processing payment.' }, { status: 500 });

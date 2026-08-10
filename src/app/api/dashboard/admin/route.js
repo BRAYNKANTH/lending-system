@@ -26,7 +26,10 @@ export async function GET(request) {
       recentAudit,
       overdueLoansRaw,
       interestByType,
-      recentAccruals
+      recentAccruals,
+      remittancesResult,
+      activeLoansList,
+      pendingApprovalsRaw
     ] = await Promise.all([
       db('loans').sum('principal_amount as total'),
       db('loans').where({ status: 'active' }).count('id as count'),
@@ -63,7 +66,15 @@ export async function GET(request) {
         .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
         .select('interest_accruals.*', 'borrowers.name as borrower_name', 'loans.principal_amount', 'loans.interest_rate', 'loans.interest_type')
         .orderBy('interest_accruals.created_at', 'desc')
-        .limit(10)
+        .limit(10),
+      db('remittances').where('status', 'verified').sum('amount as total'),
+      db('loans').where({ status: 'active' }).select('id', 'principal_amount', 'interest_rate', 'interest_type', 'created_at', 'last_accrual_date', 'interest_balance'),
+      db('loans')
+        .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
+        .leftJoin('users as agents', 'loans.lender_id', 'agents.id')
+        .where('loans.status', 'pending')
+        .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone', 'agents.name as submitted_by_name')
+        .orderBy('loans.created_at', 'asc')
     ]);
 
     const totalMoneyLent = parseFloat(moneyLentResult[0].total) || 0;
@@ -74,9 +85,34 @@ export async function GET(request) {
     const totalInterestDue = parseFloat(outstandingResult[0].interest) || 0;
     const collectionsToday = parseFloat(collectionsTodayResult[0].total) || 0;
     const interestToday = parseFloat(interestTodayResult[0].total) || 0;
-    // NIC photos aren't shown on the dashboard — stripped so this response
-    // doesn't drag along several MB of base64 for every overdue loan.
+    const totalVerifiedRemittances = parseFloat(remittancesResult[0].total) || 0;
+    const agentCashInHand = Math.max(0, totalRepayments - totalVerifiedRemittances);
+
+    // Calculate today's target collection
+    let expectedTodayTarget = 0;
+    let totalOverdueAmount = 0;
+    (activeLoansList || []).forEach(l => {
+      const p = parseFloat(l.principal_amount) || 0;
+      const r = parseFloat(l.interest_rate) || 0;
+      const totalPeriodInterest = (p * r) / 100;
+      
+      if (l.interest_type === 'daily') {
+        expectedTodayTarget += (totalPeriodInterest / 30);
+      } else if (l.interest_type === 'weekly') {
+        expectedTodayTarget += (totalPeriodInterest / 4);
+      } else {
+        expectedTodayTarget += totalPeriodInterest;
+      }
+
+      const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
+      const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
+      if (diffDays >= 3) {
+        totalOverdueAmount += parseFloat(l.interest_balance || 0);
+      }
+    });
+
     const overdueLoans = stripLoanMediaList(overdueLoansRaw);
+    const pendingApprovals = stripLoanMediaList(pendingApprovalsRaw);
 
     return NextResponse.json({
       summary: {
@@ -84,13 +120,18 @@ export async function GET(request) {
         totalActiveLoans,
         totalRepayments,
         totalOverdue,
+        totalOverdueAmount,
         totalPrincipalOutstanding,
         totalInterestDue,
-        totalOutstanding: totalPrincipalOutstanding + totalInterestDue
+        totalOutstanding: totalPrincipalOutstanding + totalInterestDue,
+        agentCashInHand,
+        expectedTodayTarget: Math.round(expectedTodayTarget),
+        pendingApprovalsCount: pendingApprovals.length
       },
-      dailyReport: { collectionsToday, interestToday, date: todayStart.toDateString() },
+      dailyReport: { collectionsToday, interestToday, expectedTodayTarget: Math.round(expectedTodayTarget), date: todayStart.toDateString() },
       agentPerformance,
       overdueLoans,
+      pendingApprovals,
       recentAudit,
       interestByType,
       recentAccruals

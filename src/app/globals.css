@@ -300,6 +300,10 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   background: linear-gradient(180deg, var(--accent-rose) 0%, #b91c1c 100%);
 }
 
+.glass-btn-amber {
+  background: linear-gradient(180deg, var(--accent-amber) 0%, #b45309 100%);
+}
+
 /* Badges */
 .badge {
   display: inline-flex;
@@ -1535,6 +1539,12 @@ table.desktop-only {
   background: #eff6ff;
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
+}
+
+.status-pill-rejected {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
 }
 
 .status-pill-dot {

@@ -8,6 +8,12 @@ export async function GET(request) {
     const { role, id } = await requireAuth(request);
     const borrowerId = request.nextUrl.searchParams.get('borrowerId');
     const agentId = request.nextUrl.searchParams.get('agentId');
+    const from = request.nextUrl.searchParams.get('from');
+    const to = request.nextUrl.searchParams.get('to');
+    const search = request.nextUrl.searchParams.get('search');
+    const paymentMethod = request.nextUrl.searchParams.get('paymentMethod');
+    const paymentType = request.nextUrl.searchParams.get('paymentType');
+
     const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page'), 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.nextUrl.searchParams.get('limit'), 10) || 25));
 
@@ -23,6 +29,25 @@ export async function GET(request) {
     }
     if (borrowerId && role === 'admin') baseQuery = baseQuery.where('transactions.borrower_id', borrowerId);
     if (agentId && role === 'admin') baseQuery = baseQuery.where('transactions.agent_id', agentId);
+
+    if (from) baseQuery = baseQuery.where('transactions.payment_date', '>=', new Date(from));
+    if (to) {
+      const endTo = new Date(to);
+      endTo.setHours(23, 59, 59, 999);
+      baseQuery = baseQuery.where('transactions.payment_date', '<=', endTo);
+    }
+    if (paymentMethod) baseQuery = baseQuery.where('transactions.payment_method', paymentMethod);
+    if (paymentType) baseQuery = baseQuery.where('transactions.payment_type', paymentType);
+    if (search) {
+      const q = `%${search.trim()}%`;
+      baseQuery = baseQuery.andWhere(function() {
+        this.where('borrowers.name', 'like', q)
+          .orWhere('borrowers.phone', 'like', q)
+          .orWhere('loans.nic_number', 'like', q)
+          .orWhere('loans.reference_number', 'like', q)
+          .orWhere('transactions.idempotency_key', 'like', q);
+      });
+    }
 
     const [countResult, historyRaw] = await Promise.all([
       baseQuery.clone().count('transactions.id as count').first(),

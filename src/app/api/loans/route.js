@@ -2,17 +2,22 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
-import { notifyLoanCreation } from '@/lib/services/notification.js';
+import { notifyLoanCreation, notifyLoanPendingApproval } from '@/lib/services/notification.js';
 import { isValidSriLankanNIC, addInterval } from '@/lib/loanSchedule.js';
 import { normalizePhone } from '@/lib/phone.js';
 import { stripLoanMediaList } from '@/lib/stripMedia.js';
 import bcrypt from 'bcryptjs';
 import { generateTempPassword } from '@/lib/tempPassword.js';
 
-// Create a new loan (Admin only)
+// Create a new loan. Admin-created loans disburse immediately, same as
+// always. Agent-created loans go in as 'pending' instead — no cash moves
+// and no ledger entries post until an admin reviews and approves it (see
+// /api/loans/[id]/approve and /reject). This lets field agents originate
+// loans without being able to unilaterally hand out cash.
 export async function POST(request) {
   try {
-    const authUser = await requireAuth(request, ['admin']);
+    const authUser = await requireAuth(request, ['admin', 'agent']);
+    const isAgentSubmission = authUser.role === 'agent';
     const body = await request.json();
     const {
       borrower_name, borrower_phone, borrower_address, principal_amount, interest_rate, interest_type,
@@ -63,9 +68,14 @@ export async function POST(request) {
       }
     }
 
-    if (assigned_agent_id) {
+    // An agent submitting a loan application is always its own collector —
+    // whatever the client sent for assigned_agent_id is ignored so an agent
+    // can't route a loan they're proposing to someone else's route.
+    const effectiveAssignedAgentId = isAgentSubmission ? authUser.id : (assigned_agent_id || null);
+
+    if (effectiveAssignedAgentId && !isAgentSubmission) {
       const agentUser = await db('users')
-        .where({ id: assigned_agent_id })
+        .where({ id: effectiveAssignedAgentId })
         .whereIn('role', ['agent', 'admin'])
         .first();
       if (!agentUser) {
@@ -242,19 +252,17 @@ export async function POST(request) {
 
     const borrower_id = borrower.id;
 
-    if (assigned_agent_id) {
-      const agent = await db('users').where({ id: assigned_agent_id, role: 'agent' }).first();
-      if (!agent) {
-        return NextResponse.json({ message: 'Assigned agent not found.' }, { status: 404 });
-      }
-    }
-
     const creationDate = new Date();
+    // For a pending application this is a placeholder — approval recomputes
+    // it from the actual approval moment, since interest shouldn't accrue
+    // while the loan is just sitting in the review queue.
     const nextAccrualDate = addInterval(creationDate, interest_type);
     let calculatedMaturityDate = null;
     if (colMode === 'fixed_term') {
       calculatedMaturityDate = addInterval(creationDate, interest_type, periods);
     }
+
+    const initialStatus = isAgentSubmission ? 'pending' : 'active';
 
     const loanResult = await db.transaction(async (trx) => {
       const [{ count }] = await trx('loans').count('id as count');
@@ -264,13 +272,13 @@ export async function POST(request) {
       const [newLoan] = await trx('loans').insert({
         borrower_id,
         lender_id: authUser.id,
-        assigned_agent_id: assigned_agent_id || null,
+        assigned_agent_id: effectiveAssignedAgentId,
         principal_amount: principal,
         interest_rate: rate,
         interest_type,
         principal_outstanding: principal,
         interest_balance: 0,
-        status: 'active',
+        status: initialStatus,
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
         nic_photo_url,
@@ -284,10 +292,15 @@ export async function POST(request) {
 
       const loanId = newLoan.id || newLoan;
 
-      await trx('ledger_entries').insert([
-        { loan_id: loanId, account: 'loan_receivable_principal', type: 'debit', amount: principal },
-        { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal }
-      ]);
+      // A pending application hasn't actually disbursed anything yet — no
+      // cash has moved, so no ledger entries post until an admin approves
+      // it (see /api/loans/[id]/approve).
+      if (initialStatus === 'active') {
+        await trx('ledger_entries').insert([
+          { loan_id: loanId, account: 'loan_receivable_principal', type: 'debit', amount: principal },
+          { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal }
+        ]);
+      }
 
       if (guarantorRecord) {
         await trx('guarantors').insert({ loan_id: loanId, ...guarantorRecord });
@@ -295,18 +308,25 @@ export async function POST(request) {
 
       await trx('audit_logs').insert({
         actor_id: authUser.id,
-        action_type: 'CREATE_LOAN',
-        description: `Created new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${guarantorRecord ? ` with guarantor '${guarantorRecord.full_name}'` : ''} for Borrower ID ${borrower_id}.`
+        action_type: isAgentSubmission ? 'SUBMIT_LOAN_APPLICATION' : 'CREATE_LOAN',
+        description: `${isAgentSubmission ? 'Submitted for approval: a' : 'Created'} new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${guarantorRecord ? ` with guarantor '${guarantorRecord.full_name}'` : ''} for Borrower ID ${borrower_id}.`
       });
 
       return newLoan;
     });
 
-    notifyLoanCreation({ borrower, principal, interestType: interest_type, rate })
-      .catch((err) => console.error('Failed to dispatch notification:', err));
+    if (isAgentSubmission) {
+      const admins = await db('users').where({ role: 'admin', is_active: true });
+      Promise.all(admins.map((admin) =>
+        notifyLoanPendingApproval({ admin, borrower, principal, submittedByName: authUser.name })
+      )).catch((err) => console.error('Failed to dispatch notification:', err));
+    } else {
+      notifyLoanCreation({ borrower, principal, interestType: interest_type, rate })
+        .catch((err) => console.error('Failed to dispatch notification:', err));
+    }
 
     return NextResponse.json({
-      message: 'Loan created successfully.',
+      message: isAgentSubmission ? 'Loan application submitted for admin approval.' : 'Loan created successfully.',
       loan: loanResult
     }, { status: 201 });
   } catch (error) {

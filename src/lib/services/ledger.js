@@ -33,6 +33,14 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
       throw new Error("This loan is defaulted. Reinstate it first (Admin > Reinstate Loan) before recording a payment.");
     }
 
+    if (loan.status === 'pending') {
+      throw new Error('This loan application is still awaiting admin approval and has not been disbursed yet.');
+    }
+
+    if (loan.status === 'rejected') {
+      throw new Error('This loan application was rejected and was never disbursed.');
+    }
+
     const payAmount = parseFloat(amount);
     const principalOutstanding = parseFloat(loan.principal_outstanding);
     const interestBalance = parseFloat(loan.interest_balance);
@@ -133,6 +141,7 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
       agent,
       amount: payAmount,
       paymentType,
+      interestType: loan.interest_type,
       newPrincipalOutstanding,
       newInterestBalance,
       status: newStatus
