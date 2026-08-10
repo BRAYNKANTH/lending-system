@@ -751,6 +751,16 @@ table.desktop-only {
   .agent-collect-panel.active {
     display: block;
   }
+
+  /* Generic mobile-only hide switch — used by the loan statement's
+     Passbook mobile sub-tab pills (record/activity/receipts/accruals) and
+     the Loans list's collapsible mobile filter panel. Applied as a plain
+     conditional className (no companion "active" class needed, unlike
+     .agent-collect-panel above), so it only needs a bare display:none.
+     Doesn't exist above 768px, so desktop always shows everything. */
+  .mobile-hidden {
+    display: none !important;
+  }
 }
 
 /* --- MOBILE DENSITY --- Cards and inputs use generous desktop padding
@@ -1739,5 +1749,402 @@ table.desktop-only {
   justify-content: center;
   padding: 20px;
 }
+
+/* ==========================================================================
+   MOBILE RESPONSIVE & HORIZONTAL WIZARD DESIGN SYSTEM
+   ========================================================================== */
+
+/* Multi-Step Horizontal Wizard Layout */
+.wizard-stepper-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-light);
+  padding: 16px 20px;
+  gap: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.wizard-step-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  white-space: nowrap;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.wizard-step-node.active {
+  opacity: 1;
+  background: rgba(37, 84, 232, 0.08);
+}
+
+.wizard-step-node.completed {
+  opacity: 0.9;
+}
+
+.wizard-step-bubble {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.wizard-step-node.active .wizard-step-bubble {
+  background: var(--accent-blue);
+  box-shadow: 0 0 0 4px var(--accent-blue-light);
+}
+
+.wizard-step-node.completed .wizard-step-bubble {
+  background: var(--accent-emerald);
+}
+
+.wizard-step-info {
+  text-align: left;
+}
+
+.wizard-step-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: block;
+}
+
+.wizard-step-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: block;
+}
+
+.wizard-step-divider {
+  flex: 1;
+  height: 2px;
+  background: var(--border-light);
+  min-width: 12px;
+}
+
+.wizard-progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background: var(--border-light);
+  position: relative;
+  overflow: hidden;
+}
+
+.wizard-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-blue) 0%, var(--accent-emerald) 100%);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wizard-content-panel {
+  padding: 24px 20px;
+}
+
+.wizard-nav-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* Horizontal Subtab Pill Bar for Loan Statement & Passbook */
+.subtab-pill-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 12px 0;
+  margin-bottom: 16px;
+}
+
+.subtab-pill {
+  padding: 8px 16px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  min-height: 40px;
+}
+
+.subtab-pill:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.subtab-pill.active {
+  background: var(--accent-blue);
+  color: #ffffff;
+  border-color: var(--accent-blue);
+  box-shadow: 0 2px 8px rgba(37, 84, 232, 0.25);
+}
+
+/* Horizontal Filter Chip Row */
+.filter-chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.filter-chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+/* WhatsApp Share Button */
+.btn-whatsapp {
+  background: linear-gradient(180deg, #25D366 0%, #128C7E 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(37, 211, 102, 0.3) !important;
+}
+
+.btn-whatsapp:hover {
+  filter: brightness(1.06);
+}
+
+/* Quick Contact Action Icons */
+.quick-contact-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+.quick-contact-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 13px;
+  transition: transform 0.1s ease;
+}
+
+.quick-contact-btn:active {
+  transform: scale(0.9);
+}
+
+.quick-contact-btn.phone {
+  background: var(--accent-blue);
+}
+
+.quick-contact-btn.whatsapp {
+  background: #25D366;
+}
+
+/* 2x3 Compact Dashboard Action Grid on Mobile */
+@media (max-width: 768px) {
+  .menu-card-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 12px !important;
+  }
+  
+  .menu-card {
+    flex-direction: column !important;
+    text-align: center !important;
+    padding: 16px 12px !important;
+    gap: 8px !important;
+    align-items: center !important;
+  }
+
+  .menu-card-icon {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 22px !important;
+    margin-bottom: 4px !important;
+  }
+
+  .menu-card-icon svg {
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  .menu-card h3 {
+    font-size: 14px !important;
+  }
+
+  .menu-card p {
+    display: none !important;
+  }
+
+  .wizard-content-panel {
+    padding: 16px 12px;
+  }
+
+  .wizard-stepper-header {
+    padding: 12px 14px;
+    gap: 6px;
+  }
+
+  .wizard-step-subtitle {
+    display: none;
+  }
+
+  .wizard-step-title {
+    font-size: 11px;
+  }
+}
+
+/* Unified Portal Selector */
+.portal-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+.portal-card:hover {
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--portal-color);
+}
+
+.portal-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 5px;
+  background: var(--portal-color);
+}
+
+.portal-card-blue {
+  --portal-color: var(--accent-blue);
+}
+
+.portal-card-emerald {
+  --portal-color: var(--accent-emerald);
+}
+
+.portal-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.portal-card-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--portal-color) 12%, transparent);
+  color: var(--portal-color);
+  font-size: 24px;
+}
+
+.portal-card-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 800;
+  color: var(--portal-color);
+  background: color-mix(in srgb, var(--portal-color) 8%, transparent);
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+.portal-card-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.portal-card-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 24px;
+  flex: 1;
+}
+
+.portal-card-action {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--portal-color);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform 0.2s ease;
+}
+
+.portal-card:hover .portal-card-action {
+  transform: translateX(4px);
+}
+
+/* WhatsApp receipt button */
+.btn-whatsapp {
+  background: #25D366 !important;
+  color: white !important;
+  border-color: #20BA5A !important;
+}
+.btn-whatsapp:hover {
+  background: #128C7E !important;
+  border-color: #0B665C !important;
+  box-shadow: 0 0 10px rgba(37, 211, 102, 0.4) !important;
+}
+
+/* Ticket group management */
+.ticket-member-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-light);
+  transition: background 0.15s;
+}
+
+.ticket-member-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.ticket-member-row:last-child {
+  border-bottom: none;
+}
+
+
 
 

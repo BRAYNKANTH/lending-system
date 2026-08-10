@@ -1,0 +1,85 @@
+import { NextResponse } from 'next/server';
+import db from '@/lib/db.js';
+import { requireAuth, AuthError } from '@/lib/auth.js';
+
+export async function GET(request, { params }) {
+  try {
+    const user = await requireAuth(request);
+    if (!user.ticket_access) {
+      return NextResponse.json({ message: 'Forbidden. You do not have access to the Ticket system.' }, { status: 403 });
+    }
+
+    const { id } = params;
+    const url = new URL(request.url);
+    const roundStr = url.searchParams.get('round');
+    const auctionId = url.searchParams.get('auction_id');
+
+    if (!roundStr && !auctionId) {
+      return NextResponse.json({ message: 'Missing round number or auction_id filter.' }, { status: 400 });
+    }
+
+    let query = db('ticket_payments')
+      .join('ticket_members', 'ticket_payments.member_id', 'ticket_members.id')
+      .where('ticket_payments.ticket_id', id)
+      .select('ticket_payments.*', 'ticket_members.name as member_name', 'ticket_members.phone as member_phone');
+
+    if (auctionId) {
+      query = query.where('ticket_payments.auction_id', auctionId);
+    } else {
+      query = query.where('ticket_payments.round_number', parseInt(roundStr, 10));
+    }
+
+    const payments = await query.orderBy('member_name', 'asc');
+    return NextResponse.json(payments);
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('List ticket payments error:', error);
+    return NextResponse.json({ message: 'Failed to fetch payments.' }, { status: 500 });
+  }
+}
+
+export async function PUT(request, { params }) {
+  try {
+    const user = await requireAuth(request); // Admin or agent can mark payments
+    if (!user.ticket_access) {
+      return NextResponse.json({ message: 'Forbidden. You do not have access to the Ticket system.' }, { status: 403 });
+    }
+
+    const { id } = params;
+    const { payment_id, is_paid } = await request.json();
+
+    if (!payment_id) {
+      return NextResponse.json({ message: 'payment_id is required.' }, { status: 400 });
+    }
+
+    const updated = await db('ticket_payments')
+      .where({ id: payment_id, ticket_id: id })
+      .update({
+        is_paid: !!is_paid,
+        payment_date: is_paid ? db.fn.now() : null
+      });
+
+    if (!updated) {
+      return NextResponse.json({ message: 'Payment record not found.' }, { status: 404 });
+    }
+
+    // Get the updated payment details for audit log
+    const payment = await db('ticket_payments')
+      .join('ticket_members', 'ticket_payments.member_id', 'ticket_members.id')
+      .where('ticket_payments.id', payment_id)
+      .select('ticket_payments.*', 'ticket_members.name as member_name')
+      .first();
+
+    await db('audit_logs').insert({
+      actor_id: user.id,
+      action_type: 'TICKET_PAYMENT_TOGGLE',
+      description: `Marked payment for ${payment.member_name} (Round ${payment.round_number}) as ${is_paid ? 'Paid' : 'Unpaid'}.`
+    });
+
+    return NextResponse.json({ message: 'Payment updated successfully.', payment });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Update payment error:', error);
+    return NextResponse.json({ message: 'Failed to update payment.' }, { status: 500 });
+  }
+}

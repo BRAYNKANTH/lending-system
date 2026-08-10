@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
@@ -8,19 +8,41 @@ import {
   ArrowLeft, ArrowRight, ScrollText, Check, X, Phone, IdCard, ShieldCheck,
   Printer, FileText, TrendingUp, Bell, BarChart3, Zap, AlertTriangle,
   Briefcase, Truck, BookOpen, ArrowDown, User, Settings, Ban, Receipt,
-  Search, CreditCard, Smartphone, PiggyBank, UserPlus, Trash2, ClipboardCheck,
+  Search, CreditCard, Smartphone, PiggyBank, MessageSquare, UserPlus, Trash2, ClipboardCheck,
   CircleCheck, CircleAlert, RefreshCcw, Download, ChevronRight, Calendar,
-  Plus, ThumbsUp, ThumbsDown, Clock
+  Plus, ThumbsUp, ThumbsDown, Clock, Filter
 } from 'lucide-react';
 
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('lend_user')));
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'loans', 'ledger'
+  const [view, setView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const storedUser = localStorage.getItem('lend_user');
+      if (storedUser) {
+        try {
+          const parsed = JSON.parse(storedUser);
+          if (parsed) {
+            if (parsed.finance_access && !parsed.ticket_access) {
+              return 'dashboard';
+            }
+            if (!parsed.finance_access && parsed.ticket_access) {
+              return 'ticket-dashboard';
+            }
+            return 'portal';
+          }
+        } catch {
+          return 'dashboard';
+        }
+      }
+    }
+    return 'dashboard';
+  });
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'loans', 'agents'
   const [agentSubView, setAgentSubView] = useState('collect'); // 'collect', 'history'
   const [agentCustomerTab, setAgentCustomerTab] = useState('active'); // 'active', 'defaulted', 'closed'
   const [agentCollectMobileTab, setAgentCollectMobileTab] = useState('form'); // mobile-only: 'form', 'customers'
+  const [passbookMobileTab, setPassbookMobileTab] = useState('record'); // mobile-only: 'record', 'activity', 'receipts', 'accruals'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -43,12 +65,26 @@ export default function LendApp() {
   const [adminToolsTab, setAdminToolsTab] = useState('cash'); // 'cash', 'ledger', 'users'
   const [adminUsers, setAdminUsers] = useState([]);
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', email: '', role: 'agent', password: '' });
+  const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', email: '', role: 'agent', password: '', finance_access: true, ticket_access: true });
   const [remittances, setRemittances] = useState([]);
   const [ledgerReport, setLedgerReport] = useState(null);
   const [ledgerFrom, setLedgerFrom] = useState('');
   const [ledgerTo, setLedgerTo] = useState('');
   const [cashReconciliation, setCashReconciliation] = useState(null);
+
+  // Ticket (Chit Fund) states
+  const [ticketsList, setTicketsList] = useState([]);
+  const [selectedTicketIdState, setSelectedTicketIdState] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [ticketMembers, setTicketMembers] = useState([]);
+  const [ticketAuctions, setTicketAuctions] = useState([]);
+  const [ticketPayments, setTicketPayments] = useState([]);
+  const [activeTicketTab, setActiveTicketTab] = useState('auction'); // 'auction', 'members', 'history'
+  const [showCreateTicket, setShowCreateTicket] = useState(false);
+  const [newTicketForm, setNewTicketForm] = useState({ name: '', total_value: '', member_count: '', start_date: '', host_fee_type: 'percentage', host_fee_value: '' });
+  const [newMemberForm, setNewMemberForm] = useState({ name: '', phone: '' });
+  const [auctionForm, setAuctionForm] = useState({ bid_amount: '', winner_member_id: '', auction_date: new Date().toISOString().slice(0, 10), next_round_date: '' });
+  const [ticketPaymentFilterRound, setTicketPaymentFilterRound] = useState('');
 
   // Agent: cash remittance submission form
   const [remittanceForm, setRemittanceForm] = useState({ amount: '', notes: '' });
@@ -138,7 +174,7 @@ export default function LendApp() {
 
   // Editing user details (Admin only)
   const [editingUser, setEditingUser] = useState(null);
-  const [editUserForm, setEditUserForm] = useState({ name: '', phone: '', role: '' });
+  const [editUserForm, setEditUserForm] = useState({ name: '', phone: '', role: '', email: '', finance_access: true, ticket_access: true });
 
   // Borrower profile details are collected for every loan now (not
   // optional) — loan purpose, dependents, and monthly income are required;
@@ -201,6 +237,9 @@ export default function LendApp() {
   useEffect(() => {
     if (!token || !user) return;
     fetchDashboardData();
+    if (user.ticket_access) {
+      fetchTickets();
+    }
   }, [token, user]);
 
   const fetchDashboardData = async () => {
@@ -360,7 +399,9 @@ export default function LendApp() {
       name: targetUser.name || '',
       phone: targetUser.phone || '',
       role: targetUser.role || '',
-      email: targetUser.email || ''
+      email: targetUser.email || '',
+      finance_access: targetUser.finance_access !== false,
+      ticket_access: targetUser.ticket_access !== false
     });
   };
 
@@ -374,7 +415,9 @@ export default function LendApp() {
         name: editUserForm.name,
         phone: editUserForm.phone,
         role: editUserForm.role,
-        email: editUserForm.email || ''
+        email: editUserForm.email || '',
+        finance_access: !!editUserForm.finance_access,
+        ticket_access: !!editUserForm.ticket_access
       });
       showToast(`User ${editUserForm.name} updated successfully.`);
       setEditingUser(null);
@@ -396,14 +439,16 @@ export default function LendApp() {
         phone: newUserForm.phone,
         email: newUserForm.email || undefined,
         role: newUserForm.role,
-        password: newUserForm.password || undefined
+        password: newUserForm.password || undefined,
+        finance_access: !!newUserForm.finance_access,
+        ticket_access: !!newUserForm.ticket_access
       });
       showToast(
         result.temporaryPassword
           ? `${newUserForm.name} added as ${newUserForm.role}. Temporary password: ${result.temporaryPassword}`
           : `${newUserForm.name} added as ${newUserForm.role}.`
       );
-      setNewUserForm({ name: '', phone: '', email: '', role: 'agent', password: '' });
+      setNewUserForm({ name: '', phone: '', email: '', role: 'agent', password: '', finance_access: true, ticket_access: true });
       setShowAddUser(false);
       refreshAdminTools();
     } catch (err) {
@@ -797,7 +842,14 @@ export default function LendApp() {
       localStorage.setItem('lend_user', JSON.stringify(data.user));
       setToken(data.token);
       setUser(data.user);
-      setView('dashboard');
+      if (data.user.finance_access && !data.user.ticket_access) {
+        setView('dashboard');
+      } else if (!data.user.finance_access && data.user.ticket_access) {
+        setView('ticket-dashboard');
+        fetchTickets();
+      } else {
+        setView('portal');
+      }
       showToast(`Welcome back, ${data.user.name}!`);
       if (data.user.mustChangePassword) {
         setShowChangePassword(true);
@@ -831,8 +883,157 @@ export default function LendApp() {
     setUser(null);
     setAdminData(null);
     setAgentData(null);
-    setBorrowerData(null);
     showToast('Logged out successfully.');
+  };
+
+  // --- TICKET PORTAL API CALLS ---
+  const fetchTickets = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.get('/tickets');
+      setTicketsList(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTicketDetails = async (ticketId) => {
+    setLoading(true);
+    setError('');
+    try {
+      const ticket = await api.get(`/tickets/${ticketId}`);
+      setSelectedTicket(ticket);
+      
+      const members = await api.get(`/tickets/${ticketId}/members`);
+      setTicketMembers(members);
+
+      const auctions = await api.get(`/tickets/${ticketId}/auctions`);
+      setTicketAuctions(auctions);
+
+      // Reset forms
+      setNewMemberForm({ name: '', phone: '' });
+      setAuctionForm({
+        bid_amount: '',
+        winner_member_id: '',
+        auction_date: new Date().toISOString().slice(0, 10),
+        next_round_date: ''
+      });
+
+      // Fetch payments for current active round (or last round)
+      const targetRound = ticket.status === 'completed' 
+        ? ticket.member_count 
+        : Math.max(1, ticket.current_round - 1);
+      
+      setTicketPaymentFilterRound(String(targetRound));
+      
+      if (auctions.length > 0) {
+        const payments = await api.get(`/tickets/${ticketId}/payments?round=${targetRound}`);
+        setTicketPayments(payments);
+      } else {
+        setTicketPayments([]);
+      }
+      
+      setSelectedTicketIdState(ticketId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFetchTicketPaymentsByRound = async (roundVal) => {
+    if (!selectedTicketIdState) return;
+    try {
+      const payments = await api.get(`/tickets/${selectedTicketIdState}/payments?round=${roundVal}`);
+      setTicketPayments(payments);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleCreateTicket = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      await api.post('/tickets', {
+        name: newTicketForm.name,
+        total_value: parseFloat(newTicketForm.total_value),
+        member_count: parseInt(newTicketForm.member_count, 10),
+        start_date: newTicketForm.start_date,
+        host_fee_type: newTicketForm.host_fee_type,
+        host_fee_value: parseFloat(newTicketForm.host_fee_value)
+      });
+      showToast(`Ticket group '${newTicketForm.name}' created successfully.`);
+      setShowCreateTicket(false);
+      setNewTicketForm({ name: '', total_value: '', member_count: '', start_date: '', host_fee_type: 'percentage', host_fee_value: '' });
+      fetchTickets();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddTicketMember = async (e) => {
+    e.preventDefault();
+    if (!selectedTicketIdState) return;
+    setLoading(true);
+    setError('');
+    try {
+      const member = await api.post(`/tickets/${selectedTicketIdState}/members`, {
+        name: newMemberForm.name,
+        phone: newMemberForm.phone
+      });
+      showToast(`Member '${newMemberForm.name}' added successfully.`);
+      setNewMemberForm({ name: '', phone: '' });
+      // Refresh details
+      fetchTicketDetails(selectedTicketIdState);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRunTicketAuction = async (e) => {
+    e.preventDefault();
+    if (!selectedTicketIdState) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api.post(`/tickets/${selectedTicketIdState}/auctions`, {
+        bid_amount: parseFloat(auctionForm.bid_amount),
+        winner_member_id: auctionForm.winner_member_id || undefined,
+        auction_date: auctionForm.auction_date,
+        next_round_date: auctionForm.next_round_date || undefined
+      });
+      showToast(`Successfully recorded auction for round ${result.round_number}.`);
+      // Refresh details
+      fetchTicketDetails(selectedTicketIdState);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleTicketPayment = async (paymentId, isPaid) => {
+    if (!selectedTicketIdState) return;
+    try {
+      const res = await api.put(`/tickets/${selectedTicketIdState}/payments`, {
+        payment_id: paymentId,
+        is_paid: isPaid
+      });
+      showToast(`Payment status updated.`);
+      // Refresh payments list without full detail reload
+      handleFetchTicketPaymentsByRound(ticketPaymentFilterRound);
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const isValidNIC = (nic) => {
@@ -841,22 +1042,25 @@ export default function LendApp() {
     return /^[0-9]{9}[VX]$/.test(cleaned) || /^[0-9]{12}$/.test(cleaned);
   };
 
-  const validateStep1 = () => {
-    if (!newLoan.borrower_name || !newLoan.borrower_name.trim()) return false;
-    if (!newLoan.borrower_phone || !newLoan.borrower_phone.trim()) return false;
-    if (!newLoan.borrower_address || !newLoan.borrower_address.trim()) return false;
-    if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) return false;
-    if (!newLoan.date_of_birth) return false;
-    if (!newLoan.address_proof) return false;
-    if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) return false;
-    if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) return false;
-    if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) return false;
-    if (borrowerProfileForm.dependents_count === undefined || borrowerProfileForm.dependents_count === '') return false;
-    if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '') return false;
-    return true;
+  const handleShareWhatsAppReceipt = (receipt) => {
+    if (!receipt) return;
+    const cleanPhone = (receipt.borrower_phone || '').replace(/[^0-9]/g, '');
+    const intlPhone = cleanPhone.startsWith('0') ? '94' + cleanPhone.slice(1) : (cleanPhone.startsWith('94') ? cleanPhone : '94' + cleanPhone);
+    const text = `*STN MICRO CREDIT (PVT) LTD — OFFICIAL PAYMENT RECEIPT*\n\n` +
+      `🧾 *Receipt ID:* ${receipt.id}\n` +
+      `📅 *Date:* ${new Date(receipt.payment_date).toLocaleString()}\n` +
+      `👤 *Borrower:* ${receipt.borrower_name}\n` +
+      `💰 *Amount Collected:* LKR ${parseFloat(receipt.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` +
+      `📝 *Payment Type:* ${receipt.payment_type === 'principal' ? 'Principal Repayment' : 'Interest Payment'}\n` +
+      (receipt.loan_principal_outstanding ? `💳 *Remaining Principal:* LKR ${parseFloat(receipt.loan_principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` : '') +
+      (receipt.loan_interest_balance ? `💸 *Interest Due:* LKR ${parseFloat(receipt.loan_interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` : '') +
+      `🤝 *Recorded By:* ${receipt.agent_name || 'Branch Office'}\n\n` +
+      `_Thank you for your timely payment!_`;
+    const url = `https://wa.me/${intlPhone}?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
   };
 
-  const runStep1Validation = () => {
+  const runKYCValidation = () => {
     const errors = {};
     let firstErrorField = null;
 
@@ -873,7 +1077,7 @@ export default function LendApp() {
       if (!firstErrorField) firstErrorField = "borrower_address";
     }
     if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) {
-      errors.nic_number = "A valid Sri Lankan NIC number is required.";
+      errors.nic_number = "A valid Sri Lankan NIC number is required (9 digits + V/X, or 12 digits).";
       if (!firstErrorField) firstErrorField = "nic_number";
     }
     if (!newLoan.date_of_birth) {
@@ -884,28 +1088,8 @@ export default function LendApp() {
       errors.address_proof = "Borrower's address proof photo is required.";
       if (!firstErrorField) firstErrorField = "address_proof";
     }
-    if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) {
-      errors.principal_amount = "Principal amount must be a positive number.";
-      if (!firstErrorField) firstErrorField = "principal_amount";
-    }
-    if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) {
-      errors.interest_rate = "Interest rate must be a non-negative number.";
-      if (!firstErrorField) firstErrorField = "interest_rate";
-    }
-    if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) {
-      errors.loan_purpose = "Purpose of loan is required.";
-      if (!firstErrorField) firstErrorField = "loan_purpose";
-    }
-    if (borrowerProfileForm.dependents_count === undefined || borrowerProfileForm.dependents_count === '' || borrowerProfileForm.dependents_count === null) {
-      errors.dependents_count = "Number of dependents is required.";
-      if (!firstErrorField) firstErrorField = "dependents_count";
-    }
-    if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '' || borrowerProfileForm.monthly_income === null) {
-      errors.monthly_income = "Monthly income is required.";
-      if (!firstErrorField) firstErrorField = "monthly_income";
-    }
 
-    setValidationErrors(errors);
+    setValidationErrors(prev => ({ ...prev, ...errors }));
 
     if (firstErrorField) {
       setTimeout(() => {
@@ -920,7 +1104,71 @@ export default function LendApp() {
     return true;
   };
 
-  const runStep2Validation = () => {
+  const runFinancialValidation = () => {
+    const errors = {};
+    let firstErrorField = null;
+
+    if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) {
+      errors.loan_purpose = "Purpose of loan is required.";
+      if (!firstErrorField) firstErrorField = "loan_purpose";
+    }
+    if (borrowerProfileForm.dependents_count === undefined || borrowerProfileForm.dependents_count === '' || borrowerProfileForm.dependents_count === null) {
+      errors.dependents_count = "Number of dependents is required.";
+      if (!firstErrorField) firstErrorField = "dependents_count";
+    }
+    if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '' || borrowerProfileForm.monthly_income === null) {
+      errors.monthly_income = "Monthly income is required.";
+      if (!firstErrorField) firstErrorField = "monthly_income";
+    }
+
+    setValidationErrors(prev => ({ ...prev, ...errors }));
+
+    if (firstErrorField) {
+      setTimeout(() => {
+        const element = document.getElementById(firstErrorField);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
+      }, 50);
+      return false;
+    }
+    return true;
+  };
+
+  const runTermsValidation = () => {
+    const errors = {};
+    let firstErrorField = null;
+
+    if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) {
+      errors.principal_amount = "Principal amount must be a positive number.";
+      if (!firstErrorField) firstErrorField = "principal_amount";
+    }
+    if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) {
+      errors.interest_rate = "Interest rate must be a non-negative number.";
+      if (!firstErrorField) firstErrorField = "interest_rate";
+    }
+    if (newLoan.collection_mode === 'fixed_term' && (!newLoan.duration_periods || parseInt(newLoan.duration_periods, 10) <= 0)) {
+      errors.duration_periods = "Duration period is required for fixed term loans.";
+      if (!firstErrorField) firstErrorField = "duration_periods";
+    }
+
+    setValidationErrors(prev => ({ ...prev, ...errors }));
+
+    if (firstErrorField) {
+      setTimeout(() => {
+        const element = document.getElementById(firstErrorField);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
+      }, 50);
+      return false;
+    }
+    return true;
+  };
+
+  const runGuarantorValidation = () => {
     const errors = {};
     let firstErrorField = null;
 
@@ -951,7 +1199,7 @@ export default function LendApp() {
       }
     });
 
-    setValidationErrors(errors);
+    setValidationErrors(prev => ({ ...prev, ...errors }));
 
     if (firstErrorField) {
       setTimeout(() => {
@@ -966,20 +1214,35 @@ export default function LendApp() {
     return true;
   };
 
-  const handleNextStep = () => {
+  const handleWizardNext = (currentStep) => {
     setError('');
-    if (runStep1Validation()) {
-      setGiveLoanStep(2);
+    if (currentStep === 1) {
+      if (runKYCValidation()) setGiveLoanStep(2);
+    } else if (currentStep === 2) {
+      if (runFinancialValidation()) setGiveLoanStep(3);
+    } else if (currentStep === 3) {
+      if (runTermsValidation()) {
+        if (includeGuarantor) {
+          setGiveLoanStep(4);
+        } else {
+          handleCreateLoan();
+        }
+      }
+    } else if (currentStep === 4) {
+      if (runGuarantorValidation()) {
+        handleCreateLoan();
+      }
     }
+  };
+
+  const handleWizardBack = (currentStep) => {
+    setError('');
+    setGiveLoanStep(Math.max(1, currentStep - 1));
   };
 
   const handleFormSubmit = (e) => {
     e.preventDefault();
-    if (includeGuarantor && giveLoanStep === 1) {
-      handleNextStep();
-    } else {
-      handleCreateLoan(e);
-    }
+    handleWizardNext(giveLoanStep);
   };
 
   // Admin: Create new loan
@@ -987,12 +1250,20 @@ export default function LendApp() {
     if (e) e.preventDefault();
     setError('');
     
-    if (!runStep1Validation()) {
+    if (!runKYCValidation()) {
       setGiveLoanStep(1);
       return;
     }
-    if (includeGuarantor && !runStep2Validation()) {
+    if (!runFinancialValidation()) {
       setGiveLoanStep(2);
+      return;
+    }
+    if (!runTermsValidation()) {
+      setGiveLoanStep(3);
+      return;
+    }
+    if (includeGuarantor && !runGuarantorValidation()) {
+      setGiveLoanStep(4);
       return;
     }
 
@@ -1360,7 +1631,7 @@ export default function LendApp() {
           <div className="receipt-modal-card" onClick={e => e.stopPropagation()}>
             <div className="receipt-header">
               <div className="receipt-header-icon"><Banknote /></div>
-              <div className="receipt-title">LendBuddy Ledger</div>
+              <div className="receipt-title">STN MICRO CREDIT</div>
               <div className="receipt-subtitle">Official Payment Receipt</div>
             </div>
 
@@ -1699,7 +1970,7 @@ export default function LendApp() {
           </div>
 
           {/* Desktop Navigation Links */}
-          {user.role === 'admin' && (
+          {user.role === 'admin' && view !== 'portal' && view !== 'ticket-dashboard' && (
             <div className="desktop-header-nav">
               <button className={`nav-link-btn ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}><Home className="icon" /> Home</button>
               <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}><Banknote className="icon" /> Give Loan</button>
@@ -1711,9 +1982,14 @@ export default function LendApp() {
               <button className={`nav-link-btn ${view === 'interest-center' ? 'active' : ''}`} onClick={() => { setView('interest-center'); setSelectedLoanId(null); setLoanStatement(null); }}><TrendingUp className="icon" /> Interest Center</button>
               <button className={`nav-link-btn ${view === 'payment-history' ? 'active' : ''}`} onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); }}><Receipt className="icon" /> Payment History</button>
               <button className={`nav-link-btn ${view === 'audit-log' ? 'active' : ''}`} onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); }}><ScrollText className="icon" /> Audit Log</button>
+              {user.finance_access !== false && user.ticket_access !== false && (
+                <button className="nav-link-btn" onClick={() => { setView('portal'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ background: 'rgba(37, 84, 232, 0.1)', color: 'var(--accent-blue)', fontWeight: 'bold' }}>
+                  Switch Portal &rarr;
+                </button>
+              )}
             </div>
           )}
-          {user.role === 'agent' && (
+          {user.role === 'agent' && view !== 'portal' && view !== 'ticket-dashboard' && (
             <div className="desktop-header-nav">
               <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setGiveLoanStep(1); }}><Banknote className="icon" /> Give Loan</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}><CreditCard className="icon" /> Collect Payments</button>
@@ -1721,6 +1997,11 @@ export default function LendApp() {
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}><CreditCard className="icon" /> Record Payment</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'history' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('history'); }}><ScrollText className="icon" /> Collection History</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'remit' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('remit'); }}><Landmark className="icon" /> Remit Cash</button>
+              {user.finance_access !== false && user.ticket_access !== false && (
+                <button className="nav-link-btn" onClick={() => { setView('portal'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ background: 'rgba(37, 84, 232, 0.1)', color: 'var(--accent-blue)', fontWeight: 'bold' }}>
+                  Switch Portal &rarr;
+                </button>
+              )}
             </div>
           )}
           {user.role === 'borrower' && (
@@ -1733,6 +2014,11 @@ export default function LendApp() {
             <span style={{ color: 'var(--text-secondary)', fontSize: '16px' }} className="desktop-only">
               User: <strong style={{ color: 'var(--text-primary)' }}>{user.name}</strong>
             </span>
+            {user.finance_access !== false && user.ticket_access !== false && view !== 'portal' && (
+              <button className="glass-btn glass-btn-secondary" style={{ padding: '10px 16px', fontSize: '14px', border: '1px solid rgba(59,130,246,0.3)' }} onClick={() => { setView('portal'); setSelectedLoanId(null); setLoanStatement(null); setSelectedTicket(null); setSelectedTicketIdState(null); }}>
+                <ArrowLeft className="icon" style={{ color: 'var(--accent-blue)' }} /> <span className="btn-label-text">Switch Portal</span>
+              </button>
+            )}
             <button className="glass-btn glass-btn-secondary" style={{ padding: '10px 16px', fontSize: '14px' }} onClick={handleOpenSettings}>
               <Settings className="icon" /> <span className="btn-label-text">Settings</span>
             </button>
@@ -1983,6 +2269,699 @@ export default function LendApp() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ----------------- PORTAL SELECTOR ----------------- */}
+        {token && user && view === 'portal' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', gap: '28px', padding: '20px' }}>
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '8px' }}>STN UNIFIED PLATFORM</span>
+              <h2 style={{ fontSize: '32px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Welcome, {user.name}</h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '6px' }}>Select a service portal below to proceed</p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', width: '100%', maxWidth: '780px' }}>
+              {user.finance_access !== false && (
+                <div className="portal-card portal-card-blue" onClick={() => { setView('dashboard'); showToast('Entering Credit/Finance System'); }} style={{ cursor: 'pointer' }}>
+                  <div className="portal-card-header">
+                    <div className="portal-card-icon"><Landmark style={{ width: '28px', height: '28px' }} /></div>
+                    <span className="portal-card-badge">Finance Portal</span>
+                  </div>
+                  <h3 className="portal-card-title">Credit & Loans</h3>
+                  <p className="portal-card-desc">Manage cash disbursements, active loan files, daily agent collections, interest calculations, and double-entry accounting ledger reports.</p>
+                  <div className="portal-card-action">Enter System &rarr;</div>
+                </div>
+              )}
+
+              {user.ticket_access !== false && (
+                <div className="portal-card portal-card-emerald" onClick={() => { setView('ticket-dashboard'); fetchTickets(); showToast('Entering Chit Fund/Ticket System'); }} style={{ cursor: 'pointer' }}>
+                  <div className="portal-card-header">
+                    <div className="portal-card-icon"><PiggyBank style={{ width: '28px', height: '28px' }} /></div>
+                    <span className="portal-card-badge">Ticket Portal</span>
+                  </div>
+                  <h3 className="portal-card-title">Chit Fund Ledger</h3>
+                  <p className="portal-card-desc">Create and run chit groups, calculate discounts/auctions, manage member registers, track payments per round, and generate Tamil WhatsApp notices.</p>
+                  <div className="portal-card-action">Enter System &rarr;</div>
+                </div>
+              )}
+            </div>
+
+            <button className="glass-btn glass-btn-secondary" style={{ padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', borderRadius: '12px', marginTop: '10px' }} onClick={handleLogout}>
+              <LogOut style={{ width: '16px', height: '16px' }} /> Logout of Account
+            </button>
+          </div>
+        )}
+
+        {/* ----------------- TICKET PORTAL VIEWS ----------------- */}
+        {token && user && view === 'ticket-dashboard' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            
+            {/* Header / Group Selector list */}
+            {!selectedTicket ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    {user.finance_access !== false && user.ticket_access !== false && (
+                      <button className="glass-btn glass-btn-secondary" style={{ padding: '8px 14px' }} onClick={() => setView('portal')}>
+                        <ArrowLeft className="icon" /> Main Selector
+                      </button>
+                    )}
+                    <div>
+                      <h2 style={{ fontSize: '28px', margin: 0 }}>Ticket Groups Dashboard</h2>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Host-focused Chit Fund Management</span>
+                    </div>
+                  </div>
+                  {user.role === 'admin' && (
+                    <button className="glass-btn glass-btn-emerald" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setShowCreateTicket(true)}>
+                      <Plus style={{ width: '16px', height: '16px' }} /> Create New Group
+                    </button>
+                  )}
+                </div>
+
+                {/* Create Ticket Group Modal */}
+                {showCreateTicket && (
+                  <div className="receipt-modal-overlay" onClick={() => setShowCreateTicket(false)}>
+                    <div className="glass-card" style={{ maxWidth: '540px', width: '90%', padding: '24px' }} onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <h3 style={{ fontSize: '20px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><PiggyBank className="icon" /> Create New Chit Group</h3>
+                        <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setShowCreateTicket(false)}>Close</button>
+                      </div>
+                      <form onSubmit={handleCreateTicket} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>TICKET GROUP NAME *</label>
+                          <input required type="text" className="glass-input" placeholder="e.g. STN Aug 300k Group" value={newTicketForm.name} onChange={e => setNewTicketForm(prev => ({ ...prev, name: e.target.value }))} />
+                        </div>
+                        <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>TOTAL VALUE (LKR) *</label>
+                            <input required type="number" inputMode="decimal" min="1" className="glass-input" placeholder="e.g. 300000" value={newTicketForm.total_value} onChange={e => setNewTicketForm(prev => ({ ...prev, total_value: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>MEMBER COUNT *</label>
+                            <input required type="number" inputMode="numeric" min="2" className="glass-input" placeholder="e.g. 20" value={newTicketForm.member_count} onChange={e => setNewTicketForm(prev => ({ ...prev, member_count: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>START DATE *</label>
+                            <input required type="date" className="glass-input" value={newTicketForm.start_date} onChange={e => setNewTicketForm(prev => ({ ...prev, start_date: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>HOST FEE CALCULATION *</label>
+                            <select className="glass-input" value={newTicketForm.host_fee_type} onChange={e => setNewTicketForm(prev => ({ ...prev, host_fee_type: e.target.value, host_fee_value: '' }))}>
+                              <option value="percentage">Percentage (on original share)</option>
+                              <option value="fixed">Fixed Fee (per member)</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>
+                            {newTicketForm.host_fee_type === 'percentage' ? 'HOST FEE PERCENTAGE (%) *' : 'FIXED FEE AMOUNT PER MEMBER (LKR) *'}
+                          </label>
+                          <input required type="number" inputMode="decimal" step="0.01" min="0" className="glass-input" placeholder={newTicketForm.host_fee_type === 'percentage' ? 'e.g. 5.00' : 'e.g. 500'} value={newTicketForm.host_fee_value} onChange={e => setNewTicketForm(prev => ({ ...prev, host_fee_value: e.target.value }))} />
+                        </div>
+                        
+                        {/* Auto calculations display */}
+                        {parseFloat(newTicketForm.total_value) > 0 && parseInt(newTicketForm.member_count, 10) > 0 && (
+                          <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '14px', fontSize: '13px' }}>
+                            {(() => {
+                              const val = parseFloat(newTicketForm.total_value);
+                              const count = parseInt(newTicketForm.member_count, 10);
+                              const share = val / count;
+                              let fee = 0;
+                              if (newTicketForm.host_fee_type === 'percentage') {
+                                fee = share * ((parseFloat(newTicketForm.host_fee_value) || 0) / 100);
+                              } else {
+                                fee = parseFloat(newTicketForm.host_fee_value) || 0;
+                              }
+                              return (
+                                <div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Original Share per Member:</span>
+                                    <strong style={{ color: 'var(--accent-blue)' }}>LKR {share.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Host Fee collected per Member:</span>
+                                    <strong>LKR {fee.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '12px', marginTop: '10px' }}>
+                          Create Ticket Group
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {/* Groups Grid */}
+                {ticketsList.length === 0 ? (
+                  <div className="glass-card">
+                    <div className="empty-state">
+                      <div className="empty-state-icon"><PiggyBank style={{ width: '28px', height: '28px' }} /></div>
+                      <h4 className="empty-state-title">No Ticket Groups Registered</h4>
+                      <p className="empty-state-text">There are no Chit Fund groups created yet. Click "Create New Group" to initialize a ticket group schema.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+                    {ticketsList.map(t => {
+                      const totalVal = parseFloat(t.total_value);
+                      const originalShare = totalVal / t.member_count;
+                      return (
+                        <div key={t.id} className="glass-card" style={{ cursor: 'pointer', transition: 'transform 0.2s', padding: '24px', position: 'relative' }} onClick={() => fetchTicketDetails(t.id)}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+                            <h3 style={{ fontSize: '18px', margin: 0, fontWeight: 'bold' }}>{t.name}</h3>
+                            <span className={`status-pill ${t.status === 'active' ? 'status-pill-active' : 'status-pill-paid'}`}>
+                              <span className="status-pill-dot" />{t.status === 'active' ? 'Active' : 'Completed'}
+                            </span>
+                          </div>
+                          
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Total Ticket Value</span>
+                              <span style={{ fontSize: '14px', fontWeight: '700' }}>LKR {totalVal.toLocaleString()}</span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Member Count</span>
+                              <span style={{ fontSize: '14px', fontWeight: '700' }}>{t.member_count} Members</span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Original Share</span>
+                              <span style={{ fontSize: '14px', fontWeight: '700' }}>LKR {originalShare.toLocaleString()}</span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Host Fee Rules</span>
+                              <span style={{ fontSize: '13px', fontWeight: '600' }}>
+                                {t.host_fee_type === 'percentage' ? `${t.host_fee_value}% Share` : `LKR ${parseFloat(t.host_fee_value).toLocaleString()} Fixed`}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            <span>Start: <strong>{new Date(t.start_date).toLocaleDateString()}</strong></span>
+                            <span>Round: <strong style={{ color: 'var(--accent-blue)' }}>{t.status === 'completed' ? 'All Completed' : `${t.current_round} of ${t.member_count}`}</strong></span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Single Group Detail View */
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ padding: '8px 14px' }} onClick={() => { setSelectedTicketIdState(null); setSelectedTicket(null); fetchTickets(); }}>
+                    <ArrowLeft className="icon" /> Back to Groups List
+                  </button>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <span className="badge badge-active" style={{ background: 'var(--accent-emerald-light)', color: 'var(--accent-emerald)', padding: '6px 12px' }}>Total LKR {parseFloat(selectedTicket.total_value).toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="glass-card" style={{ padding: '24px' }}>
+                  <h2 style={{ fontSize: '26px', margin: '0 0 6px 0' }}>{selectedTicket.name}</h2>
+                  <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    <span>Members: <strong>{ticketMembers.length} / {selectedTicket.member_count}</strong></span>
+                    <span>•</span>
+                    <span>Start: <strong>{new Date(selectedTicket.start_date).toLocaleDateString()}</strong></span>
+                    <span>•</span>
+                    <span>Current Round: <strong style={{ color: 'var(--accent-blue)' }}>{selectedTicket.status === 'completed' ? 'Completed' : selectedTicket.current_round}</strong></span>
+                    {selectedTicket.next_round_date && (
+                      <>
+                        <span>•</span>
+                        <span style={{ color: 'var(--accent-gold)', fontWeight: 'bold' }}>Next Round Date: {new Date(selectedTicket.next_round_date).toLocaleDateString()}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sub Tab Bar Selector */}
+                <div className="subtab-pill-bar" style={{ display: 'flex', gap: '8px', overflowX: 'auto', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+                  <button type="button" className={`glass-btn ${activeTicketTab === 'auction' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => setActiveTicketTab('auction')}>
+                    <TrendingUp style={{ width: '14px', height: '14px', marginRight: '4px' }} /> Round Auction & Notice
+                  </button>
+                  <button type="button" className={`glass-btn ${activeTicketTab === 'members' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => setActiveTicketTab('members')}>
+                    <Users style={{ width: '14px', height: '14px', marginRight: '4px' }} /> Member Roster ({ticketMembers.length})
+                  </button>
+                  <button type="button" className={`glass-btn ${activeTicketTab === 'payments' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => setActiveTicketTab('payments')}>
+                    <CreditCard style={{ width: '14px', height: '14px', marginRight: '4px' }} /> Payments Tracker
+                  </button>
+                  <button type="button" className={`glass-btn ${activeTicketTab === 'history' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => setActiveTicketTab('history')}>
+                    <ScrollText style={{ width: '14px', height: '14px', marginRight: '4px' }} /> Past Auctions History ({ticketAuctions.length})
+                  </button>
+                </div>
+
+                {/* Tab content renders */}
+                {activeTicketTab === 'auction' && (
+                  <div className="responsive-grid-2-col animate-fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+                    {/* Run Auction panel */}
+                    <div className="glass-card" style={{ padding: '24px' }}>
+                      <h3 style={{ fontSize: '18px', marginBottom: '14px', fontWeight: 'bold' }}><TrendingUp className="icon" /> Run Round {selectedTicket.current_round} Auction</h3>
+                      
+                      {selectedTicket.status === 'completed' ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>This ticket group has completed all of its rounds.</p>
+                      ) : (
+                        <form onSubmit={handleRunTicketAuction} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>BID AMOUNT (கழிவு / DISCOUNT) *</label>
+                            <input required type="number" inputMode="decimal" min="0" max={parseFloat(selectedTicket.total_value)} className="glass-input" placeholder="e.g. 130000" value={auctionForm.bid_amount} onChange={e => setAuctionForm(prev => ({ ...prev, bid_amount: e.target.value }))} />
+                          </div>
+                          
+
+                          <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>AUCTION DATE *</label>
+                              <input required type="date" className="glass-input" value={auctionForm.auction_date} onChange={e => setAuctionForm(prev => ({ ...prev, auction_date: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>NEXT ROUND DATE *</label>
+                              <input required type="date" className="glass-input" value={auctionForm.next_round_date} onChange={e => setAuctionForm(prev => ({ ...prev, next_round_date: e.target.value }))} />
+                            </div>
+                          </div>
+
+                          {/* calculations preview */}
+                          {parseFloat(auctionForm.bid_amount) >= 0 && (
+                            <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '14px', fontSize: '13px' }}>
+                              {(() => {
+                                const totalVal = parseFloat(selectedTicket.total_value);
+                                const bidVal = parseFloat(auctionForm.bid_amount) || 0;
+                                const count = selectedTicket.member_count;
+                                const payout = totalVal - bidVal;
+                                const base = payout / count;
+                                let fee = 0;
+                                if (selectedTicket.host_fee_type === 'percentage') {
+                                  fee = (totalVal / count) * ((parseFloat(selectedTicket.host_fee_value) || 0) / 100);
+                                } else {
+                                  fee = parseFloat(selectedTicket.host_fee_value) || 0;
+                                }
+                                const finalAmount = base + fee;
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Winner Payout:</span>
+                                      <strong style={{ color: 'var(--accent-emerald)' }}>LKR {payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Base Payment per person:</span>
+                                      <strong>LKR {base.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Host Fee per person:</span>
+                                      <strong>LKR {fee.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-light)', paddingTop: '4px', marginTop: '4px' }}>
+                                      <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>Repayment per member:</span>
+                                      <strong style={{ color: 'var(--accent-blue)', fontSize: '14px' }}>LKR {finalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          {user.role === 'admin' ? (
+                            <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '12px' }}>
+                              Submit Auction Round
+                            </button>
+                          ) : (
+                            <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.05)', color: 'var(--accent-rose)', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', textAlign: 'center' }}>
+                              Only Admin hosts can submit auction rounds.
+                            </div>
+                          )}
+                        </form>
+                      )}
+                    </div>
+
+                    {/* WhatsApp Notice Panel */}
+                    <div className="glass-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div>
+                        <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}><MessageSquare className="icon" style={{ color: '#25D366' }} /> Tamil WhatsApp Notice</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px', marginBottom: 0 }}>Forward notice text directly to your WhatsApp group.</p>
+                      </div>
+
+                      {/* 1. Last Completed Round Notice */}
+                      {ticketAuctions.length > 0 && (() => {
+                        const lastAuction = ticketAuctions[ticketAuctions.length - 1];
+                        const totalVal = parseFloat(selectedTicket.total_value);
+                        const bidVal = parseFloat(lastAuction.bid_amount);
+                        const payout = parseFloat(lastAuction.winner_payout);
+                        const finalAmount = parseFloat(lastAuction.amount_per_member);
+                        const roundNum = lastAuction.round_number;
+                        const nextDateStr = selectedTicket.next_round_date 
+                          ? new Date(selectedTicket.next_round_date).toLocaleDateString()
+                          : '____________';
+
+                        const noticeText = `ரூ ${totalVal.toLocaleString()}\n` +
+                          `${roundNum}ம் சீட்டு கழிவு ரூ ${bidVal.toLocaleString()}\n` +
+                          `💵 கிடைக்கும் தொகை:\n` +
+                          `ரூ ${payout.toLocaleString()}\n` +
+                          `💳 கட்டு காசு:\n` +
+                          `ரூ ${finalAmount.toLocaleString()}\n` +
+                          `📅 ${roundNum + 1}ம் சீட்டு திகதி:\n` +
+                          `${nextDateStr}`;
+
+                        return (
+                          <div style={{ border: '1px solid var(--border-light)', borderRadius: '12px', padding: '16px', background: 'rgba(255,255,255,0.02)' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-emerald)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>📢 Last Completed Round {roundNum} Notice</span>
+                            <div style={{ background: '#075e54', color: 'white', borderRadius: '8px', padding: '12px', fontFamily: 'monospace', fontSize: '13px', whiteSpace: 'pre-wrap', border: '1px solid #128c7e', marginBottom: '10px' }}>
+                              {noticeText}
+                            </div>
+                            <button
+                              type="button"
+                              className="glass-btn"
+                              style={{ width: '100%', padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', backgroundColor: '#25D366', color: 'white', border: 'none', fontWeight: 'bold', fontSize: '12px' }}
+                              onClick={() => {
+                                const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(noticeText)}`;
+                                window.open(url, '_blank');
+                              }}
+                            >
+                              <MessageSquare style={{ width: '14px', height: '14px' }} /> Share Round {roundNum} Notice to WhatsApp
+                            </button>
+                          </div>
+                        );
+                      })()}
+
+                      {/* 2. Upcoming Round Draft Notice */}
+                      {parseFloat(auctionForm.bid_amount) >= 0 && (() => {
+                        const totalVal = parseFloat(selectedTicket.total_value);
+                        const bidVal = parseFloat(auctionForm.bid_amount) || 0;
+                        const count = selectedTicket.member_count;
+                        const payout = totalVal - bidVal;
+                        const base = payout / count;
+                        let fee = 0;
+                        if (selectedTicket.host_fee_type === 'percentage') {
+                          fee = (totalVal / count) * ((parseFloat(selectedTicket.host_fee_value) || 0) / 100);
+                        } else {
+                          fee = parseFloat(selectedTicket.host_fee_value) || 0;
+                        }
+                        const finalAmount = base + fee;
+                        const roundNum = selectedTicket.current_round;
+
+                        const noticeText = `ரூ ${totalVal.toLocaleString()}\n` +
+                          `${roundNum}ம் சீட்டு கழிவு ரூ ${bidVal.toLocaleString()}\n` +
+                          `💵 கிடைக்கும் தொகை:\n` +
+                          `ரூ ${payout.toLocaleString()}\n` +
+                          `💳 கட்டு காசு:\n` +
+                          `ரூ ${finalAmount.toLocaleString()}\n` +
+                          `📅 ${roundNum + 1}ம் சீட்டு திகதி:\n` +
+                          `${auctionForm.next_round_date ? new Date(auctionForm.next_round_date).toLocaleDateString() : '____________'}`;
+
+                        return (
+                          <div style={{ border: '1px dashed var(--border-light)', borderRadius: '12px', padding: '16px', background: 'rgba(255,255,255,0.01)' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>✏️ Next Round {roundNum} Draft Notice</span>
+                            <div style={{ background: '#334155', color: 'white', borderRadius: '8px', padding: '12px', fontFamily: 'monospace', fontSize: '13px', whiteSpace: 'pre-wrap', border: '1px solid var(--border-light)', marginBottom: '10px' }}>
+                              {noticeText}
+                            </div>
+                            <button
+                              type="button"
+                              className="glass-btn glass-btn-secondary"
+                              style={{ width: '100%', padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', fontSize: '12px' }}
+                              onClick={() => {
+                                const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(noticeText)}`;
+                                window.open(url, '_blank');
+                              }}
+                            >
+                              <MessageSquare style={{ width: '14px', height: '14px' }} /> Share Draft Notice to WhatsApp
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {activeTicketTab === 'members' && (
+                  <div className="responsive-grid-2-col animate-fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+                    {/* Roster list */}
+                    <div className="glass-card" style={{ padding: '24px' }}>
+                      <h3 style={{ fontSize: '18px', marginBottom: '14px', fontWeight: 'bold' }}><Users className="icon" /> Roster of Members</h3>
+                      {ticketMembers.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No members added to this group yet.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border-light)', borderRadius: '12px', overflow: 'hidden' }}>
+                          {ticketMembers.map((m, idx) => {
+                            const wonAuction = ticketAuctions.find(a => a.winner_member_id === m.id);
+                            return (
+                              <div key={m.id} className="ticket-member-row">
+                                <div>
+                                  <strong style={{ display: 'block', fontSize: '14px' }}>{idx + 1}. {m.name}</strong>
+                                  {m.phone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                      <span><Phone className="icon" style={{ width: '12px', height: '12px' }} /> {m.phone}</span>
+                                      <span className="quick-contact-actions" onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '4px' }}>
+                                        <a href={`tel:${m.phone}`} className="quick-contact-btn phone" title="Call Member" style={{ color: 'var(--accent-blue)' }}>
+                                          <Phone style={{ width: '11px', height: '11px' }} />
+                                        </a>
+                                        <a href={`https://wa.me/${(m.phone || '').replace(/[^0-9]/g, '').startsWith('0') ? '94' + (m.phone || '').replace(/[^0-9]/g, '').slice(1) : (m.phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="quick-contact-btn whatsapp" title="Chat on WhatsApp" style={{ color: '#25D366' }}>
+                                          <MessageSquare style={{ width: '11px', height: '11px' }} />
+                                        </a>
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  {wonAuction ? (
+                                    <span className="badge badge-active" style={{ background: 'rgba(37, 84, 232, 0.1)', color: 'var(--accent-blue)', fontSize: '11px' }}>Won Round {wonAuction.round_number}</span>
+                                  ) : (
+                                    <span className="badge badge-defaulted" style={{ fontSize: '11px' }}>Not Won</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Add member form */}
+                    <div className="glass-card" style={{ padding: '24px', alignSelf: 'flex-start' }}>
+                      <h3 style={{ fontSize: '18px', marginBottom: '14px', fontWeight: 'bold' }}><UserPlus className="icon" /> Add Member to Group</h3>
+                      {user.role === 'admin' ? (
+                        <form onSubmit={handleAddTicketMember} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>FULL NAME *</label>
+                            <input required type="text" className="glass-input" placeholder="e.g. S. Arulpragasam" value={newMemberForm.name} onChange={e => setNewMemberForm(prev => ({ ...prev, name: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>PHONE NUMBER</label>
+                            <input type="tel" className="glass-input" placeholder="e.g. 0771234567" value={newMemberForm.phone} onChange={e => setNewMemberForm(prev => ({ ...prev, phone: e.target.value }))} />
+                          </div>
+                          <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '12px' }}>
+                            Add Member to Roster
+                          </button>
+                        </form>
+                      ) : (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Only Admin hosts can add members to a group roster.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeTicketTab === 'payments' && (
+                  <div className="glass-card animate-fade-in" style={{ padding: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                      <h3 style={{ fontSize: '18px', margin: 0, fontWeight: 'bold' }}><CreditCard className="icon" /> Repayments Collection Tracker</h3>
+                      
+                      {/* Round filter selector */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>View Round:</span>
+                        <select className="glass-input" style={{ width: '110px', padding: '6px 12px' }} value={ticketPaymentFilterRound} onChange={e => { setTicketPaymentFilterRound(e.target.value); handleFetchTicketPaymentsByRound(e.target.value); }}>
+                          {Array.from({ length: selectedTicket.status === 'completed' ? selectedTicket.member_count : selectedTicket.current_round - 1 }, (_, i) => i + 1).map(r => (
+                            <option key={r} value={r}>Round {r}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {ticketPayments.length === 0 ? (
+                      <p style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '20px' }}>No payments logged yet. Settle an auction round to generate payment logs.</p>
+                    ) : (
+                      <>
+                        <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                          <table className="glass-table">
+                            <thead>
+                              <tr>
+                                <th>Member Name</th>
+                                <th>Contact</th>
+                                <th>Amount Due</th>
+                                <th>Collected?</th>
+                                <th>Date Paid</th>
+                                <th>Notify Reminder</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ticketPayments.map(p => {
+                                const auction = ticketAuctions.find(a => a.round_number === p.round_number);
+                                return (
+                                  <tr key={p.id}>
+                                    <td>
+                                      <strong>{p.member_name}</strong>
+                                    </td>
+                                    <td>
+                                      {p.member_phone ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <span>{p.member_phone}</span>
+                                          <span className="quick-contact-actions" onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '4px' }}>
+                                            <a href={`tel:${p.member_phone}`} className="quick-contact-btn phone" title="Call" style={{ color: 'var(--accent-blue)' }}>
+                                              <Phone style={{ width: '11px', height: '11px' }} />
+                                            </a>
+                                            <a href={`https://wa.me/${(p.member_phone || '').replace(/[^0-9]/g, '').startsWith('0') ? '94' + (p.member_phone || '').replace(/[^0-9]/g, '').slice(1) : (p.member_phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="quick-contact-btn whatsapp" style={{ color: '#25D366' }}>
+                                              <MessageSquare style={{ width: '11px', height: '11px' }} />
+                                            </a>
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                      )}
+                                    </td>
+                                    <td style={{ fontWeight: 'bold' }}>LKR {auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}</td>
+                                    <td>
+                                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={p.is_paid}
+                                          onChange={() => handleToggleTicketPayment(p.id, !p.is_paid)}
+                                          style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--accent-emerald)' }}
+                                        />
+                                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: p.is_paid ? 'var(--accent-emerald)' : 'var(--text-secondary)' }}>
+                                          {p.is_paid ? 'Collected' : 'Pending'}
+                                        </span>
+                                      </label>
+                                    </td>
+                                    <td>{p.payment_date ? new Date(p.payment_date).toLocaleString() : '—'}</td>
+                                    <td>
+                                      {p.member_phone && !p.is_paid ? (
+                                        <button className="glass-btn btn-whatsapp" style={{ padding: '6px 12px', fontSize: '11px' }} onClick={() => {
+                                          const clean = (p.member_phone || '').replace(/[^0-9]/g, '');
+                                          const int = clean.startsWith('0') ? '94' + clean.slice(1) : (clean.startsWith('94') ? clean : '94' + clean);
+                                          const txt = `*STN CHIT FUND - PAYMENT REMINDER*\n\n` +
+                                            `Group: *${selectedTicket.name}*\n` +
+                                            `Round: *Round ${p.round_number}*\n` +
+                                            `Amount Due: *LKR ${auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}*\n\n` +
+                                            `Please make your payment to the host. Thank you!`;
+                                          window.open(`https://wa.me/${int}?text=${encodeURIComponent(txt)}`, '_blank');
+                                        }}>
+                                          Notify
+                                        </button>
+                                      ) : (
+                                        <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Mobile Checklist */}
+                        <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {ticketPayments.map(p => {
+                            const auction = ticketAuctions.find(a => a.round_number === p.round_number);
+                            return (
+                              <div key={p.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <strong style={{ display: 'block', fontSize: '14px' }}>{p.member_name}</strong>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                    Due: <strong>LKR {auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}</strong>
+                                  </div>
+                                  {p.member_phone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}><Phone className="icon" style={{ width: '10px' }} /> {p.member_phone}</span>
+                                      <span className="quick-contact-actions" style={{ display: 'flex', gap: '4px' }}>
+                                        <a href={`tel:${p.member_phone}`} className="quick-contact-btn phone" title="Call" style={{ color: 'var(--accent-blue)' }}>
+                                          <Phone style={{ width: '11px', height: '11px' }} />
+                                        </a>
+                                        <a href={`https://wa.me/${(p.member_phone || '').replace(/[^0-9]/g, '').startsWith('0') ? '94' + (p.member_phone || '').replace(/[^0-9]/g, '').slice(1) : (p.member_phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="quick-contact-btn whatsapp" style={{ color: '#25D366' }}>
+                                          <MessageSquare style={{ width: '11px', height: '11px' }} />
+                                        </a>
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={p.is_paid}
+                                      onChange={() => handleToggleTicketPayment(p.id, !p.is_paid)}
+                                      style={{ width: '22px', height: '22px', accentColor: 'var(--accent-emerald)', cursor: 'pointer' }}
+                                    />
+                                    <span style={{ fontSize: '12px', fontWeight: 'bold', color: p.is_paid ? 'var(--accent-emerald)' : 'var(--text-secondary)' }}>
+                                      {p.is_paid ? 'Collected' : 'Pending'}
+                                    </span>
+                                  </label>
+                                  {p.member_phone && !p.is_paid && (
+                                    <button className="glass-btn btn-whatsapp" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => {
+                                      const clean = (p.member_phone || '').replace(/[^0-9]/g, '');
+                                      const int = clean.startsWith('0') ? '94' + clean.slice(1) : (clean.startsWith('94') ? clean : '94' + clean);
+                                      const txt = `*STN CHIT FUND - PAYMENT REMINDER*\n\n` +
+                                        `Group: *${selectedTicket.name}*\n` +
+                                        `Round: *Round ${p.round_number}*\n` +
+                                        `Amount Due: *LKR ${auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}*\n\n` +
+                                        `Please make your payment to the host. Thank you!`;
+                                      window.open(`https://wa.me/${int}?text=${encodeURIComponent(txt)}`, '_blank');
+                                    }}>
+                                      Notify
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {activeTicketTab === 'history' && (
+                  <div className="glass-card animate-fade-in" style={{ padding: '24px' }}>
+                    <h3 style={{ fontSize: '18px', marginBottom: '14px', fontWeight: 'bold' }}><ScrollText className="icon" /> Auctions & Rounds History Log</h3>
+                    {ticketAuctions.length === 0 ? (
+                      <p style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '20px' }}>No auction rounds completed yet.</p>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table className="glass-table">
+                          <thead>
+                            <tr>
+                              <th>Round #</th>
+                              <th>Date</th>
+                              <th>Bid (கழிவு)</th>
+                              <th>Winner Member</th>
+                              <th>Payout to Winner</th>
+                              <th>Repayment / Member</th>
+                              <th>Host Fee Collected</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ticketAuctions.map(a => (
+                              <tr key={a.id}>
+                                <td style={{ fontWeight: 'bold' }}>Round {a.round_number}</td>
+                                <td>{new Date(a.auction_date).toLocaleDateString()}</td>
+                                <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</td>
+                                <td><strong>{a.winner_name || 'N/A (No Winner)'}</strong></td>
+                                <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(a.winner_payout).toLocaleString()}</td>
+                                <td>LKR {parseFloat(a.amount_per_member).toLocaleString()}</td>
+                                <td>LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
           </div>
         )}
 
@@ -2779,6 +3758,16 @@ export default function LendApp() {
                           )}
                         </div>
                       </div>
+                      <div style={{ display: 'flex', gap: '20px', margin: '4px 0 12px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!newUserForm.finance_access} onChange={e => setNewUserForm(prev => ({ ...prev, finance_access: e.target.checked }))} style={{ width: '16px', height: '16px', accentColor: 'var(--accent-blue)' }} />
+                          Finance Portal Access
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!newUserForm.ticket_access} onChange={e => setNewUserForm(prev => ({ ...prev, ticket_access: e.target.checked }))} style={{ width: '16px', height: '16px', accentColor: 'var(--accent-emerald)' }} />
+                          Ticket Portal Access
+                        </label>
+                      </div>
                       <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ alignSelf: 'flex-start', padding: '10px 24px' }}>
                         <ClipboardCheck className="icon" /> Create User
                       </button>
@@ -2792,6 +3781,7 @@ export default function LendApp() {
                           <th>Name</th>
                           <th>Role</th>
                           <th>Contact</th>
+                          <th>Permissions</th>
                           <th>Status</th>
                           <th>Actions</th>
                         </tr>
@@ -2802,6 +3792,12 @@ export default function LendApp() {
                             <td style={{ fontWeight: 'bold' }}>{u.name}</td>
                             <td style={{ textTransform: 'capitalize' }}>{u.role}</td>
                             <td style={{ fontSize: '12px' }}>{u.phone}</td>
+                            <td>
+                              <div style={{ fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ color: u.finance_access !== false ? 'var(--accent-blue)' : 'var(--text-muted)', fontWeight: u.finance_access !== false ? '600' : '400' }}>Finance: {u.finance_access !== false ? 'Yes' : 'No'}</span>
+                                <span style={{ color: u.ticket_access !== false ? 'var(--accent-emerald)' : 'var(--text-muted)', fontWeight: u.ticket_access !== false ? '600' : '400' }}>Ticket: {u.ticket_access !== false ? 'Yes' : 'No'}</span>
+                              </div>
+                            </td>
                             <td>
                               <span className={`badge ${u.is_active ? 'badge-active' : 'badge-defaulted'}`}>{u.is_active ? 'Active' : 'Inactive'}</span>
                             </td>
@@ -3013,6 +4009,16 @@ export default function LendApp() {
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>You cannot change your own role.</span>
                           )}
                         </div>
+                        <div style={{ display: 'flex', gap: '20px', marginTop: '4px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={!!editUserForm.finance_access} onChange={e => setEditUserForm(prev => ({ ...prev, finance_access: e.target.checked }))} style={{ width: '16px', height: '16px', accentColor: 'var(--accent-blue)' }} />
+                            Finance Portal Access
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={!!editUserForm.ticket_access} onChange={e => setEditUserForm(prev => ({ ...prev, ticket_access: e.target.checked }))} style={{ width: '16px', height: '16px', accentColor: 'var(--accent-emerald)' }} />
+                            Ticket Portal Access
+                          </label>
+                        </div>
                         <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '12px', marginTop: '10px' }}>
                           <ClipboardCheck className="icon" /> Save Changes
                         </button>
@@ -3087,36 +4093,69 @@ export default function LendApp() {
                     <div className="wizard-sidebar">
                       <h4 className="wizard-title" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', margin: '0 0 10px', fontWeight: 'bold' }}>LOAN WIZARD</h4>
                       
-                      <button 
-                        type="button"
-                        className={`step-indicator ${giveLoanStep === 1 ? 'active' : 'completed'}`}
-                        onClick={() => setGiveLoanStep(1)}
-                        style={{ border: 'none', background: 'none', cursor: 'pointer' }}
-                      >
-                        <div className="step-number">1</div>
-                        <div>
-                          <div className="step-label">Borrower & Loan</div>
-                          <span className="step-subtext">KYC, Profile & Terms</span>
-                        </div>
-                      </button>
+                      <div className="wizard-progress-bar" style={{ height: '4px', background: 'var(--border-light)', borderRadius: '2px', margin: '8px 0 16px', overflow: 'hidden' }}>
+                        <div className="wizard-progress-bar-fill" style={{ height: '100%', background: 'var(--accent-blue)', transition: 'width 0.3s ease', width: `${(giveLoanStep / (includeGuarantor ? 4 : 3)) * 100}%` }} />
+                      </div>
 
-                      <button 
-                        type="button"
-                        className={`step-indicator ${giveLoanStep === 2 ? 'active' : includeGuarantor ? '' : 'disabled'}`}
-                        disabled={!includeGuarantor}
-                        onClick={() => {
-                          if (includeGuarantor && validateStep1()) {
-                            setGiveLoanStep(2);
-                          }
-                        }}
-                        style={{ border: 'none', background: 'none', cursor: includeGuarantor ? 'pointer' : 'not-allowed' }}
-                      >
-                        <div className="step-number">2</div>
-                        <div>
-                          <div className="step-label">Guarantor Details</div>
-                          <span className="step-subtext">{includeGuarantor ? 'Required step' : 'Optional (Skipped)'}</span>
-                        </div>
-                      </button>
+                      <div className="wizard-step-nodes-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <button type="button" 
+                          className={`step-indicator ${giveLoanStep === 1 ? 'active' : 'completed'}`}
+                          onClick={() => setGiveLoanStep(1)}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center', textAlign: 'left', width: '100%' }}
+                        >
+                          <div className="step-number" style={{ width: '28px', height: '28px', borderRadius: '50%', background: giveLoanStep > 1 ? 'var(--accent-emerald)' : 'var(--accent-blue)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                            {giveLoanStep > 1 ? <Check style={{ width: '16px', height: '16px' }} /> : '1'}
+                          </div>
+                          <div>
+                            <div className="step-label" style={{ fontWeight: '700', fontSize: '14px' }}>KYC Profile</div>
+                            <span className="step-subtext" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Identity & DOB</span>
+                          </div>
+                        </button>
+
+                        <button type="button" 
+                          className={`step-indicator ${giveLoanStep === 2 ? 'active' : giveLoanStep > 2 ? 'completed' : ''}`}
+                          onClick={() => { if (runKYCValidation()) setGiveLoanStep(2); }}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center', textAlign: 'left', width: '100%' }}
+                        >
+                          <div className="step-number" style={{ width: '28px', height: '28px', borderRadius: '50%', background: giveLoanStep > 2 ? 'var(--accent-emerald)' : (giveLoanStep === 2 ? 'var(--accent-blue)' : 'var(--border-strong)'), color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                            {giveLoanStep > 2 ? <Check style={{ width: '16px', height: '16px' }} /> : '2'}
+                          </div>
+                          <div>
+                            <div className="step-label" style={{ fontWeight: '700', fontSize: '14px' }}>Financial Profile</div>
+                            <span className="step-subtext" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Earnings & Family</span>
+                          </div>
+                        </button>
+
+                        <button type="button" 
+                          className={`step-indicator ${giveLoanStep === 3 ? 'active' : giveLoanStep > 3 ? 'completed' : ''}`}
+                          onClick={() => { if (runKYCValidation() && runFinancialValidation()) setGiveLoanStep(3); }}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center', textAlign: 'left', width: '100%' }}
+                        >
+                          <div className="step-number" style={{ width: '28px', height: '28px', borderRadius: '50%', background: giveLoanStep > 3 ? 'var(--accent-emerald)' : (giveLoanStep === 3 ? 'var(--accent-blue)' : 'var(--border-strong)'), color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                            {giveLoanStep > 3 ? <Check style={{ width: '16px', height: '16px' }} /> : '3'}
+                          </div>
+                          <div>
+                            <div className="step-label" style={{ fontWeight: '700', fontSize: '14px' }}>Loan Terms</div>
+                            <span className="step-subtext" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Interest & Agent</span>
+                          </div>
+                        </button>
+
+                        {includeGuarantor && (
+                          <button type="button" 
+                            className={`step-indicator ${giveLoanStep === 4 ? 'active' : ''}`}
+                            onClick={() => { if (runKYCValidation() && runFinancialValidation() && runTermsValidation()) setGiveLoanStep(4); }}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center', textAlign: 'left', width: '100%' }}
+                          >
+                            <div className="step-number" style={{ width: '28px', height: '28px', borderRadius: '50%', background: giveLoanStep === 4 ? 'var(--accent-blue)' : 'var(--border-strong)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                              4
+                            </div>
+                            <div>
+                              <div className="step-label" style={{ fontWeight: '700', fontSize: '14px' }}>Guarantor Info</div>
+                              <span className="step-subtext" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Security Backup</span>
+                            </div>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Wizard Body / Form Content */}
@@ -3125,10 +4164,11 @@ export default function LendApp() {
                         <Banknote className="icon" style={{ color: 'var(--accent-blue)', fontSize: '24px' }} /> Give New Loan
                       </h3>
                       <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
-                        {giveLoanStep === 1 
-                          ? "Step 1 of 2: Borrower profile, KYC information, and loan interest terms."
-                          : "Step 2 of 2: Enter details for the guarantor backing this loan."
-                        }
+                        STEP {giveLoanStep} OF {includeGuarantor ? '4' : '3'}: {' '}
+                        {giveLoanStep === 1 && "Borrower Identity & KYC Details"}
+                        {giveLoanStep === 2 && "Borrower Financial Profile & Spouse Info"}
+                        {giveLoanStep === 3 && "Scheduling, Accrual terms, and Agent Assignment"}
+                        {giveLoanStep === 4 && "Guarantor security backing verification"}
                       </p>
 
                       <form noValidate onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -3137,7 +4177,7 @@ export default function LendApp() {
                             {/* --- SECTION 1: BORROWER DETAILS --- */}
                             <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                               <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                <User className="icon" /> 1. BORROWER PERSONAL DETAILS
+                                <User className="icon" /> 1. BORROWER PERSONAL DETAILS (KYC)
                               </p>
                               
                               <div>
@@ -3201,6 +4241,19 @@ export default function LendApp() {
                               </div>
                             </div>
 
+                            <button 
+                              type="button" 
+                              className="glass-btn glass-btn-emerald" 
+                              onClick={() => handleWizardNext(1)}
+                              style={{ width: '100%', marginTop: '10px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px' }}
+                            >
+                              Continue to Financials <ArrowRight className="icon" />
+                            </button>
+                          </div>
+                        )}
+
+                        {giveLoanStep === 2 && (
+                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             {/* --- SECTION 2: BORROWER PROFILE DETAILS --- */}
                             <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                               <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
@@ -3245,7 +4298,18 @@ export default function LendApp() {
                               </div>
                             </div>
 
-                            {/* --- SECTION 3: LOAN DETAILS & AGENT --- */}
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                              <button type="button" className="glass-btn glass-btn-secondary" onClick={() => handleWizardBack(2)} style={{ flex: 1, padding: '16px' }}>Back</button>
+                              <button type="button" className="glass-btn glass-btn-emerald" onClick={() => handleWizardNext(2)} style={{ flex: 2, padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                Continue to Terms <ArrowRight className="icon" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {giveLoanStep === 3 && (
+                          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* --- SECTION 3: LOAN DETAILS & TERMS --- */}
                             <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                               <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
                                 <Landmark className="icon" /> 3. LOAN SCHEDULING DETAILS
@@ -3286,7 +4350,8 @@ export default function LendApp() {
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
                                       DURATION (in {newLoan.interest_type === 'daily' ? 'days' : newLoan.interest_type === 'weekly' ? 'weeks' : 'months'}) *
                                     </label>
-                                    <input type="number" min="1" required className="glass-input" placeholder="e.g. 30" value={newLoan.duration_periods} onChange={e => setNewLoan(prev => ({ ...prev, duration_periods: e.target.value }))} />
+                                    <input id="duration_periods" type="number" min="1" required className="glass-input" style={{ borderColor: validationErrors.duration_periods ? 'var(--accent-rose)' : '', borderWidth: validationErrors.duration_periods ? '2px' : '' }} placeholder="e.g. 30" value={newLoan.duration_periods} onChange={e => { setNewLoan(prev => ({ ...prev, duration_periods: e.target.value })); clearFieldError('duration_periods'); }} />
+                                    {validationErrors.duration_periods && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.duration_periods}</span>}
                                   </div>
                                 )}
                               </div>
@@ -3325,41 +4390,27 @@ export default function LendApp() {
                               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', margin: 0 }}>
                                 <input type="checkbox" checked={includeGuarantor} onChange={e => {
                                   setIncludeGuarantor(e.target.checked);
-                                  if (!e.target.checked && giveLoanStep === 2) {
-                                    setGiveLoanStep(1);
+                                  if (!e.target.checked && giveLoanStep === 4) {
+                                    setGiveLoanStep(3);
                                   }
                                 }} />
                                 <ShieldCheck className="icon" /> ADD GUARANTOR DETAILS (OPTIONAL)
                               </label>
                               <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '24px', marginTop: '-8px' }}>
-                                Checking this will add a second step to fill in the guarantor personal, income and expense details.
+                                Checking this will add a fourth step to fill in the guarantor personal, income and expense details.
                               </span>
                             </div>
 
-                            {/* Navigation Buttons for Step 1 */}
-                            {includeGuarantor ? (
-                              <button 
-                                type="button" 
-                                className="glass-btn glass-btn-emerald" 
-                                onClick={handleNextStep}
-                                style={{ width: '100%', marginTop: '10px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px' }}
-                              >
-                                Continue to Guarantor Details <ArrowRight className="icon" />
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                              <button type="button" className="glass-btn glass-btn-secondary" onClick={() => handleWizardBack(3)} style={{ flex: 1, padding: '16px' }}>Back</button>
+                              <button type="button" className="glass-btn glass-btn-emerald" onClick={() => handleWizardNext(3)} style={{ flex: 2, padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                {includeGuarantor ? <>Continue to Guarantor <ArrowRight className="icon" /></> : (user.role === 'agent' ? <><ClipboardCheck className="icon" /> Submit for Approval</> : 'Disburse Cash Loan')}
                               </button>
-                            ) : (
-                              <button
-                                type="submit"
-                                className="glass-btn glass-btn-emerald"
-                                disabled={loading}
-                                style={{ width: '100%', marginTop: '10px', padding: '16px', fontSize: '15px' }}
-                              >
-                                {user.role === 'agent' ? <><ClipboardCheck className="icon" /> Submit for Approval</> : 'Disburse Cash Loan'}
-                              </button>
-                            )}
+                            </div>
                           </div>
                         )}
 
-                        {giveLoanStep === 2 && includeGuarantor && (
+                        {giveLoanStep === 4 && includeGuarantor && (
                           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             {guarantorForms.length > 1 && (
                               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -3367,109 +4418,96 @@ export default function LendApp() {
                               </p>
                             )}
                             {guarantorForms.map((g, i) => (
-                            <div key={i} style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS {guarantorForms.length > 1 ? `(${i + 1} of ${guarantorForms.length})` : ''}
-                              </p>
+                              <div key={i} style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                  <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS {guarantorForms.length > 1 ? `(${i + 1} of ${guarantorForms.length})` : ''}
+                                </p>
 
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
-                                    <input id={`guarantor_${i}_full_name`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_full_name`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_full_name`] ? '2px' : '' }} value={g.full_name} onChange={e => { updateGuarantorField(i, 'full_name', e.target.value); clearFieldError(`guarantor_${i}_full_name`); }} />
-                                    {validationErrors[`guarantor_${i}_full_name`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_full_name`]}</span>}
-                                  </div>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                                    <input id={`guarantor_${i}_nic_number`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_number`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_number`] ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={g.nic_number} onChange={e => { updateGuarantorField(i, 'nic_number', e.target.value); clearFieldError(`guarantor_${i}_nic_number`); }} />
-                                    {validationErrors[`guarantor_${i}_nic_number`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_number`]}</span>}
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <label id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo *</label>
-                                  <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} />
-                                  {g.nic_photo && (
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                      <img src={g.nic_photo} alt="Guarantor NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                  <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                                      <input id={`guarantor_${i}_full_name`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_full_name`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_full_name`] ? '2px' : '' }} value={g.full_name} onChange={e => { updateGuarantorField(i, 'full_name', e.target.value); clearFieldError(`guarantor_${i}_full_name`); }} />
+                                      {validationErrors[`guarantor_${i}_full_name`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_full_name`]}</span>}
                                     </div>
-                                  )}
-                                  {validationErrors[`guarantor_${i}_nic_photo`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_photo`]}</span>}
-                                </div>
-
-                                <div>
-                                  <label id={`guarantor_${i}_address_proof`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address Proof (e.g. utility bill) *</label>
-                                  <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address_proof`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address_proof`] ? '2px' : '' }} onChange={e => { handleGuarantorAddressProofChange(i, e); clearFieldError(`guarantor_${i}_address_proof`); }} />
-                                  {g.address_proof && (
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                      <img src={g.address_proof} alt="Guarantor address proof preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
+                                      <input id={`guarantor_${i}_nic_number`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_number`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_number`] ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={g.nic_number} onChange={e => { updateGuarantorField(i, 'nic_number', e.target.value); clearFieldError(`guarantor_${i}_nic_number`); }} />
+                                      {validationErrors[`guarantor_${i}_nic_number`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_number`]}</span>}
                                     </div>
-                                  )}
-                                  {validationErrors[`guarantor_${i}_address_proof`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address_proof`]}</span>}
-                                </div>
-
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
-                                  <input id={`guarantor_${i}_phone`} type="tel" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_phone`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_phone`] ? '2px' : '' }} value={g.phone} onChange={e => { updateGuarantorField(i, 'phone', e.target.value); clearFieldError(`guarantor_${i}_phone`); }} />
-                                  {validationErrors[`guarantor_${i}_phone`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_phone`]}</span>}
-                                </div>
-
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                                  <input id={`guarantor_${i}_address`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address`] ? '2px' : '' }} value={g.address} onChange={e => { updateGuarantorField(i, 'address', e.target.value); clearFieldError(`guarantor_${i}_address`); }} />
-                                  {validationErrors[`guarantor_${i}_address`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address`]}</span>}
-                                </div>
-
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                                    <input type="checkbox" checked={g.protected_under_debt_act} onChange={e => updateGuarantorField(i, 'protected_under_debt_act', e.target.checked)} />
-                                    Protected under the state debt recovery act or any other law?
-                                  </label>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                                    <input type="checkbox" checked={g.has_pending_court_cases} onChange={e => updateGuarantorField(i, 'has_pending_court_cases', e.target.checked)} />
-                                    Any court judgments/cases registered against them?
-                                  </label>
-                                </div>
-
-                                <div>
-                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
-                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                                    <input type="number" min="0" className="glass-input" placeholder="Business" value={g.monthly_income_business} onChange={e => updateGuarantorField(i, 'monthly_income_business', e.target.value)} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={g.monthly_income_agriculture} onChange={e => updateGuarantorField(i, 'monthly_income_agriculture', e.target.value)} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={g.monthly_income_other} onChange={e => updateGuarantorField(i, 'monthly_income_other', e.target.value)} />
                                   </div>
-                                </div>
 
-                                <div>
-                                  <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
-                                  <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                                    <input type="number" min="0" className="glass-input" placeholder="Food" value={g.monthly_expense_food} onChange={e => updateGuarantorField(i, 'monthly_expense_food', e.target.value)} />
-                                    <input type="number" min="0" className="glass-input" placeholder="House Rent" value={g.monthly_expense_rent} onChange={e => updateGuarantorField(i, 'monthly_expense_rent', e.target.value)} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={g.monthly_expense_other} onChange={e => updateGuarantorField(i, 'monthly_expense_other', e.target.value)} />
+                                  <div>
+                                    <label id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo *</label>
+                                    <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} />
+                                    {g.nic_photo && (
+                                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <img src={g.nic_photo} alt="Guarantor NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                        <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                      </div>
+                                    )}
+                                    {validationErrors[`guarantor_${i}_nic_photo`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_photo`]}</span>}
+                                  </div>
+
+                                  <div>
+                                    <label id={`guarantor_${i}_address_proof`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address Proof (e.g. utility bill) *</label>
+                                    <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address_proof`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address_proof`] ? '2px' : '' }} onChange={e => { handleGuarantorAddressProofChange(i, e); clearFieldError(`guarantor_${i}_address_proof`); }} />
+                                    {g.address_proof && (
+                                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <img src={g.address_proof} alt="Guarantor address proof preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                        <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                      </div>
+                                    )}
+                                    {validationErrors[`guarantor_${i}_address_proof`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address_proof`]}</span>}
+                                  </div>
+
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
+                                    <input id={`guarantor_${i}_phone`} type="tel" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_phone`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_phone`] ? '2px' : '' }} value={g.phone} onChange={e => { updateGuarantorField(i, 'phone', e.target.value); clearFieldError(`guarantor_${i}_phone`); }} />
+                                    {validationErrors[`guarantor_${i}_phone`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_phone`]}</span>}
+                                  </div>
+
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                                    <input id={`guarantor_${i}_address`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address`] ? '2px' : '' }} value={g.address} onChange={e => { updateGuarantorField(i, 'address', e.target.value); clearFieldError(`guarantor_${i}_address`); }} />
+                                    {validationErrors[`guarantor_${i}_address`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address`]}</span>}
+                                  </div>
+
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                      <input type="checkbox" checked={g.protected_under_debt_act} onChange={e => updateGuarantorField(i, 'protected_under_debt_act', e.target.checked)} />
+                                      Protected under the state debt recovery act or any other law?
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                      <input type="checkbox" checked={g.has_pending_court_cases} onChange={e => updateGuarantorField(i, 'has_pending_court_cases', e.target.checked)} />
+                                      Any court judgments/cases registered against them?
+                                    </label>
+                                  </div>
+
+                                  <div>
+                                    <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
+                                    <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                                      <input type="number" min="0" className="glass-input" placeholder="Business" value={g.monthly_income_business} onChange={e => updateGuarantorField(i, 'monthly_income_business', e.target.value)} />
+                                      <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={g.monthly_income_agriculture} onChange={e => updateGuarantorField(i, 'monthly_income_agriculture', e.target.value)} />
+                                      <input type="number" min="0" className="glass-input" placeholder="Other" value={g.monthly_income_other} onChange={e => updateGuarantorField(i, 'monthly_income_other', e.target.value)} />
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
+                                    <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                                      <input type="number" min="0" className="glass-input" placeholder="Food" value={g.monthly_expense_food} onChange={e => updateGuarantorField(i, 'monthly_expense_food', e.target.value)} />
+                                      <input type="number" min="0" className="glass-input" placeholder="House Rent" value={g.monthly_expense_rent} onChange={e => updateGuarantorField(i, 'monthly_expense_rent', e.target.value)} />
+                                      <input type="number" min="0" className="glass-input" placeholder="Other" value={g.monthly_expense_other} onChange={e => updateGuarantorField(i, 'monthly_expense_other', e.target.value)} />
+                                    </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
                             ))}
 
-                            {/* Navigation Buttons for Step 2 */}
                             <div style={{ display: 'flex', gap: '12px' }}>
-                              <button 
-                                type="button" 
-                                className="glass-btn glass-btn-secondary" 
-                                onClick={() => setGiveLoanStep(1)}
-                                style={{ flex: 1, padding: '16px', fontSize: '15px' }}
-                              >
-                                Back to Step 1
-                              </button>
-                              <button
-                                type="submit"
-                                className="glass-btn glass-btn-emerald"
-                                disabled={loading}
-                                style={{ flex: 2, padding: '16px', fontSize: '15px' }}
-                              >
+                              <button type="button" className="glass-btn glass-btn-secondary" onClick={() => handleWizardBack(4)} style={{ flex: 1, padding: '16px' }}>Back</button>
+                              <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ flex: 2, padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                 {user.role === 'agent' ? <><ClipboardCheck className="icon" /> Submit for Approval</> : 'Disburse Cash Loan'}
                               </button>
                             </div>
@@ -4180,10 +5218,10 @@ export default function LendApp() {
 
               {/* TAB 1: PASSBOOK & PAYMENTS */}
               {ledgerTab === 'passbook' && (
-                <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {loanStatement.loan.collection_mode === 'fixed_term' && loanStatement.loan.maturity_date && (
                     <div className="glass-card">
-                      <h3 style={{ fontSize: '20px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><TrendingUp className="icon" /> Fixed Term Progress</h3>
+                      <h3 style={{ fontSize: '18px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}><TrendingUp className="icon" /> Fixed Term Progress</h3>
                       {(() => {
                         const start = new Date(loanStatement.loan.created_at);
                         const maturity = new Date(loanStatement.loan.maturity_date);
@@ -4195,12 +5233,12 @@ export default function LendApp() {
                         
                         return (
                           <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '8px', color: 'var(--text-secondary)' }}>
                               <span>Disbursed: <strong>{start.toLocaleDateString()}</strong></span>
                               <span>Day {Math.min(totalDays, elapsedDays)} of {totalDays} ({percent.toFixed(0)}%)</span>
                               <span>Maturity: <strong>{maturity.toLocaleDateString()}</strong></span>
                             </div>
-                            <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.07)', borderRadius: '5px', overflow: 'hidden' }}>
+                            <div style={{ width: '100%', height: '8px', background: 'var(--border-light)', borderRadius: '4px', overflow: 'hidden' }}>
                               <div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-blue), var(--accent-emerald))', transition: 'width 0.4s ease' }} />
                             </div>
                           </div>
@@ -4209,9 +5247,43 @@ export default function LendApp() {
                     </div>
                   )}
 
+                  {/* Mobile Sub-Tab Pills */}
+                  <div className="mobile-only subtab-pill-bar" style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '8px' }}>
+                    {(user.role === 'admin' || user.role === 'agent') && loanStatement.loan.status === 'active' && (
+                      <button
+                        type="button"
+                        className={`subtab-pill ${passbookMobileTab === 'record' ? 'active' : ''}`}
+                        onClick={() => setPassbookMobileTab('record')}
+                      >
+                        <Plus style={{ width: '14px', height: '14px' }} /> Record Payment
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`subtab-pill ${passbookMobileTab === 'activity' ? 'active' : ''}`}
+                      onClick={() => setPassbookMobileTab('activity')}
+                    >
+                      <Receipt style={{ width: '14px', height: '14px' }} /> Activity Log ({displayEvents.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`subtab-pill ${passbookMobileTab === 'receipts' ? 'active' : ''}`}
+                      onClick={() => setPassbookMobileTab('receipts')}
+                    >
+                      <Banknote style={{ width: '14px', height: '14px' }} /> Receipts ({loanStatement.payments.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`subtab-pill ${passbookMobileTab === 'accruals' ? 'active' : ''}`}
+                      onClick={() => setPassbookMobileTab('accruals')}
+                    >
+                      <TrendingUp style={{ width: '14px', height: '14px' }} /> Interest Log ({loanStatement.accruals.length})
+                    </button>
+                  </div>
+
                   <div className="responsive-grid-2-col" style={{ gap: '24px' }}>
                     {/* Passbook Statement History */}
-                    <div className="glass-card" style={{ cursor: 'pointer', transition: 'transform 0.2s ease, border-color 0.2s ease' }} onClick={() => setView('passbook-details')}>
+                    <div className={`glass-card ${passbookMobileTab !== 'activity' ? 'mobile-hidden' : ''}`} style={{ cursor: 'pointer', transition: 'transform 0.2s ease, border-color 0.2s ease' }} onClick={() => setView('passbook-details')}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexDirection: 'column', gap: '8px', marginBottom: '16px' }} className="mobile-header-split">
                         <h3 style={{ fontSize: '20px', margin: 0 }}><Receipt className="icon" /> Passbook Statement (Activity Log)</h3>
                         <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '6px' }} onClick={(e) => { e.stopPropagation(); setView('passbook-details'); }}>
@@ -4307,7 +5379,7 @@ export default function LendApp() {
                       
                       {/* Record Payment inline card */}
                       {(user.role === 'admin' || user.role === 'agent') && loanStatement.loan.status === 'active' && (
-                        <div className="glass-card" onClick={(e) => e.stopPropagation()} style={{ border: '1px solid var(--border-light)', background: 'rgba(255, 255, 255, 0.01)' }}>
+                        <div className={`glass-card ${passbookMobileTab !== 'record' ? 'mobile-hidden' : ''}`} onClick={(e) => e.stopPropagation()} style={{ border: '1px solid var(--border-light)', background: 'rgba(255, 255, 255, 0.01)' }}>
                           <h3 style={{ fontSize: '18px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <Banknote className="icon" style={{ color: 'var(--accent-blue)' }} /> Record a Payment
                           </h3>
@@ -4320,13 +5392,13 @@ export default function LendApp() {
                               <div style={{ display: 'flex', gap: '8px' }}>
                                 <button type="button"
                                   className={`glass-btn ${ledgerPaymentForm.payment_type === 'interest' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
-                                  style={{ flex: 1, padding: '6px 12px', fontSize: '12px' }}
+                                  style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
                                   onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'interest' }))}>
                                   Interest
                                 </button>
                                 <button type="button"
                                   className={`glass-btn ${ledgerPaymentForm.payment_type === 'principal' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
-                                  style={{ flex: 1, padding: '6px 12px', fontSize: '12px' }}
+                                  style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
                                   onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'principal' }))}>
                                   Principal
                                 </button>
@@ -4335,10 +5407,10 @@ export default function LendApp() {
 
                             <div>
                               <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>AMOUNT (LKR) *</label>
-                              <input required type="number" step="0.01" min="0.01" className="glass-input" placeholder="0.00"
+                              <input required type="number" inputMode="decimal" step="0.01" min="0.01" className="glass-input" placeholder="0.00"
                                 value={ledgerPaymentForm.amount}
                                 onChange={e => setLedgerPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
-                                style={{ padding: '8px 12px', fontSize: '14px' }} />
+                                style={{ padding: '10px 12px', fontSize: '16px', fontWeight: 'bold' }} />
                             </div>
 
                             <div>
@@ -4365,7 +5437,7 @@ export default function LendApp() {
                                 style={{ padding: '6px', fontSize: '12px' }} />
                             </div>
 
-                            <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '10px', fontSize: '14px', marginTop: '4px' }}>
+                            <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '12px', fontSize: '15px', marginTop: '4px' }}>
                               Collect Payment
                             </button>
                           </form>
@@ -4373,22 +5445,36 @@ export default function LendApp() {
                       )}
 
                       {/* Collection Receipts ledger */}
-                      <div className="glass-card">
-                        <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><Banknote className="icon" /> Payments Received</h3>
+                      <div className={`glass-card ${passbookMobileTab !== 'receipts' ? 'mobile-hidden' : ''}`}>
+                        <h3 style={{ fontSize: '18px', marginBottom: '14px' }}><Banknote className="icon" /> Payments Received</h3>
                         {loanStatement.payments.length === 0 ? (
                           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No payments collected yet.</p>
                         ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
                             {loanStatement.payments.map((p, idx) => (
-                              <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
+                              <div key={idx} style={{ padding: '12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
-                                  <span>Received by {p.agent_name}</span>
+                                  <span>Received by <strong>{p.agent_name || 'Office'}</strong></span>
                                   <span style={{ color: 'var(--text-muted)' }}>{new Date(p.payment_date).toLocaleDateString()}</span>
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <strong style={{ color: 'var(--accent-emerald)', fontSize: '15px' }}>LKR {parseFloat(p.amount).toLocaleString()}</strong>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                                  <strong style={{ color: 'var(--accent-emerald)', fontSize: '15px' }}>LKR {parseFloat(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                                   <div style={{ display: 'flex', gap: '6px' }}>
-                                    <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => {
+                                    <button type="button" className="glass-btn btn-whatsapp" style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '6px', backgroundColor: '#25D366', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }} onClick={() => {
+                                      handleShareWhatsAppReceipt({
+                                        ...p,
+                                        borrower_name: loanStatement.loan.borrower_name,
+                                        borrower_phone: loanStatement.loan.borrower_phone,
+                                        loan_principal: loanStatement.loan.principal_amount,
+                                        loan_interest_rate: loanStatement.loan.interest_rate,
+                                        loan_interest_type: loanStatement.loan.interest_type,
+                                        loan_principal_outstanding: loanStatement.loan.principal_outstanding,
+                                        loan_interest_balance: loanStatement.loan.interest_balance
+                                      });
+                                    }}>
+                                      <MessageSquare className="icon" style={{ width: '12px', height: '12px' }} /> WhatsApp
+                                    </button>
+                                    <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '6px' }} onClick={() => {
                                       handleOpenReceipt(p, {
                                         borrowerName: loanStatement.loan.borrower_name,
                                         borrowerPhone: loanStatement.loan.borrower_phone,
@@ -4401,14 +5487,6 @@ export default function LendApp() {
                                     }}>
                                       <Printer className="icon" /> Print
                                     </button>
-                                    {p.proof_image_url && (
-                                      <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }} onClick={() => {
-                                        const win = window.open();
-                                        win.document.write(`<img src="${p.proof_image_url}" style="max-width:100%; height:auto;" />`);
-                                      }}>
-                                        Photo
-                                      </button>
-                                    )}
                                   </div>
                                 </div>
                                 {p.notes && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>"{p.notes}"</p>}
@@ -4419,20 +5497,20 @@ export default function LendApp() {
                       </div>
 
                       {/* Accrued Interest list */}
-                      <div className="glass-card">
-                        <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><TrendingUp className="icon" /> Interest Charged History</h3>
+                      <div className={`glass-card ${passbookMobileTab !== 'accruals' ? 'mobile-hidden' : ''}`}>
+                        <h3 style={{ fontSize: '18px', marginBottom: '14px' }}><TrendingUp className="icon" /> Interest Charged History</h3>
                         {loanStatement.accruals.length === 0 ? (
                           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No interest accrued yet.</p>
                         ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
                             {loanStatement.accruals.map((acc, idx) => (
-                              <div key={idx} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}>
+                              <div key={idx} style={{ padding: '12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
                                   <span>Accrued Date</span>
                                   <span>{new Date(acc.created_at).toLocaleDateString()}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <strong style={{ color: 'var(--accent-gold)' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</strong>
+                                  <strong style={{ color: 'var(--accent-gold)' }}>+ LKR {parseFloat(acc.amount_accrued).toLocaleString()}</strong>
                                 </div>
                                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace' }}>{acc.calculation_log}</p>
                               </div>
@@ -4903,7 +5981,7 @@ export default function LendApp() {
       </main>
 
       {/* Sticky Bottom Navigation Bar */}
-      {token && user && (
+      {token && user && view !== 'portal' && view !== 'ticket-dashboard' && (
         <nav className="bottom-nav-bar animate-fade-in">
           {user.role === 'admin' && (
             <>
@@ -4992,6 +6070,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const [agentFilter, setAgentFilter] = useState('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const PAGE_SIZE = 20;
@@ -5106,57 +6185,70 @@ function LoansLoader({ onSelect, fetchTrigger }) {
       </div>
 
       {/* Filter Panel */}
-      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'flex-end' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔍 Search</label>
-            <div style={{ position: 'relative' }}>
-              <Search style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', width: '14px', height: '14px', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-              <input type="text" className="glass-input" placeholder="Name, phone, NIC, reference…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ paddingLeft: '32px', fontSize: '13px' }} />
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', width: '14px', height: '14px', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+            <input type="text" className="glass-input" placeholder="Search name, phone, NIC, code…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ paddingLeft: '32px', fontSize: '13px', width: '100%' }} />
+          </div>
+          <button
+            type="button"
+            className={`glass-btn ${hasActiveFilters ? 'glass-btn-blue' : 'glass-btn-secondary'} mobile-only`}
+            style={{ padding: '8px 14px', fontSize: '12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+          >
+            <Filter className="icon" style={{ width: '14px', height: '14px' }} />
+            Filters {hasActiveFilters && '•'}
+          </button>
+        </div>
+
+        {/* Collapsible Filters Drawer for Mobile, always visible on Desktop */}
+        <div className={`${!showMobileFilters ? 'mobile-hidden' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'flex-end' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 From Date</label>
+              <input type="date" className="glass-input" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ fontSize: '13px', width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 To Date</label>
+              <input type="date" className="glass-input" value={toDate} onChange={e => setToDate(e.target.value)} style={{ fontSize: '13px', width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔄 Collection Type</label>
+              <select className="glass-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
+                <option value="all">All Types</option>
+                <option value="daily">Daily Collection</option>
+                <option value="weekly">Weekly Collection</option>
+                <option value="monthly">Monthly Collection</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>👤 Assigned Agent</label>
+              <select className="glass-input" value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
+                <option value="all">All Agents</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
             </div>
           </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 From Date</label>
-            <input type="date" className="glass-input" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ fontSize: '13px' }} />
+
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-light)' }}>
+            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status:</span>
+            {[
+              { val: 'all', label: `All (${loans.length})`, activeClass: 'glass-btn-blue' },
+              { val: 'pending', label: `Pending Approval (${loans.filter(l => l.status === 'pending').length})`, activeClass: 'glass-btn-amber' },
+              { val: 'active', label: `Active (${loans.filter(l => l.status === 'active').length})`, activeClass: 'glass-btn-emerald' },
+              { val: 'fully_paid', label: `Paid (${loans.filter(l => l.status === 'fully_paid').length})`, activeClass: 'glass-btn-secondary' },
+              { val: 'defaulted', label: `Defaulted (${loans.filter(l => l.status === 'defaulted').length})`, activeClass: 'glass-btn-rose' },
+              { val: 'rejected', label: `Rejected (${loans.filter(l => l.status === 'rejected').length})`, activeClass: 'glass-btn-secondary' },
+            ].map(f => (
+              <button key={f.val} type="button"
+                className={`glass-btn ${statusFilter === f.val ? f.activeClass : 'glass-btn-secondary'}`}
+                style={{ padding: '5px 14px', fontSize: '12px', fontWeight: statusFilter === f.val ? '700' : '500' }}
+                onClick={() => setStatusFilter(f.val)}>
+                {f.label}
+              </button>
+            ))}
           </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 To Date</label>
-            <input type="date" className="glass-input" value={toDate} onChange={e => setToDate(e.target.value)} style={{ fontSize: '13px' }} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔄 Collection Type</label>
-            <select className="glass-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ fontSize: '13px' }}>
-              <option value="all">All Types</option>
-              <option value="daily">Daily Collection</option>
-              <option value="weekly">Weekly Collection</option>
-              <option value="monthly">Monthly Collection</option>
-            </select>
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>👤 Assigned Agent</label>
-            <select className="glass-input" value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{ fontSize: '13px' }}>
-              <option value="all">All Agents</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-light)' }}>
-          <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status:</span>
-          {[
-            { val: 'all', label: `All (${loans.length})`, activeClass: 'glass-btn-blue' },
-            { val: 'pending', label: `Pending Approval (${loans.filter(l => l.status === 'pending').length})`, activeClass: 'glass-btn-amber' },
-            { val: 'active', label: `Active (${loans.filter(l => l.status === 'active').length})`, activeClass: 'glass-btn-emerald' },
-            { val: 'fully_paid', label: `Paid (${loans.filter(l => l.status === 'fully_paid').length})`, activeClass: 'glass-btn-secondary' },
-            { val: 'defaulted', label: `Defaulted (${loans.filter(l => l.status === 'defaulted').length})`, activeClass: 'glass-btn-rose' },
-            { val: 'rejected', label: `Rejected (${loans.filter(l => l.status === 'rejected').length})`, activeClass: 'glass-btn-secondary' },
-          ].map(f => (
-            <button key={f.val} type="button"
-              className={`glass-btn ${statusFilter === f.val ? f.activeClass : 'glass-btn-secondary'}`}
-              style={{ padding: '5px 14px', fontSize: '12px', fontWeight: statusFilter === f.val ? '700' : '500' }}
-              onClick={() => setStatusFilter(f.val)}>
-              {f.label}
-            </button>
-          ))}
         </div>
         {hasActiveFilters && (
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -5206,8 +6298,18 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontSize: '12px' }}>{new Date(loan.created_at).toLocaleDateString()}</td>
                       <td style={{ padding: '12px 14px' }}>
                         <strong style={{ display: 'block', fontSize: '13px' }}>{loan.borrower_name}</strong>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                        {loan.nic_number && <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}><IdCard className="icon" /> {loan.nic_number}</span>}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          <span><Phone className="icon" style={{ width: '12px', height: '12px' }} /> {loan.borrower_phone}</span>
+                          <span className="quick-contact-actions" onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '4px' }}>
+                            <a href={`tel:${loan.borrower_phone}`} className="quick-contact-btn phone" title="Call Customer" style={{ color: 'var(--accent-blue)' }}>
+                              <Phone style={{ width: '11px', height: '11px' }} />
+                            </a>
+                            <a href={`https://wa.me/${(loan.borrower_phone || '').replace(/[^0-9]/g, '').startsWith('0') ? '94' + (loan.borrower_phone || '').replace(/[^0-9]/g, '').slice(1) : (loan.borrower_phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="quick-contact-btn whatsapp" title="Chat on WhatsApp" style={{ color: '#25D366' }}>
+                              <MessageSquare style={{ width: '11px', height: '11px' }} />
+                            </a>
+                          </span>
+                        </div>
+                        {loan.nic_number && <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}><IdCard className="icon" /> {loan.nic_number}</span>}
                         {loan.reference_number && <span style={{ fontSize: '10px', background: 'rgba(59,130,246,0.12)', color: 'var(--accent-blue)', padding: '1px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '2px' }}>{loan.reference_number}</span>}
                       </td>
                       <td style={{ padding: '12px 14px', fontWeight: '700', whiteSpace: 'nowrap' }}>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
@@ -5250,8 +6352,18 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                     <div>
                       <strong style={{ fontSize: '15px', display: 'block' }}>{loan.borrower_name}</strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}><IdCard className="icon" /> {loan.nic_number}</span>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                        <span className="quick-contact-actions" onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '4px' }}>
+                          <a href={`tel:${loan.borrower_phone}`} className="quick-contact-btn phone" title="Call" style={{ color: 'var(--accent-blue)' }}>
+                            <Phone style={{ width: '12px', height: '12px' }} />
+                          </a>
+                          <a href={`https://wa.me/${(loan.borrower_phone || '').replace(/[^0-9]/g, '').startsWith('0') ? '94' + (loan.borrower_phone || '').replace(/[^0-9]/g, '').slice(1) : (loan.borrower_phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="quick-contact-btn whatsapp" title="WhatsApp" style={{ color: '#25D366' }}>
+                            <MessageSquare style={{ width: '12px', height: '12px' }} />
+                          </a>
+                        </span>
+                      </div>
+                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}><IdCard className="icon" /> {loan.nic_number}</span>}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                       <span className={`status-pill ${isActive ? 'status-pill-active' : isPaid ? 'status-pill-paid' : isPending ? 'status-pill-pending' : isRejected ? 'status-pill-rejected' : 'status-pill-defaulted'}`}><span className="status-pill-dot" />{isActive ? 'Active' : isPaid ? 'Paid' : isPending ? 'Pending' : isRejected ? 'Rejected' : loan.status}</span>

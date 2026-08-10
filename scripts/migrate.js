@@ -197,6 +197,71 @@ async function runIncrementalMigrations() {
   // storage pattern as the NIC photos.
   await addColumnIfMissing('loans', 'address_proof_url', (t) => t.text('address_proof_url').nullable());
   await addColumnIfMissing('guarantors', 'address_proof_url', (t) => t.text('address_proof_url').nullable());
+
+  // Ticket (Chit Fund) system columns
+  await addColumnIfMissing('users', 'finance_access', (t) => t.boolean('finance_access').notNullable().defaultTo(true));
+  await addColumnIfMissing('users', 'ticket_access', (t) => t.boolean('ticket_access').notNullable().defaultTo(true));
+
+  // Ticket (Chit Fund) system tables
+  if (!(await db.schema.hasTable('tickets'))) {
+    await db.schema.createTable('tickets', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.string('name', 100).notNullable();
+      table.decimal('total_value', 15, 2).notNullable();
+      table.integer('member_count').notNullable();
+      table.date('start_date').notNullable();
+      table.string('host_fee_type', 20).notNullable(); // 'percentage', 'fixed'
+      table.decimal('host_fee_value', 15, 2).notNullable();
+      table.integer('current_round').notNullable().defaultTo(1);
+      table.date('next_round_date').nullable();
+      table.string('status', 20).notNullable().defaultTo('active'); // 'active', 'completed'
+      table.timestamp('created_at').defaultTo(db.fn.now());
+    });
+    console.log("Migration: created table 'tickets'.");
+  }
+
+  if (!(await db.schema.hasTable('ticket_members'))) {
+    await db.schema.createTable('ticket_members', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.uuid('ticket_id').notNullable().references('id').inTable('tickets').onDelete('CASCADE');
+      table.string('name', 100).notNullable();
+      table.string('phone', 20).nullable();
+      table.timestamp('created_at').defaultTo(db.fn.now());
+    });
+    console.log("Migration: created table 'ticket_members'.");
+  }
+
+  if (!(await db.schema.hasTable('ticket_auctions'))) {
+    await db.schema.createTable('ticket_auctions', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.uuid('ticket_id').notNullable().references('id').inTable('tickets').onDelete('CASCADE');
+      table.integer('round_number').notNullable();
+      table.date('auction_date').notNullable();
+      table.decimal('bid_amount', 15, 2).notNullable();
+      table.uuid('winner_member_id').nullable().references('id').inTable('ticket_members').onDelete('SET NULL');
+      table.decimal('winner_payout', 15, 2).notNullable();
+      table.decimal('base_payment', 15, 2).notNullable();
+      table.decimal('host_fee_per_member', 15, 2).notNullable();
+      table.decimal('amount_per_member', 15, 2).notNullable();
+      table.timestamp('created_at').defaultTo(db.fn.now());
+    });
+    console.log("Migration: created table 'ticket_auctions'.");
+  }
+
+  if (!(await db.schema.hasTable('ticket_payments'))) {
+    await db.schema.createTable('ticket_payments', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.uuid('auction_id').notNullable().references('id').inTable('ticket_auctions').onDelete('CASCADE');
+      table.uuid('ticket_id').notNullable().references('id').inTable('tickets').onDelete('CASCADE');
+      table.uuid('member_id').notNullable().references('id').inTable('ticket_members').onDelete('CASCADE');
+      table.integer('round_number').notNullable();
+      table.boolean('is_paid').defaultTo(false);
+      table.timestamp('payment_date').nullable();
+      table.timestamp('created_at').defaultTo(db.fn.now());
+      table.unique(['auction_id', 'member_id']);
+    });
+    console.log("Migration: created table 'ticket_payments'.");
+  }
 }
 
 async function createSchemaAndSeed() {

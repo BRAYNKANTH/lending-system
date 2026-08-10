@@ -67,7 +67,7 @@ export async function POST(request) {
     }
 
     const token = jwt.sign(
-      { id: user.id, name: user.name, phone: user.phone, role: user.role },
+      { id: user.id, name: user.name, phone: user.phone, role: user.role, finance_access: !!user.finance_access, ticket_access: !!user.ticket_access },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -85,7 +85,9 @@ export async function POST(request) {
         name: user.name,
         role: user.role,
         phone: user.phone,
-        mustChangePassword: !!user.must_change_password
+        mustChangePassword: !!user.must_change_password,
+        finance_access: !!user.finance_access,
+        ticket_access: !!user.ticket_access
       }
     });
   } catch (error) {
