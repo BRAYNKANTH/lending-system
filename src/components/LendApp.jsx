@@ -4751,6 +4751,22 @@ export default function LendApp() {
   );
 }
 
+// Shimmering placeholder cards shown while a list-style loader is fetching —
+// referenced by LoansLoader, AuditLogLoader, and PaymentHistoryLoader below.
+function SkeletonCards({ count = 3, lines = 2 }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="skeleton-card">
+          {Array.from({ length: lines }).map((__, j) => (
+            <span key={j} className="skeleton skeleton-line" />
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function LoansLoader({ onSelect, fetchTrigger }) {
   const [loans, setLoans] = useState([]);
   const [agents, setAgents] = useState([]);
