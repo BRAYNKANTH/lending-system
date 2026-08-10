@@ -20,8 +20,8 @@ export async function POST(request) {
     const isAgentSubmission = authUser.role === 'agent';
     const body = await request.json();
     const {
-      borrower_name, borrower_phone, borrower_address, principal_amount, interest_rate, interest_type,
-      assigned_agent_id, nic_number, nic_photo, guarantor, borrower_profile,
+      borrower_name, borrower_phone, borrower_address, borrower_date_of_birth, principal_amount, interest_rate, interest_type,
+      assigned_agent_id, nic_number, nic_photo, guarantor, guarantors, borrower_profile,
       collection_mode, duration_periods, borrower_email, borrower_gender
     } = body;
 
@@ -33,6 +33,13 @@ export async function POST(request) {
     }
     if (!borrower_address || !borrower_address.trim()) {
       return NextResponse.json({ message: "Borrower's address is required." }, { status: 400 });
+    }
+    if (!borrower_date_of_birth) {
+      return NextResponse.json({ message: "Borrower's date of birth is required." }, { status: 400 });
+    }
+    const dob = new Date(borrower_date_of_birth);
+    if (isNaN(dob.getTime()) || dob > new Date()) {
+      return NextResponse.json({ message: "Borrower's date of birth is invalid." }, { status: 400 });
     }
     if (!borrower_profile) {
       return NextResponse.json({ message: 'Borrower profile details (loan purpose, dependents, monthly income) are required.' }, { status: 400 });
@@ -92,35 +99,51 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Interest rate must be a non-negative number.' }, { status: 400 });
     }
 
-    let guarantorRecord = null;
-    if (guarantor && guarantor.full_name && guarantor.full_name.trim()) {
-      if (!guarantor.nic_number || !isValidSriLankanNIC(guarantor.nic_number)) {
-        return NextResponse.json({ message: "Guarantor's NIC number is required and must be a valid Sri Lankan NIC format." }, { status: 400 });
+    // Accepts either the newer `guarantors` array (one form per dependent,
+    // as the create-loan wizard now collects) or the older singular
+    // `guarantor` object, for backward compatibility with any other caller.
+    const guarantorInputs = Array.isArray(guarantors)
+      ? guarantors
+      : (guarantor && guarantor.full_name && guarantor.full_name.trim() ? [guarantor] : []);
+
+    const guarantorRecords = [];
+    for (const g of guarantorInputs) {
+      if (!g || !g.full_name || !g.full_name.trim()) continue;
+      if (!g.nic_number || !isValidSriLankanNIC(g.nic_number)) {
+        return NextResponse.json({ message: `Guarantor '${g.full_name}'s NIC number is required and must be a valid Sri Lankan NIC format.` }, { status: 400 });
       }
-      if (!guarantor.address || !guarantor.address.trim()) {
-        return NextResponse.json({ message: "Guarantor's address is required." }, { status: 400 });
+      if (!g.address || !g.address.trim()) {
+        return NextResponse.json({ message: `Guarantor '${g.full_name}'s address is required.` }, { status: 400 });
       }
-      if (!guarantor.phone || !guarantor.phone.trim()) {
-        return NextResponse.json({ message: "Guarantor's phone number is required." }, { status: 400 });
+      if (!g.phone || !g.phone.trim()) {
+        return NextResponse.json({ message: `Guarantor '${g.full_name}'s phone number is required.` }, { status: 400 });
       }
-      guarantorRecord = {
-        full_name: guarantor.full_name.trim(),
-        nic_number: guarantor.nic_number.trim().toUpperCase(),
-        gender: guarantor.gender || null,
-        ethnicity: guarantor.ethnicity || null,
+      if (!g.nic_photo) {
+        return NextResponse.json({ message: `Guarantor '${g.full_name}'s NIC photo is required.` }, { status: 400 });
+      }
+      const guarantorNicPhotoUrl = validateImageDataUrl(g.nic_photo);
+      if (!guarantorNicPhotoUrl) {
+        return NextResponse.json({ message: `Failed to process the NIC photo for guarantor '${g.full_name}'. Please upload a valid JPEG/PNG/WebP under 4MB.` }, { status: 400 });
+      }
+      guarantorRecords.push({
+        full_name: g.full_name.trim(),
+        nic_number: g.nic_number.trim().toUpperCase(),
+        gender: g.gender || null,
+        ethnicity: null,
         date_of_birth: null,
-        address: guarantor.address.trim(),
-        phone: guarantor.phone.trim().replace(/\s+/g, ''),
+        address: g.address.trim(),
+        phone: g.phone.trim().replace(/\s+/g, ''),
         email: null,
-        protected_under_debt_act: !!guarantor.protected_under_debt_act,
-        has_pending_court_cases: !!guarantor.has_pending_court_cases,
-        monthly_income_business: parseFloat(guarantor.monthly_income_business) || 0,
-        monthly_income_agriculture: parseFloat(guarantor.monthly_income_agriculture) || 0,
-        monthly_income_other: parseFloat(guarantor.monthly_income_other) || 0,
-        monthly_expense_food: parseFloat(guarantor.monthly_expense_food) || 0,
-        monthly_expense_rent: parseFloat(guarantor.monthly_expense_rent) || 0,
-        monthly_expense_other: parseFloat(guarantor.monthly_expense_other) || 0
-      };
+        nic_photo_url: guarantorNicPhotoUrl,
+        protected_under_debt_act: !!g.protected_under_debt_act,
+        has_pending_court_cases: !!g.has_pending_court_cases,
+        monthly_income_business: parseFloat(g.monthly_income_business) || 0,
+        monthly_income_agriculture: parseFloat(g.monthly_income_agriculture) || 0,
+        monthly_income_other: parseFloat(g.monthly_income_other) || 0,
+        monthly_expense_food: parseFloat(g.monthly_expense_food) || 0,
+        monthly_expense_rent: parseFloat(g.monthly_expense_rent) || 0,
+        monthly_expense_other: parseFloat(g.monthly_expense_other) || 0
+      });
     }
 
     // Borrower profile snapshot (optional) — mirrors the STN applicant
@@ -282,6 +305,7 @@ export async function POST(request) {
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
         nic_photo_url,
+        date_of_birth: borrower_date_of_birth,
         borrower_address: borrower_address.trim(),
         collection_mode: colMode,
         duration_periods: periods,
@@ -302,14 +326,15 @@ export async function POST(request) {
         ]);
       }
 
-      if (guarantorRecord) {
-        await trx('guarantors').insert({ loan_id: loanId, ...guarantorRecord });
+      if (guarantorRecords.length > 0) {
+        await trx('guarantors').insert(guarantorRecords.map((g) => ({ loan_id: loanId, ...g })));
       }
 
+      const guarantorNames = guarantorRecords.map((g) => g.full_name);
       await trx('audit_logs').insert({
         actor_id: authUser.id,
         action_type: isAgentSubmission ? 'SUBMIT_LOAN_APPLICATION' : 'CREATE_LOAN',
-        description: `${isAgentSubmission ? 'Submitted for approval: a' : 'Created'} new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${guarantorRecord ? ` with guarantor '${guarantorRecord.full_name}'` : ''} for Borrower ID ${borrower_id}.`
+        description: `${isAgentSubmission ? 'Submitted for approval: a' : 'Created'} new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${guarantorNames.length > 0 ? ` with guarantor(s) '${guarantorNames.join("', '")}'` : ''} for Borrower ID ${borrower_id}.`
       });
 
       return newLoan;

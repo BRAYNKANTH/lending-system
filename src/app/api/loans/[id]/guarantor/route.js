@@ -36,7 +36,7 @@ export async function PUT(request, { params }) {
       full_name: guarantor.full_name.trim(),
       nic_number: guarantor.nic_number.trim().toUpperCase(),
       gender: guarantor.gender || null,
-      ethnicity: guarantor.ethnicity || null,
+      ethnicity: null,
       date_of_birth: null,
       address: guarantor.address.trim(),
       phone: guarantor.phone.trim().replace(/\s+/g, ''),

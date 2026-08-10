@@ -33,7 +33,7 @@ export async function GET(request, { params }) {
 
     // None of these five depend on each other — run concurrently instead
     // of as five sequential round-trips.
-    const [payments, accruals, ledger, guarantor, dailyCollections] = await Promise.all([
+    const [payments, accruals, ledger, guarantors, dailyCollections] = await Promise.all([
       db('transactions')
         .join('users as agents', 'transactions.agent_id', 'agents.id')
         .where({ loan_id: id })
@@ -41,7 +41,7 @@ export async function GET(request, { params }) {
         .orderBy('payment_date', 'desc'),
       db('interest_accruals').where({ loan_id: id }).orderBy('created_at', 'desc'),
       db('ledger_entries').where({ loan_id: id }).orderBy('created_at', 'asc'),
-      db('guarantors').where({ loan_id: id }).first(),
+      db('guarantors').where({ loan_id: id }).orderBy('created_at', 'asc'),
       db('daily_collections')
         .leftJoin('users as markers', 'daily_collections.marked_by', 'markers.id')
         .where({ loan_id: id })
@@ -49,7 +49,10 @@ export async function GET(request, { params }) {
         .orderBy('collection_date', 'desc')
     ]);
 
-    return NextResponse.json({ loan, payments, accruals, ledger, guarantor: guarantor || null, dailyCollections });
+    // `guarantor` (singular, first one) is kept alongside `guarantors` (the
+    // full list) for backward compatibility with any code still reading the
+    // old single-guarantor shape — loans can now have more than one.
+    return NextResponse.json({ loan, payments, accruals, ledger, guarantors, guarantor: guarantors[0] || null, dailyCollections });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Fetch loan details error:', error);

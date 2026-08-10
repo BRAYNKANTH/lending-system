@@ -182,6 +182,15 @@ async function runIncrementalMigrations() {
   await addColumnIfMissing('loans', 'approved_at', (t) => t.timestamp('approved_at').nullable());
   await addColumnIfMissing('loans', 'loan_rejection_reason', (t) => t.text('loan_rejection_reason').nullable());
   await addColumnIfMissing('loans', 'rejected_at', (t) => t.timestamp('rejected_at').nullable());
+
+  // Borrower's date of birth, captured per-loan alongside NIC/address (same
+  // pattern — these are per-application KYC snapshot fields, not shared
+  // account fields on the users table).
+  await addColumnIfMissing('loans', 'date_of_birth', (t) => t.date('date_of_birth').nullable());
+
+  // Guarantor NIC photo — mirrors loans.nic_photo_url (base64 data URL,
+  // stored directly in the DB since Vercel's filesystem is ephemeral).
+  await addColumnIfMissing('guarantors', 'nic_photo_url', (t) => t.text('nic_photo_url').nullable());
 }
 
 async function createSchemaAndSeed() {
@@ -221,6 +230,7 @@ async function createSchemaAndSeed() {
     table.string('reference_number', 50).unique().nullable();
     table.string('nic_number', 50);
     table.text('nic_photo_url');
+    table.date('date_of_birth').nullable();
     table.text('borrower_address').nullable();
     table.text('default_reason').nullable();
     table.timestamp('defaulted_at').nullable();
@@ -322,6 +332,7 @@ async function createSchemaAndSeed() {
     table.text('address').notNullable();
     table.string('phone', 20).notNullable();
     table.string('email', 100);
+    table.text('nic_photo_url');
     table.boolean('protected_under_debt_act').defaultTo(false);
     table.boolean('has_pending_court_cases').defaultTo(false);
     table.decimal('monthly_income_business', 15, 2).defaultTo(0);

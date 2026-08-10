@@ -775,6 +775,33 @@ table.desktop-only {
   form {
     gap: 14px !important;
   }
+
+  /* Admin dashboard home's KPI row (Active Loans, Total Disbursed, etc.)
+     uses repeat(auto-fit, minmax(240px, 1fr)) — on a 375px phone that
+     minimum forces a single column, so each card stretches full-width at
+     36px kpi-val font + 24px padding, one on top of another. Force 2
+     columns and shrink the card/value/label sizing to match the treatment
+     already used for .responsive-grid-equal-2-col elsewhere in the app. */
+  .kpi-grid-main {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+  .kpi-grid-main .kpi-card {
+    padding: 12px 10px !important;
+    border-radius: var(--radius-md) !important;
+    min-height: 76px;
+  }
+  .kpi-grid-main .kpi-lbl {
+    font-size: 10px !important;
+  }
+  .kpi-grid-main .kpi-val {
+    font-size: 17px !important;
+    margin: 4px 0 !important;
+  }
+  .kpi-grid-main .kpi-icon-bubble {
+    width: 30px !important;
+    height: 30px !important;
+  }
 }
 
 /* Mobile responsive card list layout */

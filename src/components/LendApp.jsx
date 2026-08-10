@@ -95,6 +95,7 @@ export default function LendApp() {
     borrower_phone: '',
     borrower_address: '',
     borrower_email: '',
+    date_of_birth: '',
     principal_amount: '',
     interest_rate: '2.00',
     interest_type: 'daily',
@@ -106,13 +107,16 @@ export default function LendApp() {
   });
   const [includeGuarantor, setIncludeGuarantor] = useState(false);
   const emptyGuarantor = {
-    full_name: '', nic_number: '', ethnicity: '',
+    full_name: '', nic_number: '', nic_photo: '',
     address: '', phone: '',
     protected_under_debt_act: false, has_pending_court_cases: false,
     monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
     monthly_expense_food: '', monthly_expense_rent: '', monthly_expense_other: ''
   };
-  const [guarantorForm, setGuarantorForm] = useState(emptyGuarantor);
+  // One guarantor form per borrower dependent — the count is kept in sync
+  // with borrowerProfileForm.dependents_count by an effect below (e.g.
+  // dependents_count = 2 means two guarantor forms are collected).
+  const [guarantorForms, setGuarantorForms] = useState([emptyGuarantor]);
   const [giveLoanStep, setGiveLoanStep] = useState(1);
   const [validationErrors, setValidationErrors] = useState({});
   const [ledgerTab, setLedgerTab] = useState('passbook');
@@ -143,6 +147,23 @@ export default function LendApp() {
     spouse_name: '', spouse_nic: '', spouse_occupation: ''
   };
   const [borrowerProfileForm, setBorrowerProfileForm] = useState(emptyBorrowerProfile);
+
+  // Keeps the number of guarantor forms in sync with the borrower's
+  // dependents count while the guarantor step is active — e.g. entering "2"
+  // dependents means two guarantor forms need to be filled in. Preserves
+  // whatever's already been typed into existing slots; only adds/removes
+  // blank forms at the end when the count changes.
+  useEffect(() => {
+    if (!includeGuarantor) return;
+    const desiredCount = Math.max(1, parseInt(borrowerProfileForm.dependents_count, 10) || 1);
+    setGuarantorForms(prev => {
+      if (prev.length === desiredCount) return prev;
+      if (prev.length < desiredCount) {
+        return [...prev, ...Array.from({ length: desiredCount - prev.length }, () => ({ ...emptyGuarantor }))];
+      }
+      return prev.slice(0, desiredCount);
+    });
+  }, [includeGuarantor, borrowerProfileForm.dependents_count]);
 
   // Collection payment form
   const [paymentForm, setPaymentForm] = useState({
@@ -824,6 +845,7 @@ export default function LendApp() {
     if (!newLoan.borrower_phone || !newLoan.borrower_phone.trim()) return false;
     if (!newLoan.borrower_address || !newLoan.borrower_address.trim()) return false;
     if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) return false;
+    if (!newLoan.date_of_birth) return false;
     if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) return false;
     if (!newLoan.interest_rate || parseFloat(newLoan.interest_rate) < 0) return false;
     if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) return false;
@@ -851,6 +873,10 @@ export default function LendApp() {
     if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) {
       errors.nic_number = "A valid Sri Lankan NIC number is required.";
       if (!firstErrorField) firstErrorField = "nic_number";
+    }
+    if (!newLoan.date_of_birth) {
+      errors.date_of_birth = "Borrower's date of birth is required.";
+      if (!firstErrorField) firstErrorField = "date_of_birth";
     }
     if (!newLoan.principal_amount || parseFloat(newLoan.principal_amount) <= 0) {
       errors.principal_amount = "Principal amount must be a positive number.";
@@ -892,22 +918,28 @@ export default function LendApp() {
     const errors = {};
     let firstErrorField = null;
 
-    if (!guarantorForm.full_name || !guarantorForm.full_name.trim()) {
-      errors.guarantor_full_name = "Guarantor full name is required.";
-      if (!firstErrorField) firstErrorField = "guarantor_full_name";
-    }
-    if (!guarantorForm.nic_number || !isValidNIC(guarantorForm.nic_number)) {
-      errors.guarantor_nic_number = "A valid Sri Lankan NIC number is required for the guarantor.";
-      if (!firstErrorField) firstErrorField = "guarantor_nic_number";
-    }
-    if (!guarantorForm.phone || !guarantorForm.phone.trim()) {
-      errors.guarantor_phone = "Guarantor phone number is required.";
-      if (!firstErrorField) firstErrorField = "guarantor_phone";
-    }
-    if (!guarantorForm.address || !guarantorForm.address.trim()) {
-      errors.guarantor_address = "Guarantor address is required.";
-      if (!firstErrorField) firstErrorField = "guarantor_address";
-    }
+    guarantorForms.forEach((g, i) => {
+      if (!g.full_name || !g.full_name.trim()) {
+        errors[`guarantor_${i}_full_name`] = "Guarantor full name is required.";
+        if (!firstErrorField) firstErrorField = `guarantor_${i}_full_name`;
+      }
+      if (!g.nic_number || !isValidNIC(g.nic_number)) {
+        errors[`guarantor_${i}_nic_number`] = "A valid Sri Lankan NIC number is required for the guarantor.";
+        if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_number`;
+      }
+      if (!g.nic_photo) {
+        errors[`guarantor_${i}_nic_photo`] = "A NIC photo is required for the guarantor.";
+        if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_photo`;
+      }
+      if (!g.phone || !g.phone.trim()) {
+        errors[`guarantor_${i}_phone`] = "Guarantor phone number is required.";
+        if (!firstErrorField) firstErrorField = `guarantor_${i}_phone`;
+      }
+      if (!g.address || !g.address.trim()) {
+        errors[`guarantor_${i}_address`] = "Guarantor address is required.";
+        if (!firstErrorField) firstErrorField = `guarantor_${i}_address`;
+      }
+    });
 
     setValidationErrors(errors);
 
@@ -959,7 +991,8 @@ export default function LendApp() {
     try {
       const payload = {
         ...newLoan,
-        guarantor: includeGuarantor ? guarantorForm : null,
+        borrower_date_of_birth: newLoan.date_of_birth,
+        guarantors: includeGuarantor ? guarantorForms : [],
         borrower_profile: borrowerProfileForm
       };
       await api.post('/loans', payload);
@@ -974,6 +1007,7 @@ export default function LendApp() {
         borrower_address: '',
         borrower_email: '',
         borrower_gender: '',
+        date_of_birth: '',
         principal_amount: '',
         interest_rate: '2.00',
         interest_type: 'daily',
@@ -985,7 +1019,7 @@ export default function LendApp() {
       });
       setGiveLoanStep(1);
       setIncludeGuarantor(false);
-      setGuarantorForm(emptyGuarantor);
+      setGuarantorForms([emptyGuarantor]);
       setBorrowerProfileForm(emptyBorrowerProfile);
       setValidationErrors({});
       fetchDashboardData();
@@ -1149,7 +1183,6 @@ export default function LendApp() {
     setGuarantorEditForm(existingGuarantor ? {
       full_name: existingGuarantor.full_name || '',
       nic_number: existingGuarantor.nic_number || '',
-      ethnicity: existingGuarantor.ethnicity || '',
       address: existingGuarantor.address || '',
       phone: existingGuarantor.phone || '',
       protected_under_debt_act: !!existingGuarantor.protected_under_debt_act,
@@ -1213,6 +1246,24 @@ export default function LendApp() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setNewLoan(prev => ({ ...prev, nic_photo: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Updates one field on one guarantor form in the guarantorForms array.
+  const updateGuarantorField = (index, field, value) => {
+    setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, [field]: value } : g)));
+  };
+
+  // File to base64 converter for a guarantor's NIC photo (one per guarantor
+  // form, indexed since there can be more than one guarantor).
+  const handleGuarantorPhotoChange = (index, e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        updateGuarantorField(index, 'nic_photo', reader.result);
       };
       reader.readAsDataURL(file);
     }
@@ -1494,20 +1545,22 @@ export default function LendApp() {
               </>
             )}
 
-            {loanStatement.guarantor && (
+            {(loanStatement.guarantors || []).length > 0 && (
               <>
-                <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>4. Guarantor</h4>
-                <p style={{ fontSize: '14px' }}>
-                  <strong>{loanStatement.guarantor.full_name}</strong> (NIC: {loanStatement.guarantor.nic_number}), residing at {loanStatement.guarantor.address},
-                  stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.
-                </p>
+                <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>4. Guarantor{loanStatement.guarantors.length > 1 ? 's' : ''}</h4>
+                {loanStatement.guarantors.map((gtor, gi) => (
+                  <p style={{ fontSize: '14px' }} key={gtor.id || gi}>
+                    <strong>{gtor.full_name}</strong> (NIC: {gtor.nic_number}), residing at {gtor.address},
+                    stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.
+                  </p>
+                ))}
               </>
             )}
 
-            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>{loanStatement.guarantor ? '5' : loanStatement.loan.loan_purpose ? '4' : '3'}. Default</h4>
+            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>{(loanStatement.guarantors || []).length > 0 ? '5' : loanStatement.loan.loan_purpose ? '4' : '3'}. Default</h4>
             <p style={{ fontSize: '14px' }}>If the Borrower fails to pay interest or repay the principal as agreed, the Lender has the right to take legal action to recover the outstanding amount.</p>
 
-            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>{loanStatement.guarantor ? '6' : loanStatement.loan.loan_purpose ? '5' : '4'}. Declaration</h4>
+            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>{(loanStatement.guarantors || []).length > 0 ? '6' : loanStatement.loan.loan_purpose ? '5' : '4'}. Declaration</h4>
             <p style={{ fontSize: '14px' }}>Both parties confirm they have read, understood, and agree to all the terms stated above.</p>
 
             <div className="receipt-actions">
@@ -1555,28 +1608,30 @@ export default function LendApp() {
             </>
           )}
 
-          {loanStatement.guarantor && (
+          {(loanStatement.guarantors || []).length > 0 && (
             <>
-              <h2>{loanStatement.loan.loan_purpose ? '4' : '3'}. Guarantor</h2>
-              <p>
-                <strong>{loanStatement.guarantor.full_name}</strong> (NIC: {loanStatement.guarantor.nic_number}), residing at {loanStatement.guarantor.address},
-                stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.
-              </p>
+              <h2>{loanStatement.loan.loan_purpose ? '4' : '3'}. Guarantor{loanStatement.guarantors.length > 1 ? 's' : ''}</h2>
+              {loanStatement.guarantors.map((gtor, gi) => (
+                <p key={gtor.id || gi}>
+                  <strong>{gtor.full_name}</strong> (NIC: {gtor.nic_number}), residing at {gtor.address},
+                  stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.
+                </p>
+              ))}
             </>
           )}
 
-          <h2>{loanStatement.guarantor ? '5' : loanStatement.loan.loan_purpose ? '4' : '3'}. Default</h2>
+          <h2>{(loanStatement.guarantors || []).length > 0 ? '5' : loanStatement.loan.loan_purpose ? '4' : '3'}. Default</h2>
           <p>If the Borrower fails to pay interest or repay the principal as agreed, the Lender has the right to take legal action to recover the outstanding amount.</p>
 
-          <h2>{loanStatement.guarantor ? '6' : loanStatement.loan.loan_purpose ? '5' : '4'}. Declaration</h2>
+          <h2>{(loanStatement.guarantors || []).length > 0 ? '6' : loanStatement.loan.loan_purpose ? '5' : '4'}. Declaration</h2>
           <p>Both parties confirm they have read, understood, and agree to all the terms stated above.</p>
 
           <div className="agreement-signature-block">
             <div className="agreement-signature-line">Lender</div>
             <div className="agreement-signature-line">Borrower ({loanStatement.loan.borrower_name})</div>
-            {loanStatement.guarantor && (
-              <div className="agreement-signature-line">Guarantor ({loanStatement.guarantor.full_name})</div>
-            )}
+            {(loanStatement.guarantors || []).map((gtor, gi) => (
+              <div className="agreement-signature-line" key={gtor.id || gi}>Guarantor ({gtor.full_name})</div>
+            ))}
           </div>
           <div className="agreement-signature-block">
             <div className="agreement-signature-line">Witness 1</div>
@@ -1904,7 +1959,7 @@ export default function LendApp() {
             {view === 'dashboard' && (
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                 {/* KPI Metrics row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                <div className="kpi-grid-main" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
 
                   {/* Card 0: Pending Approvals — only shown when there's something to review */}
                   {adminData.summary.pendingApprovalsCount > 0 && (
@@ -3073,6 +3128,11 @@ export default function LendApp() {
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER EMAIL (OPTIONAL)</label>
                                   <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
                                 </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>DATE OF BIRTH *</label>
+                                  <input id="date_of_birth" type="date" max={new Date().toISOString().slice(0, 10)} className="glass-input" style={{ borderColor: validationErrors.date_of_birth ? 'var(--accent-rose)' : '', borderWidth: validationErrors.date_of_birth ? '2px' : '' }} value={newLoan.date_of_birth} onChange={e => { setNewLoan(prev => ({ ...prev, date_of_birth: e.target.value })); clearFieldError('date_of_birth'); }} />
+                                  {validationErrors.date_of_birth && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.date_of_birth}</span>}
+                                </div>
                               </div>
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -3254,51 +3314,62 @@ export default function LendApp() {
 
                         {giveLoanStep === 2 && includeGuarantor && (
                           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            {guarantorForms.length > 1 && (
+                              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <ClipboardCheck className="icon" /> {guarantorForms.length} guarantor forms required (matches Number of Dependents entered in Step 1).
+                              </p>
+                            )}
+                            {guarantorForms.map((g, i) => (
+                            <div key={i} style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                               <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS
+                                <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS {guarantorForms.length > 1 ? `(${i + 1} of ${guarantorForms.length})` : ''}
                               </p>
 
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
-                                    <input id="guarantor_full_name" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_full_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_full_name ? '2px' : '' }} value={guarantorForm.full_name} onChange={e => { setGuarantorForm(prev => ({ ...prev, full_name: e.target.value })); clearFieldError('guarantor_full_name'); }} />
-                                    {validationErrors.guarantor_full_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_full_name}</span>}
+                                    <input id={`guarantor_${i}_full_name`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_full_name`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_full_name`] ? '2px' : '' }} value={g.full_name} onChange={e => { updateGuarantorField(i, 'full_name', e.target.value); clearFieldError(`guarantor_${i}_full_name`); }} />
+                                    {validationErrors[`guarantor_${i}_full_name`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_full_name`]}</span>}
                                   </div>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                                    <input id="guarantor_nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={guarantorForm.nic_number} onChange={e => { setGuarantorForm(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('guarantor_nic_number'); }} />
-                                    {validationErrors.guarantor_nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_nic_number}</span>}
+                                    <input id={`guarantor_${i}_nic_number`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_number`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_number`] ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={g.nic_number} onChange={e => { updateGuarantorField(i, 'nic_number', e.target.value); clearFieldError(`guarantor_${i}_nic_number`); }} />
+                                    {validationErrors[`guarantor_${i}_nic_number`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_number`]}</span>}
                                   </div>
                                 </div>
 
-                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity / Citizenship</label>
-                                    <input type="text" className="glass-input" value={guarantorForm.ethnicity} onChange={e => setGuarantorForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
-                                  </div>
+                                <div>
+                                  <label id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo *</label>
+                                  <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} />
+                                  {g.nic_photo && (
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                      <img src={g.nic_photo} alt="Guarantor NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                    </div>
+                                  )}
+                                  {validationErrors[`guarantor_${i}_nic_photo`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_photo`]}</span>}
                                 </div>
 
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
-                                  <input id="guarantor_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.guarantor_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_phone ? '2px' : '' }} value={guarantorForm.phone} onChange={e => { setGuarantorForm(prev => ({ ...prev, phone: e.target.value })); clearFieldError('guarantor_phone'); }} />
-                                  {validationErrors.guarantor_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_phone}</span>}
+                                  <input id={`guarantor_${i}_phone`} type="tel" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_phone`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_phone`] ? '2px' : '' }} value={g.phone} onChange={e => { updateGuarantorField(i, 'phone', e.target.value); clearFieldError(`guarantor_${i}_phone`); }} />
+                                  {validationErrors[`guarantor_${i}_phone`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_phone`]}</span>}
                                 </div>
 
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                                  <input id="guarantor_address" type="text" className="glass-input" style={{ borderColor: validationErrors.guarantor_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.guarantor_address ? '2px' : '' }} value={guarantorForm.address} onChange={e => { setGuarantorForm(prev => ({ ...prev, address: e.target.value })); clearFieldError('guarantor_address'); }} />
-                                  {validationErrors.guarantor_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.guarantor_address}</span>}
+                                  <input id={`guarantor_${i}_address`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address`] ? '2px' : '' }} value={g.address} onChange={e => { updateGuarantorField(i, 'address', e.target.value); clearFieldError(`guarantor_${i}_address`); }} />
+                                  {validationErrors[`guarantor_${i}_address`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address`]}</span>}
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                                    <input type="checkbox" checked={guarantorForm.protected_under_debt_act} onChange={e => setGuarantorForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
+                                    <input type="checkbox" checked={g.protected_under_debt_act} onChange={e => updateGuarantorField(i, 'protected_under_debt_act', e.target.checked)} />
                                     Protected under the state debt recovery act or any other law?
                                   </label>
                                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                                    <input type="checkbox" checked={guarantorForm.has_pending_court_cases} onChange={e => setGuarantorForm(prev => ({ ...prev, has_pending_court_cases: e.target.checked }))} />
+                                    <input type="checkbox" checked={g.has_pending_court_cases} onChange={e => updateGuarantorField(i, 'has_pending_court_cases', e.target.checked)} />
                                     Any court judgments/cases registered against them?
                                   </label>
                                 </div>
@@ -3306,22 +3377,23 @@ export default function LendApp() {
                                 <div>
                                   <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Income (LKR)</p>
                                   <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                                    <input type="number" min="0" className="glass-input" placeholder="Business" value={guarantorForm.monthly_income_business} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_business: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={guarantorForm.monthly_income_agriculture} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_agriculture: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_income_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_income_other: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Business" value={g.monthly_income_business} onChange={e => updateGuarantorField(i, 'monthly_income_business', e.target.value)} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Agriculture" value={g.monthly_income_agriculture} onChange={e => updateGuarantorField(i, 'monthly_income_agriculture', e.target.value)} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={g.monthly_income_other} onChange={e => updateGuarantorField(i, 'monthly_income_other', e.target.value)} />
                                   </div>
                                 </div>
 
                                 <div>
                                   <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '6px' }}>Monthly Expense (LKR)</p>
                                   <div className="form-grid-3-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                                    <input type="number" min="0" className="glass-input" placeholder="Food" value={guarantorForm.monthly_expense_food} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_food: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="House Rent" value={guarantorForm.monthly_expense_rent} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_rent: e.target.value }))} />
-                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={guarantorForm.monthly_expense_other} onChange={e => setGuarantorForm(prev => ({ ...prev, monthly_expense_other: e.target.value }))} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Food" value={g.monthly_expense_food} onChange={e => updateGuarantorField(i, 'monthly_expense_food', e.target.value)} />
+                                    <input type="number" min="0" className="glass-input" placeholder="House Rent" value={g.monthly_expense_rent} onChange={e => updateGuarantorField(i, 'monthly_expense_rent', e.target.value)} />
+                                    <input type="number" min="0" className="glass-input" placeholder="Other" value={g.monthly_expense_other} onChange={e => updateGuarantorField(i, 'monthly_expense_other', e.target.value)} />
                                   </div>
                                 </div>
                               </div>
                             </div>
+                            ))}
 
                             {/* Navigation Buttons for Step 2 */}
                             <div style={{ display: 'flex', gap: '12px' }}>
@@ -4323,6 +4395,7 @@ export default function LendApp() {
                       <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><ClipboardList className="icon" /> Borrower Profile Details</h3>
                       <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
                         <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.loan.borrower_address || '-'}</div>
+                        <div><strong>Date of Birth:</strong> {loanStatement.loan.date_of_birth ? new Date(loanStatement.loan.date_of_birth).toLocaleDateString() : '-'}</div>
                         <div style={{ gridColumn: '1 / -1' }}><strong>Purpose of Loan:</strong> {loanStatement.loan.loan_purpose || '-'}</div>
                         <div><strong>Dependents:</strong> {loanStatement.loan.dependents_count ?? '-'}</div>
                         <div><strong>Monthly Income:</strong> {loanStatement.loan.monthly_income !== null && loanStatement.loan.monthly_income !== undefined ? `LKR ${parseFloat(loanStatement.loan.monthly_income).toLocaleString()}` : '-'}</div>
@@ -4343,13 +4416,16 @@ export default function LendApp() {
               {/* TAB 3: GUARANTOR INFO */}
               {ledgerTab === 'guarantor' && (
                 <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                  {loanStatement.guarantor && (
-                    <div className="glass-card">
+                  {(loanStatement.guarantors || []).map((gtor, gi) => (
+                    <div className="glass-card" key={gtor.id || gi}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
-                        <h3 style={{ fontSize: '22px', margin: 0 }}><ShieldCheck className="icon" /> Guarantor Details</h3>
-                        {user.role === 'admin' && (
+                        <h3 style={{ fontSize: '22px', margin: 0 }}><ShieldCheck className="icon" /> Guarantor Details {loanStatement.guarantors.length > 1 ? `(${gi + 1} of ${loanStatement.guarantors.length})` : ''}</h3>
+                        {/* Edit/Remove only supported for a single-guarantor loan — the
+                            underlying API operates on "the" guarantor for a loan_id and
+                            can't disambiguate between several. */}
+                        {user.role === 'admin' && loanStatement.guarantors.length === 1 && (
                           <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleOpenGuarantorEditor(loanStatement.guarantor)}>
+                            <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleOpenGuarantorEditor(gtor)}>
                               Edit Guarantor
                             </button>
                             <button className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={handleRemoveGuarantor}>
@@ -4358,47 +4434,49 @@ export default function LendApp() {
                           </div>
                         )}
                       </div>
+                      {gtor.nic_photo_url && (
+                        <img src={gtor.nic_photo_url} alt={`${gtor.full_name} NIC`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)', marginBottom: '12px' }} />
+                      )}
                       <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
-                        <div><strong>Name:</strong> {loanStatement.guarantor.full_name}</div>
-                        <div><strong>NIC:</strong> {loanStatement.guarantor.nic_number}</div>
-                        <div><strong>Phone:</strong> {loanStatement.guarantor.phone}</div>
-                        <div><strong>Ethnicity:</strong> {loanStatement.guarantor.ethnicity || '-'}</div>
-                        <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {loanStatement.guarantor.address}</div>
+                        <div><strong>Name:</strong> {gtor.full_name}</div>
+                        <div><strong>NIC:</strong> {gtor.nic_number}</div>
+                        <div><strong>Phone:</strong> {gtor.phone}</div>
+                        <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {gtor.address}</div>
                         <div>
                           <strong>Protected under debt-recovery act:</strong>{' '}
-                          <span style={{ color: loanStatement.guarantor.protected_under_debt_act ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                            {loanStatement.guarantor.protected_under_debt_act ? 'Yes' : 'No'}
+                          <span style={{ color: gtor.protected_under_debt_act ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                            {gtor.protected_under_debt_act ? 'Yes' : 'No'}
                           </span>
                         </div>
                         <div>
                           <strong>Pending court cases:</strong>{' '}
-                          <span style={{ color: loanStatement.guarantor.has_pending_court_cases ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                            {loanStatement.guarantor.has_pending_court_cases ? 'Yes' : 'No'}
+                          <span style={{ color: gtor.has_pending_court_cases ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                            {gtor.has_pending_court_cases ? 'Yes' : 'No'}
                           </span>
                         </div>
                       </div>
                       <div style={{ marginTop: '14px', display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '14px' }}>
                         <div>
                           <strong>Monthly Income:</strong> LKR {(
-                            parseFloat(loanStatement.guarantor.monthly_income_business || 0) +
-                            parseFloat(loanStatement.guarantor.monthly_income_agriculture || 0) +
-                            parseFloat(loanStatement.guarantor.monthly_income_other || 0)
+                            parseFloat(gtor.monthly_income_business || 0) +
+                            parseFloat(gtor.monthly_income_agriculture || 0) +
+                            parseFloat(gtor.monthly_income_other || 0)
                           ).toLocaleString()}
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Business: {parseFloat(loanStatement.guarantor.monthly_income_business || 0).toLocaleString()}, Agriculture: {parseFloat(loanStatement.guarantor.monthly_income_agriculture || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_income_other || 0).toLocaleString()})</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Business: {parseFloat(gtor.monthly_income_business || 0).toLocaleString()}, Agriculture: {parseFloat(gtor.monthly_income_agriculture || 0).toLocaleString()}, Other: {parseFloat(gtor.monthly_income_other || 0).toLocaleString()})</span>
                         </div>
                         <div>
                           <strong>Monthly Expense:</strong> LKR {(
-                            parseFloat(loanStatement.guarantor.monthly_expense_food || 0) +
-                            parseFloat(loanStatement.guarantor.monthly_expense_rent || 0) +
-                            parseFloat(loanStatement.guarantor.monthly_expense_other || 0)
+                            parseFloat(gtor.monthly_expense_food || 0) +
+                            parseFloat(gtor.monthly_expense_rent || 0) +
+                            parseFloat(gtor.monthly_expense_other || 0)
                           ).toLocaleString()}
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(loanStatement.guarantor.monthly_expense_food || 0).toLocaleString()}, Rent: {parseFloat(loanStatement.guarantor.monthly_expense_rent || 0).toLocaleString()}, Other: {parseFloat(loanStatement.guarantor.monthly_expense_other || 0).toLocaleString()})</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(gtor.monthly_expense_food || 0).toLocaleString()}, Rent: {parseFloat(gtor.monthly_expense_rent || 0).toLocaleString()}, Other: {parseFloat(gtor.monthly_expense_other || 0).toLocaleString()})</span>
                         </div>
                       </div>
                     </div>
-                  )}
+                  ))}
 
-                  {!loanStatement.guarantor && user.role === 'admin' && (
+                  {(!loanStatement.guarantors || loanStatement.guarantors.length === 0) && user.role === 'admin' && (
                     <div className="glass-card">
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <div>
@@ -4424,12 +4502,6 @@ export default function LendApp() {
                           <div>
                             <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
                             <input required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} />
-                          </div>
-                        </div>
-                        <div className="form-grid-2-col">
-                          <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ethnicity</label>
-                            <input type="text" className="glass-input" value={guarantorEditForm.ethnicity} onChange={e => setGuarantorEditForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
                           </div>
                         </div>
                         <div>

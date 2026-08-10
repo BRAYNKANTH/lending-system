@@ -33,12 +33,15 @@ const COLORS = {
 /**
  * Builds a formatted, downloadable Loan Agreement PDF (with the company
  * logo) from the same loanStatement shape already used by the on-screen
- * agreement modal ({ loan, guarantor }), and triggers a browser download.
- * Runs entirely client-side — no server round trip, no headless-browser
- * infra needed on Vercel.
+ * agreement modal ({ loan, guarantors } — a loan can have more than one,
+ * one per borrower dependent). Falls back to the older singular `guarantor`
+ * field for backward compatibility. Triggers a browser download; runs
+ * entirely client-side, no server round trip or headless-browser infra
+ * needed on Vercel.
  */
 export async function downloadLoanAgreementPdf(loanStatement) {
-  const { loan, guarantor } = loanStatement;
+  const { loan } = loanStatement;
+  const guarantors = loanStatement.guarantors || (loanStatement.guarantor ? [loanStatement.guarantor] : []);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -104,7 +107,8 @@ export async function downloadLoanAgreementPdf(loanStatement) {
   y += 26;
 
   // --- Intro paragraph ---
-  const introText = `This agreement is entered into on ${new Date(loan.created_at).toLocaleDateString()} between STN Micro Credit Company (Pvt) Ltd (the "Lender") and ${loan.borrower_name} (NIC: ${loan.nic_number || 'N/A'}, Address: ${loan.borrower_address || 'N/A'}) (the "Borrower").`;
+  const dobText = loan.date_of_birth ? `, Date of Birth: ${new Date(loan.date_of_birth).toLocaleDateString()}` : '';
+  const introText = `This agreement is entered into on ${new Date(loan.created_at).toLocaleDateString()} between STN Micro Credit Company (Pvt) Ltd (the "Lender") and ${loan.borrower_name} (NIC: ${loan.nic_number || 'N/A'}${dobText}, Address: ${loan.borrower_address || 'N/A'}) (the "Borrower").`;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10.5);
   doc.setTextColor(...COLORS.ink);
@@ -174,12 +178,12 @@ export async function downloadLoanAgreementPdf(loanStatement) {
     addClause('Purpose of Loan', loan.loan_purpose);
   }
 
-  if (guarantor) {
+  guarantors.forEach((guarantor, gi) => {
     addClause(
-      'Guarantor',
+      guarantors.length > 1 ? `Guarantor ${gi + 1}` : 'Guarantor',
       `${guarantor.full_name} (NIC: ${guarantor.nic_number}), residing at ${guarantor.address}, stands as guarantor for this loan and accepts joint responsibility for repayment in the event the Borrower defaults.`
     );
-  }
+  });
 
   addClause(
     'Default',
@@ -191,30 +195,36 @@ export async function downloadLoanAgreementPdf(loanStatement) {
     'Both parties confirm they have read, understood, and agree to all the terms stated above.'
   );
 
-  // --- Signature block ---
+  // --- Signature block --- wraps into rows of up to 3 columns so it stays
+  // legible even with several guarantors (one per dependent).
   const signatories = [
     { role: 'Lender', name: 'STN Micro Credit Company (Pvt) Ltd' },
     { role: 'Borrower', name: loan.borrower_name },
-    ...(guarantor ? [{ role: 'Guarantor', name: guarantor.full_name }] : [])
+    ...guarantors.map((g, gi) => ({ role: guarantors.length > 1 ? `Guarantor ${gi + 1}` : 'Guarantor', name: g.full_name }))
   ];
-  ensureSpace(90);
+  const sigCols = Math.min(3, signatories.length);
+  const sigColWidth = contentWidth / sigCols;
+  const sigRowHeight = 55;
+  ensureSpace(Math.ceil(signatories.length / sigCols) * sigRowHeight + 20);
   y += 20;
-  const sigColWidth = contentWidth / signatories.length;
   signatories.forEach((s, i) => {
-    const sx = marginX + i * sigColWidth;
+    const col = i % sigCols;
+    const row = Math.floor(i / sigCols);
+    const sx = marginX + col * sigColWidth;
+    const sy = y + row * sigRowHeight;
     doc.setDrawColor(...COLORS.ink);
     doc.setLineWidth(0.7);
-    doc.line(sx, y, sx + sigColWidth - 20, y);
+    doc.line(sx, sy, sx + sigColWidth - 20, sy);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(...COLORS.ink);
-    doc.text(s.role, sx, y + 14);
+    doc.text(s.role, sx, sy + 14);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(...COLORS.muted);
     const nameLines = doc.splitTextToSize(s.name, sigColWidth - 20);
-    doc.text(nameLines, sx, y + 27);
-    doc.text('Date: _______________', sx, y + 27 + nameLines.length * 11 + 12);
+    doc.text(nameLines, sx, sy + 27);
+    doc.text('Date: _______________', sx, sy + 27 + nameLines.length * 11 + 12);
   });
 
   drawFooter();
