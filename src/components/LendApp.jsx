@@ -5489,8 +5489,16 @@ function projectCurrentInterestBalance(loan) {
   return stored + periods * interestPerPeriod;
 }
 
-// Record Daily Payments Component - Inline daily collection entry table
+// Record Payment Component - Inline collection entry sheet, split into
+// Daily / Weekly / Monthly tabs (matching the app's three interest_type
+// values). Each row is: Loan ID, Name, Due, a "Full Due" checkbox, and a
+// "Partial" checkbox that reveals a custom-amount box when ticked — the two
+// are mutually exclusive, since a row is either paid in full or a specific
+// partial amount. Renders as a compact table on desktop and as stacked
+// cards on mobile (a 7-column table forced horizontal scrolling on phones,
+// which is exactly the "uncomfortable to scroll" complaint this replaces).
 function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
+  const [collectionType, setCollectionType] = useState('daily'); // 'daily', 'weekly', 'monthly'
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRows, setSelectedRows] = useState({});
   const [submittingIds, setSubmittingIds] = useState({});
@@ -5508,9 +5516,9 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   }, [loans?.length]);
 
   const activeSource = (loans && loans.length > 0) ? loans : fetchedLoans;
-  const dailyLoans = activeSource.filter(l => l.status === 'active' && l.interest_type === 'daily');
+  const typeLoans = activeSource.filter(l => l.status === 'active' && l.interest_type === collectionType);
 
-  const filteredLoans = dailyLoans.filter(l => {
+  const filteredLoans = typeLoans.filter(l => {
     if (!searchTerm) return true;
     const term = searchTerm.trim().toLowerCase();
     return (
@@ -5522,9 +5530,17 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     );
   });
 
+  const periodDue = (loan) => {
+    const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
+    if (loan.interest_type === 'daily') return monthlyInterest / 30;
+    if (loan.interest_type === 'weekly') return monthlyInterest / 4;
+    return monthlyInterest;
+  };
+  const periodLabel = { daily: '/day', weekly: '/week', monthly: '/month' }[collectionType];
+
   const updateRowField = (loanId, field, value) => {
     setSelectedRows(prev => {
-      const current = prev[loanId] || { fullPaid: false, amount: '', paymentType: 'interest' };
+      const current = prev[loanId] || { mode: null, amount: '', paymentType: 'interest' };
       return {
         ...prev,
         [loanId]: { ...current, [field]: value }
@@ -5532,19 +5548,23 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     });
   };
 
-  const handleToggleFullPaid = (loan, checked) => {
-    const totalDue = parseFloat(loan.interest_balance) > 0 
-      ? parseFloat(loan.interest_balance) 
-      : (parseFloat(loan.principal_amount) * (parseFloat(loan.interest_rate) / 100)) / 30;
+  // mode is 'full' or 'partial' — the two checkboxes are mutually exclusive.
+  const handleToggleMode = (loan, mode, checked) => {
+    const totalDue = parseFloat(loan.interest_balance) > 0
+      ? parseFloat(loan.interest_balance)
+      : periodDue(loan);
 
     setSelectedRows(prev => {
       const current = prev[loan.id] || { paymentType: 'interest' };
+      if (!checked) {
+        return { ...prev, [loan.id]: { ...current, mode: null, amount: '' } };
+      }
       return {
         ...prev,
         [loan.id]: {
           ...current,
-          fullPaid: checked,
-          amount: checked ? Math.round(totalDue).toString() : ''
+          mode,
+          amount: mode === 'full' ? Math.round(totalDue).toString() : ''
         }
       };
     });
@@ -5562,12 +5582,12 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
 
     setSubmittingIds(prev => ({ ...prev, [loan.id]: true }));
     try {
-      const idempotencyKey = `idemp_daily_${loan.id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const idempotencyKey = `idemp_${collectionType}_${loan.id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       await api.post('/payments', {
         loan_id: loan.id,
         amount: amountVal,
         payment_type: paymentType,
-        notes: `Recorded via Record Payment table`,
+        notes: `Recorded via Record Payment sheet (${collectionType})`,
         payment_method: 'cash',
         idempotency_key: idempotencyKey
       });
@@ -5599,7 +5619,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     }
 
     for (const [loanId] of activeEntries) {
-      const loan = dailyLoans.find(l => String(l.id) === String(loanId));
+      const loan = typeLoans.find(l => String(l.id) === String(loanId));
       if (loan) {
         await handleSavePaymentRow(loan);
       }
@@ -5608,151 +5628,254 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
 
   return (
     <div className="glass-card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ fontSize: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <CreditCard className="icon" style={{ color: 'var(--accent-blue)' }} /> Record Payment (Daily Collections)
+          <h3 style={{ fontSize: '22px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CreditCard className="icon" style={{ color: 'var(--accent-blue)' }} /> Record Payment
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>
-            All-in-one line daily collection sheet. Check full due or enter custom partial amounts (e.g. 200) directly on the same line.
+            Tick Full Due, or tick Partial and enter a custom amount, then Save.
           </p>
         </div>
-
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            type="text"
-            className="glass-input"
-            placeholder="Search borrower or ID..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            style={{ padding: '8px 12px', minWidth: '220px' }}
-          />
-          <button
-            type="button"
-            className="glass-btn glass-btn-emerald"
-            style={{ padding: '8px 16px', fontSize: '13px' }}
-            onClick={handleSaveAllSelected}
-          >
-            <Check className="icon" /> Save All Entered
-          </button>
-        </div>
+        <button
+          type="button"
+          className="glass-btn glass-btn-emerald"
+          style={{ padding: '8px 16px', fontSize: '13px' }}
+          onClick={handleSaveAllSelected}
+        >
+          <Check className="icon" /> Save All Entered
+        </button>
       </div>
 
-      {filteredLoans.length === 0 ? (
+      {/* Collection-type tabs */}
+      <div className="loan-file-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '16px' }}>
+        {['daily', 'weekly', 'monthly'].map(t => (
+          <button
+            key={t}
+            type="button"
+            className="loan-file-tab"
+            style={{
+              padding: '10px 18px', fontSize: '13px', fontWeight: '700', textTransform: 'capitalize', whiteSpace: 'nowrap',
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: collectionType === t ? '3px solid var(--accent-blue)' : '3px solid transparent',
+              color: collectionType === t ? 'var(--accent-blue)' : 'var(--text-secondary)'
+            }}
+            onClick={() => setCollectionType(t)}
+          >
+            {t} ({activeSource.filter(l => l.status === 'active' && l.interest_type === t).length})
+          </button>
+        ))}
+      </div>
+
+      <input
+        type="text"
+        className="glass-input"
+        placeholder="Search borrower, phone, NIC, or ID..."
+        value={searchTerm}
+        onChange={e => setSearchTerm(e.target.value)}
+        style={{ marginBottom: '16px' }}
+      />
+
+      {loadingLoans ? (
+        <SkeletonCards count={4} lines={2} />
+      ) : filteredLoans.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">
             <Search style={{ width: '28px', height: '28px' }} />
           </div>
-          <h4 className="empty-state-title">No Daily Collection Loans Found</h4>
+          <h4 className="empty-state-title">No {collectionType} Collection Loans Found</h4>
           <p className="empty-state-text">
-            {searchTerm ? `No daily collection loans match "${searchTerm}".` : 'There are no active daily collection loans currently.'}
+            {searchTerm ? `No ${collectionType} collection loans match "${searchTerm}".` : `There are no active ${collectionType} collection loans currently.`}
           </p>
         </div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="glass-table">
-            <thead>
-              <tr>
-                <th style={{ whiteSpace: 'nowrap' }}>Loan Ref ID</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Borrower Name</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Interest Due</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Full Due</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Payment Amount (LKR)</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Type</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLoans.map(loan => {
-                const totalInterestDue = parseFloat(loan.interest_balance) || 0;
-                const dailyDue = (parseFloat(loan.principal_amount) * (parseFloat(loan.interest_rate) / 100)) / 30;
-                const row = selectedRows[loan.id] || { fullPaid: false, amount: '', paymentType: 'interest' };
-                const isSubmitting = submittingIds[loan.id];
+        <>
+          {/* Desktop: compact table */}
+          <div className="desktop-only" style={{ overflowX: 'auto' }}>
+            <table className="glass-table">
+              <thead>
+                <tr>
+                  <th style={{ whiteSpace: 'nowrap' }}>Loan ID</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Name</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Due</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Full Due</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Partial</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Type</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Save</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLoans.map(loan => {
+                  const totalDue = parseFloat(loan.interest_balance) || 0;
+                  const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
+                  const isSubmitting = submittingIds[loan.id];
 
-                return (
-                  <tr key={loan.id} style={{ transition: 'background-color 0.15s ease' }}>
-                    {/* 1. Loan Ref ID */}
-                    <td style={{ whiteSpace: 'nowrap', fontWeight: 'bold' }}>
-                      <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
-                        {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
-                      </span>
-                    </td>
-
-                    {/* 2. Borrower Name */}
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <strong style={{ display: 'block', fontSize: '14px' }}>{loan.borrower_name}</strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                    </td>
-
-                    {/* 3. Due Payment */}
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <span style={{ fontWeight: 'bold', color: totalInterestDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
-                        LKR {totalInterestDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Daily: LKR {dailyDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}/day
-                      </span>
-                    </td>
-
-                    {/* 4. Full Due Checkbox */}
-                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                  return (
+                    <tr key={loan.id} style={{ transition: 'background-color 0.15s ease' }}>
+                      <td style={{ whiteSpace: 'nowrap', fontWeight: 'bold' }}>
+                        <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                          {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
+                        </span>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <strong style={{ display: 'block', fontSize: '14px' }}>{loan.borrower_name}</strong>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <span style={{ fontWeight: 'bold', color: totalDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
+                          LKR {totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}
+                        </span>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                         <input
                           type="checkbox"
-                          checked={row.fullPaid}
-                          onChange={e => handleToggleFullPaid(loan, e.target.checked)}
-                          style={{ width: '16px', height: '16px', accentColor: 'var(--accent-emerald)', cursor: 'pointer' }}
+                          checked={row.mode === 'full'}
+                          onChange={e => handleToggleMode(loan, 'full', e.target.checked)}
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--accent-emerald)', cursor: 'pointer' }}
                         />
-                        Full Due
-                      </label>
-                    </td>
-
-                    {/* 5. Custom Partial Payment Input */}
-                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <input
-                          type="number"
-                          min="1"
-                          placeholder="e.g. 200"
-                          value={row.amount}
-                          onChange={e => updateRowField(loan.id, 'amount', e.target.value)}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={row.mode === 'partial'}
+                            onChange={e => handleToggleMode(loan, 'partial', e.target.checked)}
+                            style={{ width: '18px', height: '18px', accentColor: 'var(--accent-amber)', cursor: 'pointer' }}
+                          />
+                          {row.mode === 'partial' && (
+                            <input
+                              type="number"
+                              min="1"
+                              autoFocus
+                              placeholder="e.g. 200"
+                              value={row.amount}
+                              onChange={e => updateRowField(loan.id, 'amount', e.target.value)}
+                              className="glass-input"
+                              style={{ width: '110px', padding: '6px 10px', fontSize: '14px', fontWeight: 'bold' }}
+                            />
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                        <select
+                          value={row.paymentType || 'interest'}
+                          onChange={e => updateRowField(loan.id, 'paymentType', e.target.value)}
                           className="glass-input"
-                          style={{ width: '130px', padding: '6px 10px', fontSize: '14px', fontWeight: 'bold' }}
-                        />
-                      </div>
-                    </td>
+                          style={{ padding: '6px 8px', fontSize: '12px', width: '100px' }}
+                        >
+                          <option value="interest">Interest</option>
+                          <option value="principal">Principal</option>
+                        </select>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                        <button
+                          type="button"
+                          className="glass-btn glass-btn-emerald"
+                          style={{ padding: '6px 14px', fontSize: '12px' }}
+                          onClick={() => handleSavePaymentRow(loan)}
+                          disabled={isSubmitting || !row.amount}
+                        >
+                          {isSubmitting ? 'Saving...' : 'Save'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                    {/* 6. Payment Type */}
-                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+          {/* Mobile: one compact card per loan instead of a wide table */}
+          <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {filteredLoans.map(loan => {
+              const totalDue = parseFloat(loan.interest_balance) || 0;
+              const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
+              const isSubmitting = submittingIds[loan.id];
+
+              return (
+                <div key={loan.id} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                    <div>
+                      <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '2px 7px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
+                        {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
+                      </span>
+                      <strong style={{ display: 'block', fontSize: '14px', marginTop: '4px' }}>{loan.borrower_name}</strong>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontWeight: 'bold', fontSize: '15px', color: totalDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
+                        LKR {totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                        LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-light)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={row.mode === 'full'}
+                        onChange={e => handleToggleMode(loan, 'full', e.target.checked)}
+                        style={{ width: '18px', height: '18px', accentColor: 'var(--accent-emerald)', cursor: 'pointer' }}
+                      />
+                      Full Due
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={row.mode === 'partial'}
+                        onChange={e => handleToggleMode(loan, 'partial', e.target.checked)}
+                        style={{ width: '18px', height: '18px', accentColor: 'var(--accent-amber)', cursor: 'pointer' }}
+                      />
+                      Partial
+                    </label>
+                  </div>
+
+                  {row.mode === 'partial' && (
+                    <input
+                      type="number"
+                      min="1"
+                      autoFocus
+                      placeholder="Enter partial amount, e.g. 200"
+                      value={row.amount}
+                      onChange={e => updateRowField(loan.id, 'amount', e.target.value)}
+                      className="glass-input"
+                      style={{ marginTop: '10px', fontWeight: 'bold' }}
+                    />
+                  )}
+
+                  {row.mode && (
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                       <select
                         value={row.paymentType || 'interest'}
                         onChange={e => updateRowField(loan.id, 'paymentType', e.target.value)}
                         className="glass-input"
-                        style={{ padding: '6px 8px', fontSize: '12px', width: '100px' }}
+                        style={{ flex: 1, padding: '8px 10px', fontSize: '13px' }}
                       >
                         <option value="interest">Interest</option>
                         <option value="principal">Principal</option>
                       </select>
-                    </td>
-
-                    {/* 7. Action Button */}
-                    <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <button
                         type="button"
                         className="glass-btn glass-btn-emerald"
-                        style={{ padding: '6px 14px', fontSize: '12px' }}
+                        style={{ padding: '8px 18px', fontSize: '13px', whiteSpace: 'nowrap' }}
                         onClick={() => handleSavePaymentRow(loan)}
                         disabled={isSubmitting || !row.amount}
                       >
                         {isSubmitting ? 'Saving...' : 'Save'}
                       </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

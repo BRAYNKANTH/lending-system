@@ -753,6 +753,30 @@ table.desktop-only {
   }
 }
 
+/* --- MOBILE DENSITY --- Cards and inputs use generous desktop padding
+   (36px card padding, 14px/18px input padding) that reads as "big empty
+   content" on a 375px phone screen — most of the viewport width goes to
+   whitespace instead of the actual form/content. This tightens things up
+   below the breakpoint without shrinking tap targets below a comfortable
+   size. The !important on form/gap is needed because those are set as
+   inline styles in JSX (flex gap on <form> elements); an !important rule
+   in an external stylesheet is one of the few things that can still win
+   against an inline style. */
+@media (max-width: 768px) {
+  .glass-card {
+    padding: 18px !important;
+  }
+  .kpi-card {
+    padding: 16px !important;
+  }
+  .glass-input {
+    padding: 11px 14px !important;
+  }
+  form {
+    gap: 14px !important;
+  }
+}
+
 /* Mobile responsive card list layout */
 .mobile-card-list {
   display: flex;
