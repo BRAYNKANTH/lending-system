@@ -3950,58 +3950,98 @@ export default function LendApp() {
                         );
                       }
 
+                      const sendAlert = (l) => {
+                        if (l.interest_type !== 'daily') {
+                          showToast(`Sent SMS reminder to ${l.borrower_name} (${l.borrower_phone})`);
+                        } else {
+                          showToast(`In-app alert recorded for ${l.borrower_name}. (Daily loans exclude SMS)`);
+                        }
+                      };
+
                       return (
-                        <div style={{ overflowX: 'auto' }}>
-                          <table className="glass-table">
-                            <thead>
-                              <tr>
-                                <th>Loan Ref ID</th>
-                                <th>Borrower</th>
-                                <th>Category</th>
-                                <th>Uncollected Interest</th>
-                                <th>Days Overdue</th>
-                                <th>Collector</th>
-                                <th>Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {overdueLoansList.map(l => {
-                                const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
-                                const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
-                                return (
-                                  <tr key={l.id}>
-                                    <td style={{ fontWeight: 'bold' }}>{l.reference_number || `STN-${String(l.id).padStart(3, '0')}`}</td>
-                                    <td>
-                                      <strong>{l.borrower_name}</strong>
-                                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>{l.borrower_phone}</span>
-                                    </td>
-                                    <td style={{ textTransform: 'capitalize' }}>{l.interest_type}</td>
-                                    <td style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString()}</td>
-                                    <td>
-                                      <span className="badge badge-defaulted">{diffDays} Days Overdue</span>
-                                    </td>
-                                    <td>{l.agent_name || 'Office Staff'}</td>
-                                    <td>
-                                      <button
-                                        className="glass-btn glass-btn-secondary"
-                                        style={{ padding: '6px 10px', fontSize: '12px' }}
-                                        onClick={() => {
-                                          if (l.interest_type !== 'daily') {
-                                            showToast(`Sent SMS reminder to ${l.borrower_name} (${l.borrower_phone})`);
-                                          } else {
-                                            showToast(`In-app alert recorded for ${l.borrower_name}. (Daily loans exclude SMS)`);
-                                          }
-                                        }}
-                                      >
-                                        Send Alert
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                        <>
+                          <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                            <table className="glass-table">
+                              <thead>
+                                <tr>
+                                  <th>Loan Ref ID</th>
+                                  <th>Borrower</th>
+                                  <th>Category</th>
+                                  <th>Uncollected Interest</th>
+                                  <th>Days Overdue</th>
+                                  <th>Collector</th>
+                                  <th>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {overdueLoansList.map(l => {
+                                  const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
+                                  const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
+                                  return (
+                                    <tr key={l.id}>
+                                      <td style={{ fontWeight: 'bold' }}>{l.reference_number || `STN-${String(l.id).padStart(3, '0')}`}</td>
+                                      <td>
+                                        <strong>{l.borrower_name}</strong>
+                                        <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>{l.borrower_phone}</span>
+                                      </td>
+                                      <td style={{ textTransform: 'capitalize' }}>{l.interest_type}</td>
+                                      <td style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString()}</td>
+                                      <td>
+                                        <span className="badge badge-defaulted">{diffDays} Days Overdue</span>
+                                      </td>
+                                      <td>{l.agent_name || 'Office Staff'}</td>
+                                      <td>
+                                        <button
+                                          className="glass-btn glass-btn-secondary"
+                                          style={{ padding: '6px 10px', fontSize: '12px' }}
+                                          onClick={() => sendAlert(l)}
+                                        >
+                                          Send Alert
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Mobile card view — this table's 7 columns
+                              (including an action button) previously only
+                              rendered as a cramped horizontal-scroll table
+                              on phones, same class of issue as the Next-Day
+                              Tasklist above. */}
+                          <div className="mobile-only mobile-card-list">
+                            {overdueLoansList.map(l => {
+                              const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
+                              const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
+                              return (
+                                <div key={l.id} className="mobile-row-card mobile-row-card-danger">
+                                  <div className="mobile-row-card-header">
+                                    <span className="mobile-row-card-title">{l.borrower_name}</span>
+                                    <span className="badge badge-defaulted">{diffDays}d overdue</span>
+                                  </div>
+                                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{l.borrower_phone} · {l.reference_number || `STN-${String(l.id).padStart(3, '0')}`}</span>
+                                  <div className="mobile-row-card-grid">
+                                    <span className="mobile-row-card-label">Category</span>
+                                    <span className="mobile-row-card-value" style={{ textTransform: 'capitalize' }}>{l.interest_type}</span>
+
+                                    <span className="mobile-row-card-label">Uncollected</span>
+                                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString()}</span>
+
+                                    <span className="mobile-row-card-label">Collector</span>
+                                    <span className="mobile-row-card-value">{l.agent_name || 'Office Staff'}</span>
+                                  </div>
+                                  <div className="mobile-row-card-actions">
+                                    <button className="glass-btn glass-btn-secondary" style={{ flex: '1 1 100%' }} onClick={() => sendAlert(l)}>
+                                      Send Alert
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
                       );
                     })()}
                   </div>
@@ -7434,73 +7474,130 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
           <p className="empty-state-text">No active loan collections fall under this route category for tomorrow.</p>
         </div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="glass-table">
-            <thead>
-              <tr>
-                <th>Loan Ref ID</th>
-                <th>Borrower Name</th>
-                <th>Category</th>
-                <th>Expected Collection Due</th>
-                <th>Outstanding Balance</th>
-                <th>Assigned Agent</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedList.map(loan => {
-                const expectedAmt = calcExpectedAmount(loan);
-                // Flat installment loans owe both principal and interest
-                // together, so their meaningful "balance" figure is the
-                // combined total, not just the interest_balance column
-                // every other (interest-only) loan type uses.
-                const currentBal = loan.is_flat_installment
-                  ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
-                  : parseFloat(loan.interest_balance) || 0;
+        <>
+          <div className="desktop-only" style={{ overflowX: 'auto' }}>
+            <table className="glass-table">
+              <thead>
+                <tr>
+                  <th>Loan Ref ID</th>
+                  <th>Borrower Name</th>
+                  <th>Category</th>
+                  <th>Expected Collection Due</th>
+                  <th>Outstanding Balance</th>
+                  <th>Assigned Agent</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedList.map(loan => {
+                  const expectedAmt = calcExpectedAmount(loan);
+                  // Flat installment loans owe both principal and interest
+                  // together, so their meaningful "balance" figure is the
+                  // combined total, not just the interest_balance column
+                  // every other (interest-only) loan type uses.
+                  const currentBal = loan.is_flat_installment
+                    ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
+                    : parseFloat(loan.interest_balance) || 0;
 
-                return (
-                  <tr key={loan.id}>
-                    <td style={{ whiteSpace: 'nowrap', fontWeight: 'bold' }}>
-                      <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
-                        {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
-                      </span>
-                    </td>
-                    <td>
-                      <strong style={{ display: 'block' }}>{loan.borrower_name}</strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                      {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>NIC: {loan.nic_number}</span>}
-                    </td>
-                    <td style={{ textTransform: 'capitalize' }}>
-                      <span className={`badge ${loan.interest_type === 'daily' ? 'badge-active' : 'badge-pending'}`}>
-                        {loan.interest_type} collection{loan.is_flat_installment ? ' (flat)' : ''}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 'bold', color: 'var(--accent-emerald)' }}>
-                      LKR {Math.round(expectedAmt).toLocaleString()}
-                    </td>
-                    <td style={{ fontWeight: 'bold', color: currentBal > 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>
-                      LKR {currentBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </td>
-                    <td>{loan.agent_name || 'Office Collector'}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="glass-btn glass-btn-emerald"
-                        style={{ padding: '6px 12px', fontSize: '12px' }}
-                        onClick={() => {
-                          if (onNavigateRecordPayment) onNavigateRecordPayment(loan);
-                          else if (onSelectLoan) onSelectLoan(loan.id);
-                        }}
-                      >
-                        Record Payment
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  return (
+                    <tr key={loan.id}>
+                      <td style={{ whiteSpace: 'nowrap', fontWeight: 'bold' }}>
+                        <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                          {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
+                        </span>
+                      </td>
+                      <td>
+                        <strong style={{ display: 'block' }}>{loan.borrower_name}</strong>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                        {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>NIC: {loan.nic_number}</span>}
+                      </td>
+                      <td style={{ textTransform: 'capitalize' }}>
+                        <span className={`badge ${loan.interest_type === 'daily' ? 'badge-active' : 'badge-pending'}`}>
+                          {loan.interest_type} collection{loan.is_flat_installment ? ' (flat)' : ''}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 'bold', color: 'var(--accent-emerald)' }}>
+                        LKR {Math.round(expectedAmt).toLocaleString()}
+                      </td>
+                      <td style={{ fontWeight: 'bold', color: currentBal > 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>
+                        LKR {currentBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </td>
+                      <td>{loan.agent_name || 'Office Collector'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="glass-btn glass-btn-emerald"
+                          style={{ padding: '6px 12px', fontSize: '12px' }}
+                          onClick={() => {
+                            if (onNavigateRecordPayment) onNavigateRecordPayment(loan);
+                            else if (onSelectLoan) onSelectLoan(loan.id);
+                          }}
+                        >
+                          Record Payment
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile card view — the 7-column table above was previously the
+              ONLY rendering on every screen size: on a 375px phone it forced
+              923px of table into a ~305px-wide scroll container (618px of
+              required horizontal scroll), pushing the Category, Balance,
+              Agent, and — critically — the "Record Payment" action button
+              off-screen by default for this field-agent route-planning
+              screen. Mirrors the .mobile-row-card pattern used everywhere
+              else lists appear in the app. */}
+          <div className="mobile-only mobile-card-list">
+            {displayedList.map(loan => {
+              const expectedAmt = calcExpectedAmount(loan);
+              const currentBal = loan.is_flat_installment
+                ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
+                : parseFloat(loan.interest_balance) || 0;
+
+              return (
+                <div key={loan.id} className="mobile-row-card">
+                  <div className="mobile-row-card-header">
+                    <span className="mobile-row-card-title">{loan.borrower_name}</span>
+                    <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+                      {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                  <span className={`badge ${loan.interest_type === 'daily' ? 'badge-active' : 'badge-pending'}`} style={{ textTransform: 'capitalize', alignSelf: 'flex-start' }}>
+                    {loan.interest_type} collection{loan.is_flat_installment ? ' (flat)' : ''}
+                  </span>
+                  <div className="mobile-row-card-grid">
+                    <span className="mobile-row-card-label">Expected Due</span>
+                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)' }}>LKR {Math.round(expectedAmt).toLocaleString()}</span>
+
+                    <span className="mobile-row-card-label">Balance</span>
+                    <span className="mobile-row-card-value" style={{ color: currentBal > 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>LKR {currentBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+
+                    <span className="mobile-row-card-label">Agent</span>
+                    <span className="mobile-row-card-value">{loan.agent_name || 'Office Collector'}</span>
+                  </div>
+                  <div className="mobile-row-card-actions">
+                    <button
+                      type="button"
+                      className="glass-btn glass-btn-emerald"
+                      style={{ flex: '1 1 100%' }}
+                      onClick={() => {
+                        if (onNavigateRecordPayment) onNavigateRecordPayment(loan);
+                        else if (onSelectLoan) onSelectLoan(loan.id);
+                      }}
+                    >
+                      Record Payment
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

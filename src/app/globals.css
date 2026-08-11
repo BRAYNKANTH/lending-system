@@ -617,8 +617,12 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
 
 
   .responsive-grid-2-col {
-    grid-template-columns: 1fr;
-    gap: 24px;
+    /* !important: the Interest Accrual Center panel duplicates this same
+       column value inline (gridTemplateColumns: '1fr 1fr'), which silently
+       cancels this collapse rule without it — see the .form-grid-3-col
+       comment above for the general pattern. */
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
   }
   .responsive-grid-equal-2-col {
     grid-template-columns: 1fr 1fr;
@@ -690,20 +694,29 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
 }
 
 @media (max-width: 768px) {
+  /* !important is required here: every call site pairs this class with an
+     inline `style={{ gridTemplateColumns: '1fr 1fr' }}` that's fully
+     redundant with this class's own base rule (copy-paste before the
+     shared class existed) — but inline styles always beat an external
+     class selector on the same property, media query or not. Without
+     !important, this rule silently never applied and the mobile 1-column
+     collapse below never fired on ANY phone, on any of the ~13 places this
+     class is used across the loan-creation wizard and guarantor forms —
+     regardless of what the media query said. */
   .form-grid-3-col {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr !important;
   }
 }
 
 @media (max-width: 480px) {
   .form-grid-2-col {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
   }
 
   .form-grid-3-col {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
   }
 
   .glass-btn {
@@ -1876,6 +1889,19 @@ table.desktop-only {
   margin-bottom: 16px;
 }
 
+/* Scroll-affordance fade for horizontally-scrollable tab bars — mobile
+   only (see @media (max-width: 768px) block below). Both .subtab-pill-bar
+   (ticket/loan-statement sub-tabs) and .loan-file-tabs (Passbook &
+   Payments / Borrower Profile / Guarantor Info / Manage Loan, and the
+   equivalent 4-tab bar on the Users & Cash screen) genuinely scroll — but
+   on a phone-width screen, 2 of their 4 tabs land fully off-screen with
+   nothing to hint more content exists off to the right (no partial peek
+   of the next tab, no visible scrollbar on touch devices). A right-edge
+   fade is a persistent, CSS-only "there's more" cue that needs no
+   scroll-position JS to keep in sync. Scoped to mobile because on desktop
+   these tab bars already fit their full width with nothing to scroll to —
+   fading the last (fully visible) tab there would be a pure regression. */
+
 .subtab-pill {
   padding: 8px 16px;
   border-radius: 9999px;
@@ -2016,6 +2042,22 @@ table.desktop-only {
 
   .wizard-step-title {
     font-size: 11px;
+  }
+
+  .subtab-pill-bar,
+  .loan-file-tabs {
+    mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+  }
+
+  /* Phone/WhatsApp quick-contact icons sit inline next to dense borrower
+     text in mobile cards at 28x28px — under any comfortable touch-target
+     floor and an easy mis-tap next to adjacent text on a phone. Desktop
+     keeps the compact 28px sizing (mouse precision, denser layout is
+     fine there). */
+  .quick-contact-btn {
+    width: 36px;
+    height: 36px;
   }
 }
 
