@@ -1669,7 +1669,7 @@ export default function LendApp() {
             </div>
 
             <div className="receipt-amount-box">
-              <div className="receipt-amount-label">{selectedReceipt.payment_type === 'principal' ? 'Principal Payment' : 'Interest Payment'} Collected</div>
+              <div className="receipt-amount-label">{selectedReceipt.payment_type === 'principal' ? 'Principal Payment' : selectedReceipt.payment_type === 'flat_installment' ? 'Installment Payment' : 'Interest Payment'} Collected</div>
               <div className="receipt-amount-val">LKR {selectedReceipt.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
             </div>
 
@@ -5184,37 +5184,78 @@ export default function LendApp() {
           // schedule the loan no longer follows — so they're excluded from
           // this loan's activity log entirely.
           const relevantAccruals = loanStatement.loan.is_flat_installment ? [] : loanStatement.accruals;
+          // Every event carries an explicit principalDelta/interestDelta
+          // pair rather than one bucket + a signed amount — needed because
+          // a flat-installment payment moves BOTH balances in the same
+          // cash collection (it bundles principal+interest into one daily
+          // amount), which a single bucket can't represent. Splitting by
+          // p.principal_component/interest_component here mirrors exactly
+          // what the ledger itself posted for that transaction (see
+          // recordFlatInstallmentCollection in src/lib/services/ledger.js)
+          // — previously the whole payment fell into the 'interest' bucket
+          // only, leaving Principal Bal frozen at the original amount and
+          // Interest Bal drifting deeply negative with every collection.
+          //
+          // Flat-installment loans also need their interest bucket SEEDED
+          // at disbursement, same as the principal bucket — non-flat loans
+          // build their interest balance up gradually through "Interest
+          // Added" accrual events over time, but flat loans have none of
+          // those (the whole term's interest is fixed up front, bundled
+          // into the daily rate), so without this the interest bucket
+          // would start at 0 and every payment would just push it further
+          // negative. daily_installment_amount × duration − principal is
+          // exactly how the loan's interest_balance was set at creation.
+          const flatTotalInterest = loanStatement.loan.is_flat_installment
+            ? (parseFloat(loanStatement.loan.daily_installment_amount) || 0) * (parseFloat(loanStatement.loan.duration_periods) || 0) - (parseFloat(loanStatement.loan.principal_amount) || 0)
+            : 0;
           const events = [
             {
               date: loanStatement.loan.created_at,
               type: 'Loan Disbursed',
               amount: parseFloat(loanStatement.loan.principal_amount),
-              bucket: 'principal',
-              change: 'increase',
-              details: 'Initial principal loan amount'
+              principalDelta: parseFloat(loanStatement.loan.principal_amount),
+              interestDelta: flatTotalInterest,
+              details: loanStatement.loan.is_flat_installment
+                ? `Initial principal loan amount (plus LKR ${flatTotalInterest.toLocaleString(undefined, { minimumFractionDigits: 2 })} total interest for the full term, fixed at disbursement)`
+                : 'Initial principal loan amount'
             },
             ...relevantAccruals.map(acc => ({
               date: acc.created_at,
               type: 'Interest Added',
               amount: parseFloat(acc.amount_accrued),
-              bucket: 'interest',
-              change: 'increase',
+              principalDelta: 0,
+              interestDelta: parseFloat(acc.amount_accrued),
               details: `Interest charged (${acc.calculation_log.split('|')[1]?.trim() || ''})`
             })),
-            ...loanStatement.payments.map(p => ({
-              date: p.payment_date,
-              type: p.payment_type === 'principal' ? 'Principal Payment' : 'Interest Payment',
-              amount: parseFloat(p.amount),
-              bucket: p.payment_type === 'principal' ? 'principal' : 'interest',
-              change: 'decrease',
-              details: `Cash collected by ${p.agent_name} ${p.notes ? ` - "${p.notes}"` : ''}`
-            })),
+            ...loanStatement.payments.map(p => {
+              const amt = parseFloat(p.amount);
+              let principalDelta = 0, interestDelta = 0, type;
+              if (p.payment_type === 'flat_installment') {
+                principalDelta = -(parseFloat(p.principal_component) || 0);
+                interestDelta = -(parseFloat(p.interest_component) || 0);
+                type = 'Installment Payment';
+              } else if (p.payment_type === 'principal') {
+                principalDelta = -amt;
+                type = 'Principal Payment';
+              } else {
+                interestDelta = -amt;
+                type = 'Interest Payment';
+              }
+              return {
+                date: p.payment_date,
+                type,
+                amount: amt,
+                principalDelta,
+                interestDelta,
+                details: `Cash collected by ${p.agent_name} ${p.notes ? ` - "${p.notes}"` : ''}`
+              };
+            }),
             ...loanStatement.ledger.filter(l => l.account === 'penalty_revenue').map(l => ({
               date: l.created_at,
               type: 'Penalty Applied',
               amount: parseFloat(l.amount),
-              bucket: 'interest',
-              change: 'increase',
+              principalDelta: 0,
+              interestDelta: parseFloat(l.amount),
               details: 'Manual late fee / penalty charged by admin'
             }))
           ];
@@ -5222,17 +5263,24 @@ export default function LendApp() {
           // Sort chronologically (oldest first)
           events.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-          // Compute the two running balances in parallel
+          // Compute the two running balances in parallel. 'change' (used
+          // just for the increase/decrease badge color and +/- sign) is
+          // derived from the net direction of both deltas together — for
+          // every event type except flat-installment payments this is the
+          // same single-bucket direction as before; for flat-installment
+          // payments both deltas point the same way (a collection), so the
+          // net is unambiguous too.
           let principalBal = 0;
           let interestBal = 0;
           const eventsWithBalance = events.map(ev => {
-            const delta = ev.change === 'increase' ? ev.amount : -ev.amount;
-            if (ev.bucket === 'principal') {
-              principalBal += delta;
-            } else {
-              interestBal += delta;
-            }
-            return { ...ev, runningPrincipalBalance: principalBal, runningInterestBalance: interestBal };
+            principalBal += ev.principalDelta;
+            interestBal += ev.interestDelta;
+            return {
+              ...ev,
+              change: (ev.principalDelta + ev.interestDelta) >= 0 ? 'increase' : 'decrease',
+              runningPrincipalBalance: principalBal,
+              runningInterestBalance: interestBal
+            };
           });
 
           // Reverse chronological for list rendering (newest first)
@@ -6120,37 +6168,66 @@ export default function LendApp() {
           // forward, so any that exist here are pre-conversion leftovers
           // and are excluded from this loan's activity log.
           const relevantAccruals = loanStatement.loan.is_flat_installment ? [] : loanStatement.accruals;
+          // See the matching principalDelta/interestDelta comment in the
+          // 'ledger' view above — a flat-installment payment moves both
+          // balances in one collection, which the old single-bucket shape
+          // couldn't represent (it silently froze Principal Bal and drove
+          // Interest Bal deeply negative for every flat-installment loan).
+          // Also seeds the interest bucket at disbursement for flat loans
+          // (they never get "Interest Added" accrual events to build it up
+          // gradually the way non-flat loans do) — see the same seeding
+          // comment in the 'ledger' view above.
+          const flatTotalInterest = loanStatement.loan.is_flat_installment
+            ? (parseFloat(loanStatement.loan.daily_installment_amount) || 0) * (parseFloat(loanStatement.loan.duration_periods) || 0) - (parseFloat(loanStatement.loan.principal_amount) || 0)
+            : 0;
           const events = [
             {
               date: loanStatement.loan.created_at,
               type: 'Loan Disbursed',
               amount: parseFloat(loanStatement.loan.principal_amount),
-              bucket: 'principal',
-              change: 'increase',
-              details: 'Initial principal loan amount'
+              principalDelta: parseFloat(loanStatement.loan.principal_amount),
+              interestDelta: flatTotalInterest,
+              details: loanStatement.loan.is_flat_installment
+                ? `Initial principal loan amount (plus LKR ${flatTotalInterest.toLocaleString(undefined, { minimumFractionDigits: 2 })} total interest for the full term, fixed at disbursement)`
+                : 'Initial principal loan amount'
             },
             ...relevantAccruals.map(acc => ({
               date: acc.created_at,
               type: 'Interest Added',
               amount: parseFloat(acc.amount_accrued),
-              bucket: 'interest',
-              change: 'increase',
+              principalDelta: 0,
+              interestDelta: parseFloat(acc.amount_accrued),
               details: acc.calculation_log
             })),
-            ...loanStatement.payments.map(p => ({
-              date: p.payment_date,
-              type: p.payment_type === 'principal' ? 'Principal Payment' : 'Interest Payment',
-              amount: parseFloat(p.amount),
-              bucket: p.payment_type === 'principal' ? 'principal' : 'interest',
-              change: 'decrease',
-              details: `Cash collected by ${p.agent_name} ${p.notes ? ` - "${p.notes}"` : ''}`
-            })),
+            ...loanStatement.payments.map(p => {
+              const amt = parseFloat(p.amount);
+              let principalDelta = 0, interestDelta = 0, type;
+              if (p.payment_type === 'flat_installment') {
+                principalDelta = -(parseFloat(p.principal_component) || 0);
+                interestDelta = -(parseFloat(p.interest_component) || 0);
+                type = 'Installment Payment';
+              } else if (p.payment_type === 'principal') {
+                principalDelta = -amt;
+                type = 'Principal Payment';
+              } else {
+                interestDelta = -amt;
+                type = 'Interest Payment';
+              }
+              return {
+                date: p.payment_date,
+                type,
+                amount: amt,
+                principalDelta,
+                interestDelta,
+                details: `Cash collected by ${p.agent_name} ${p.notes ? ` - "${p.notes}"` : ''}`
+              };
+            }),
             ...loanStatement.ledger.filter(l => l.account === 'penalty_revenue').map(l => ({
               date: l.created_at,
               type: 'Penalty Applied',
               amount: parseFloat(l.amount),
-              bucket: 'interest',
-              change: 'increase',
+              principalDelta: 0,
+              interestDelta: parseFloat(l.amount),
               details: 'Manual late fee / penalty charged by admin'
             }))
           ];
@@ -6160,13 +6237,14 @@ export default function LendApp() {
           let principalBal = 0;
           let interestBal = 0;
           const displayEvents = events.map(ev => {
-            const delta = ev.change === 'increase' ? ev.amount : -ev.amount;
-            if (ev.bucket === 'principal') {
-              principalBal += delta;
-            } else {
-              interestBal += delta;
-            }
-            return { ...ev, runningPrincipalBalance: principalBal, runningInterestBalance: interestBal };
+            principalBal += ev.principalDelta;
+            interestBal += ev.interestDelta;
+            return {
+              ...ev,
+              change: (ev.principalDelta + ev.interestDelta) >= 0 ? 'increase' : 'decrease',
+              runningPrincipalBalance: principalBal,
+              runningInterestBalance: interestBal
+            };
           });
 
           return (
