@@ -873,7 +873,9 @@ export default function LendApp() {
       } else {
         setView('portal');
       }
-      showToast(`Welcome back, ${data.user.name}!`);
+      // Deliberately no toast here — landing on the dashboard/portal IS the
+      // confirmation that login worked. A popup on top of that just adds
+      // noise the user has to dismiss every single time they sign in.
       if (data.user.mustChangePassword) {
         setShowChangePassword(true);
       }
