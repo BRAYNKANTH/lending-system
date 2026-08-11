@@ -15,15 +15,24 @@ import {
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('lend_user')));
-  // Only these top-level destinations are safe to restore after a reload —
-  // they fetch their own data from scratch via token/user alone. Deeper
-  // views (a specific loan's statement, mid-wizard loan creation, etc.)
-  // depend on other in-memory state (selectedLoanId, loanStatement, wizard
-  // form fields...) that reload can't recover, so landing back on one of
-  // those with nothing behind it would show a stuck spinner or a half-
-  // filled form instead of actually helping — better to fall back to a
-  // known-good screen than to a broken one.
-  const RESTORABLE_VIEWS = ['dashboard', 'portal', 'ticket-dashboard'];
+  // Every top-level destination reachable from the nav/bottom-bar that
+  // fetches its own data from scratch off of token/user alone — safe to
+  // restore after a reload. Excludes only views tied to a specific
+  // selected record (a specific loan's statement — 'ledger',
+  // 'passbook-details' — or a specific ticket) since those depend on
+  // other in-memory state (selectedLoanId, loanStatement...) that reload
+  // can't recover; landing back on one of those with nothing behind it
+  // would show a stuck spinner instead of actually helping. This
+  // originally only listed dashboard/portal/ticket-dashboard, which
+  // meant refreshing from any actual work screen — Check Loans, Record
+  // Payment, Agent Route, Interest Center, Payment History, Audit Log —
+  // dropped straight back to the dashboard.
+  const RESTORABLE_VIEWS = [
+    'dashboard', 'portal', 'ticket-dashboard',
+    'create-loan', 'next-day-tasklist', 'record-payment',
+    'loans', 'agents', 'interest-center', 'payment-history',
+    'audit-log', 'admin-tools'
+  ];
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined') {
       const storedUser = localStorage.getItem('lend_user');
@@ -51,7 +60,21 @@ export default function LendApp() {
     return 'dashboard';
   });
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'loans', 'agents'
-  const [agentSubView, setAgentSubView] = useState('collect'); // 'collect', 'history'
+  // An agent's day-to-day work happens almost entirely inside view ===
+  // 'dashboard' via this sub-view (agents don't switch top-level views the
+  // way admins do — see the agentSubView nav buttons) — so this needs the
+  // same reload-survival treatment as `view` above, or an agent
+  // refreshing/resuming the PWA mid-collection-round would land back on
+  // the generic 'collect' tab every time.
+  const [agentSubView, setAgentSubView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('lend_agent_subview');
+      if (saved && ['collect', 'next-day-tasklist', 'record-payment', 'history', 'remit'].includes(saved)) {
+        return saved;
+      }
+    }
+    return 'collect';
+  }); // 'collect', 'next-day-tasklist', 'record-payment', 'history', 'remit'
   const [agentCustomerTab, setAgentCustomerTab] = useState('active'); // 'active', 'defaulted', 'closed'
   const [agentCollectMobileTab, setAgentCollectMobileTab] = useState('form'); // mobile-only: 'form', 'customers'
   const [passbookMobileTab, setPassbookMobileTab] = useState('record'); // mobile-only: 'record', 'activity', 'receipts', 'accruals'
@@ -268,6 +291,12 @@ export default function LendApp() {
       sessionStorage.setItem('lend_view', view);
     }
   }, [view]);
+
+  // Same reasoning as the view-persistence effect above, for the agent
+  // sub-navigation (see agentSubView's own comment).
+  useEffect(() => {
+    sessionStorage.setItem('lend_agent_subview', agentSubView);
+  }, [agentSubView]);
 
   // Remember the in-progress login phone number (never the password) so
   // typing it and then getting interrupted — switching apps, the PWA
@@ -946,6 +975,7 @@ export default function LendApp() {
     localStorage.removeItem('lend_token');
     localStorage.removeItem('lend_user');
     sessionStorage.removeItem('lend_view');
+    sessionStorage.removeItem('lend_agent_subview');
     setToken(null);
     setUser(null);
     setAdminData(null);
