@@ -117,12 +117,19 @@ export async function downloadLoanAgreementPdf(loanStatement) {
   y += introLines.length * 14 + 18;
 
   // --- Key facts box ---
-  const facts = [
-    ['Principal Amount', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`],
-    ['Interest Rate', `${loan.interest_rate}%`],
-    ['Collection Frequency', loan.interest_type === 'daily' ? 'Daily' : loan.interest_type === 'weekly' ? 'Weekly' : 'Monthly'],
-    ['Loan Term', loan.collection_mode === 'fixed_term' ? `Fixed Term (${loan.duration_periods || '-'} periods)` : 'Open-Ended'],
-  ];
+  const facts = loan.is_flat_installment
+    ? [
+        ['Principal Amount', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`],
+        ['Daily Installment', `LKR ${parseFloat(loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`],
+        ['Collection Frequency', 'Daily (Flat Installment)'],
+        ['Loan Term', `${loan.duration_periods || '-'} days`],
+      ]
+    : [
+        ['Principal Amount', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`],
+        ['Interest Rate', `${loan.interest_rate}%`],
+        ['Collection Frequency', loan.interest_type === 'daily' ? 'Daily' : loan.interest_type === 'weekly' ? 'Weekly' : 'Monthly'],
+        ['Loan Term', loan.collection_mode === 'fixed_term' ? `Fixed Term (${loan.duration_periods || '-'} periods)` : 'Open-Ended'],
+      ];
   const boxHeight = Math.ceil(facts.length / 2) * 24 + 20;
   ensureSpace(boxHeight + 10);
   doc.setFillColor(...COLORS.boxBg);
@@ -169,10 +176,22 @@ export async function downloadLoanAgreementPdf(loanStatement) {
     `The Lender agrees to give the Borrower a loan of LKR ${parseFloat(loan.principal_amount).toLocaleString()}.`
   );
 
-  addClause(
-    'Interest & Repayment',
-    `Interest is charged at ${loan.interest_rate}% of the principal, payable every ${loan.interest_type === 'daily' ? 'day' : loan.interest_type === 'weekly' ? 'week' : 'month'}. The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered settled once the full principal of LKR ${parseFloat(loan.principal_amount).toLocaleString()} has been repaid, regardless of the interest payment schedule.`
-  );
+  if (loan.is_flat_installment) {
+    const dailyAmt = parseFloat(loan.daily_installment_amount || 0);
+    const durationDays = loan.duration_periods || 0;
+    const numMonths = durationDays ? Math.round(durationDays / 31) : 0;
+    const nominalDays = durationDays - numMonths;
+    const totalRepayable = dailyAmt * durationDays;
+    addClause(
+      'Daily Installment & Repayment',
+      `A flat daily installment of LKR ${dailyAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (covering both principal and interest together) is payable each day, starting on the date of disbursement, for a total of ${durationDays} collection days (${nominalDays} nominal days at ${loan.interest_rate}% per month over ${numMonths} month(s), plus ${durationDays - nominalDays} additional collection day(s) charged at the same daily rate). The total amount repayable over the full term is LKR ${totalRepayable.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. The loan is considered fully settled once all ${durationDays} days' installments have been paid in full.`
+    );
+  } else {
+    addClause(
+      'Interest & Repayment',
+      `Interest is charged at ${loan.interest_rate}% of the principal, payable every ${loan.interest_type === 'daily' ? 'day' : loan.interest_type === 'weekly' ? 'week' : 'month'}. The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered settled once the full principal of LKR ${parseFloat(loan.principal_amount).toLocaleString()} has been repaid, regardless of the interest payment schedule.`
+    );
+  }
 
   if (loan.loan_purpose) {
     addClause('Purpose of Loan', loan.loan_purpose);

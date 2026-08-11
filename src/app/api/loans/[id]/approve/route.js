@@ -69,7 +69,10 @@ export async function POST(request, { params }) {
       principal: result.principal_amount,
       interestType: result.interest_type,
       rate: result.interest_rate,
-      submittedBy: submittedBy?.role === 'agent' ? submittedBy : null
+      submittedBy: submittedBy?.role === 'agent' ? submittedBy : null,
+      isFlatInstallment: result.is_flat_installment,
+      dailyInstallmentAmount: result.daily_installment_amount,
+      durationPeriods: result.duration_periods
     }).catch((err) => console.error('Notification failed:', err));
 
     return NextResponse.json({ message: 'Loan application approved and disbursed.' });

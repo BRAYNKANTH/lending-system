@@ -49,17 +49,26 @@ export async function notifyPasswordReset({ user, tempPassword }) {
 /**
  * Triggers alerts for loan creation.
  */
-export async function notifyLoanCreation({ borrower, principal, interestType, rate }) {
-  const monthlyInterest = Number(principal) * (Number(rate) / 100);
-  let calculatedInterest = monthlyInterest;
-  if (interestType === 'daily') {
-    calculatedInterest = monthlyInterest / 30;
-  } else if (interestType === 'weekly') {
-    calculatedInterest = monthlyInterest / 4;
-  }
+export async function notifyLoanCreation({ borrower, principal, interestType, rate, isFlatInstallment, dailyInstallmentAmount, durationPeriods }) {
+  let borrowerMsg;
+  if (isFlatInstallment) {
+    // Flat Daily Installment loans (Daily + Fixed Term) collect a fixed
+    // principal+interest bundle each day, starting today, for the full
+    // entered duration — not a plain per-period interest figure.
+    const totalRepayable = Number(dailyInstallmentAmount) * Number(durationPeriods);
+    borrowerMsg = `Dear ${borrower.name}, you have successfully got a loan of Rs. ${Number(principal).toLocaleString()}. Your daily installment (principal + interest) is Rs. ${Number(dailyInstallmentAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, payable every day for ${durationPeriods} days starting today. Total repayable: Rs. ${totalRepayable.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
+  } else {
+    const monthlyInterest = Number(principal) * (Number(rate) / 100);
+    let calculatedInterest = monthlyInterest;
+    if (interestType === 'daily') {
+      calculatedInterest = monthlyInterest / 30;
+    } else if (interestType === 'weekly') {
+      calculatedInterest = monthlyInterest / 4;
+    }
 
-  const frequencyText = interestType.toLowerCase(); // 'daily', 'weekly', 'monthly'
-  const borrowerMsg = `Dear ${borrower.name}, you have successfully got a loan of Rs. ${Number(principal).toLocaleString()} at monthly rate ${rate}%. Your ${frequencyText} collection amount is Rs. ${calculatedInterest.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
+    const frequencyText = interestType.toLowerCase(); // 'daily', 'weekly', 'monthly'
+    borrowerMsg = `Dear ${borrower.name}, you have successfully got a loan of Rs. ${Number(principal).toLocaleString()} at monthly rate ${rate}%. Your ${frequencyText} collection amount is Rs. ${calculatedInterest.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
+  }
 
   await sendNotification({
     recipientName: borrower.name,
@@ -86,8 +95,8 @@ export async function notifyLoanPendingApproval({ admin, borrower, principal, su
  * Alerts the borrower (loan now real) and the submitting agent when an
  * admin approves a pending loan application.
  */
-export async function notifyLoanApplicationApproved({ borrower, principal, interestType, rate, submittedBy }) {
-  await notifyLoanCreation({ borrower, principal, interestType, rate });
+export async function notifyLoanApplicationApproved({ borrower, principal, interestType, rate, submittedBy, isFlatInstallment, dailyInstallmentAmount, durationPeriods }) {
+  await notifyLoanCreation({ borrower, principal, interestType, rate, isFlatInstallment, dailyInstallmentAmount, durationPeriods });
 
   if (submittedBy) {
     await sendNotification({

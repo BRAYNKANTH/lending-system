@@ -1840,13 +1840,22 @@ export default function LendApp() {
             <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>1. Loan Amount</h4>
             <p style={{ fontSize: '14px' }}>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>.</p>
 
-            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>2. Interest & Repayment</h4>
-            <p style={{ fontSize: '14px' }}>
-              Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
-              The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
-              settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
-              interest payment schedule.
-            </p>
+            <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>2. {loanStatement.loan.is_flat_installment ? 'Daily Installment & Repayment' : 'Interest & Repayment'}</h4>
+            {loanStatement.loan.is_flat_installment ? (
+              <p style={{ fontSize: '14px' }}>
+                A flat daily installment of <strong>LKR {parseFloat(loanStatement.loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> (covering both principal and interest together)
+                is payable each day, starting on the date of disbursement, for a total of <strong>{loanStatement.loan.duration_periods || 0} collection days</strong>.
+                The total amount repayable over the full term is <strong>LKR {(parseFloat(loanStatement.loan.daily_installment_amount || 0) * (loanStatement.loan.duration_periods || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.
+                The loan is considered fully settled once all {loanStatement.loan.duration_periods || 0} days' installments have been paid in full.
+              </p>
+            ) : (
+              <p style={{ fontSize: '14px' }}>
+                Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
+                The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
+                settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
+                interest payment schedule.
+              </p>
+            )}
 
             {loanStatement.loan.loan_purpose && (
               <>
@@ -1902,14 +1911,23 @@ export default function LendApp() {
           <h2>1. Loan Amount</h2>
           <p>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>.</p>
 
-          <h2>2. Interest & Repayment</h2>
-          <p>
-            Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every{' '}
-            <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
-            The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
-            settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
-            interest payment schedule.
-          </p>
+          <h2>2. {loanStatement.loan.is_flat_installment ? 'Daily Installment & Repayment' : 'Interest & Repayment'}</h2>
+          {loanStatement.loan.is_flat_installment ? (
+            <p>
+              A flat daily installment of <strong>LKR {parseFloat(loanStatement.loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> (covering both principal and interest together)
+              is payable each day, starting on the date of disbursement, for a total of <strong>{loanStatement.loan.duration_periods || 0} collection days</strong>.
+              The total amount repayable over the full term is <strong>LKR {(parseFloat(loanStatement.loan.daily_installment_amount || 0) * (loanStatement.loan.duration_periods || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.
+              The loan is considered fully settled once all {loanStatement.loan.duration_periods || 0} days' installments have been paid in full.
+            </p>
+          ) : (
+            <p>
+              Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every{' '}
+              <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
+              The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
+              settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
+              interest payment schedule.
+            </p>
+          )}
 
           {loanStatement.loan.loan_purpose && (
             <>
@@ -7289,6 +7307,11 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
   });
 
   const calcExpectedAmount = (l) => {
+    // Flat Daily Installment loans (Daily + Fixed Term) collect a fixed
+    // principal+interest bundle each day, set once at loan creation — not
+    // the old interest-only-per-period formula every other loan type uses.
+    if (l.is_flat_installment) return parseFloat(l.daily_installment_amount) || 0;
+
     const principal = parseFloat(l.principal_amount) || 0;
     const rate = parseFloat(l.interest_rate) || 0;
     const monthlyInterest = (principal * rate) / 100;
@@ -7418,8 +7441,8 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                 <th>Loan Ref ID</th>
                 <th>Borrower Name</th>
                 <th>Category</th>
-                <th>Expected Interest Due</th>
-                <th>Current Interest Balance</th>
+                <th>Expected Collection Due</th>
+                <th>Outstanding Balance</th>
                 <th>Assigned Agent</th>
                 <th>Action</th>
               </tr>
@@ -7427,7 +7450,13 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
             <tbody>
               {displayedList.map(loan => {
                 const expectedAmt = calcExpectedAmount(loan);
-                const currentBal = parseFloat(loan.interest_balance) || 0;
+                // Flat installment loans owe both principal and interest
+                // together, so their meaningful "balance" figure is the
+                // combined total, not just the interest_balance column
+                // every other (interest-only) loan type uses.
+                const currentBal = loan.is_flat_installment
+                  ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
+                  : parseFloat(loan.interest_balance) || 0;
 
                 return (
                   <tr key={loan.id}>
@@ -7443,7 +7472,7 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                     </td>
                     <td style={{ textTransform: 'capitalize' }}>
                       <span className={`badge ${loan.interest_type === 'daily' ? 'badge-active' : 'badge-pending'}`}>
-                        {loan.interest_type} collection
+                        {loan.interest_type} collection{loan.is_flat_installment ? ' (flat)' : ''}
                       </span>
                     </td>
                     <td style={{ fontWeight: 'bold', color: 'var(--accent-emerald)' }}>

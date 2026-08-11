@@ -403,8 +403,15 @@ export async function POST(request) {
         notifyLoanPendingApproval({ admin, borrower, principal, submittedByName: authUser.name })
       )).catch((err) => console.error('Failed to dispatch notification:', err));
     } else {
-      notifyLoanCreation({ borrower, principal, interestType: interest_type, rate })
-        .catch((err) => console.error('Failed to dispatch notification:', err));
+      notifyLoanCreation({
+        borrower,
+        principal,
+        interestType: interest_type,
+        rate,
+        isFlatInstallment,
+        dailyInstallmentAmount,
+        durationPeriods: periods
+      }).catch((err) => console.error('Failed to dispatch notification:', err));
     }
 
     return NextResponse.json({

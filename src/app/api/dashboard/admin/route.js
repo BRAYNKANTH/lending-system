@@ -68,7 +68,7 @@ export async function GET(request) {
         .orderBy('interest_accruals.created_at', 'desc')
         .limit(10),
       db('remittances').where('status', 'verified').sum('amount as total'),
-      db('loans').where({ status: 'active' }).select('id', 'principal_amount', 'interest_rate', 'interest_type', 'created_at', 'last_accrual_date', 'interest_balance'),
+      db('loans').where({ status: 'active' }).select('id', 'principal_amount', 'interest_rate', 'interest_type', 'created_at', 'last_accrual_date', 'interest_balance', 'principal_outstanding', 'is_flat_installment', 'daily_installment_amount'),
       db('loans')
         .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
         .leftJoin('users as agents', 'loans.lender_id', 'agents.id')
@@ -92,22 +92,34 @@ export async function GET(request) {
     let expectedTodayTarget = 0;
     let totalOverdueAmount = 0;
     (activeLoansList || []).forEach(l => {
-      const p = parseFloat(l.principal_amount) || 0;
-      const r = parseFloat(l.interest_rate) || 0;
-      const totalPeriodInterest = (p * r) / 100;
-      
-      if (l.interest_type === 'daily') {
-        expectedTodayTarget += (totalPeriodInterest / 30);
-      } else if (l.interest_type === 'weekly') {
-        expectedTodayTarget += (totalPeriodInterest / 4);
+      if (l.is_flat_installment) {
+        // Flat installment loans owe a fixed principal+interest bundle each
+        // day (set at creation), not the old interest-only-per-period
+        // formula below — see recordFlatInstallmentCollection in ledger.js.
+        expectedTodayTarget += parseFloat(l.daily_installment_amount) || 0;
       } else {
-        expectedTodayTarget += totalPeriodInterest;
+        const p = parseFloat(l.principal_amount) || 0;
+        const r = parseFloat(l.interest_rate) || 0;
+        const totalPeriodInterest = (p * r) / 100;
+
+        if (l.interest_type === 'daily') {
+          expectedTodayTarget += (totalPeriodInterest / 30);
+        } else if (l.interest_type === 'weekly') {
+          expectedTodayTarget += (totalPeriodInterest / 4);
+        } else {
+          expectedTodayTarget += totalPeriodInterest;
+        }
       }
 
       const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
       const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
       if (diffDays >= 3) {
-        totalOverdueAmount += parseFloat(l.interest_balance || 0);
+        // A flat-installment loan's meaningful overdue figure is the full
+        // outstanding balance (principal + interest bundled together), not
+        // just interest_balance like every other (interest-only) loan type.
+        totalOverdueAmount += l.is_flat_installment
+          ? (parseFloat(l.principal_outstanding || 0) + parseFloat(l.interest_balance || 0))
+          : parseFloat(l.interest_balance || 0);
       }
     });
 
