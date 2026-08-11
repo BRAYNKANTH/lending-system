@@ -5655,8 +5655,14 @@ export default function LendApp() {
                               <th>Activity</th>
                               <th>Details</th>
                               <th>Amount (+ / -)</th>
-                              <th>Principal Bal.</th>
-                              <th>Interest Bal.</th>
+                              {loanStatement.loan.is_flat_installment ? (
+                                <th>Total Outstanding</th>
+                              ) : (
+                                <>
+                                  <th>Principal Bal.</th>
+                                  <th>Interest Bal.</th>
+                                </>
+                              )}
                             </tr>
                           </thead>
                           <tbody>
@@ -5675,12 +5681,20 @@ export default function LendApp() {
                                 }}>
                                   {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
                                 </td>
-                                <td style={{ fontWeight: 'bold' }}>
-                                  LKR {entry.runningPrincipalBalance.toLocaleString()}
-                                </td>
-                                <td style={{ fontWeight: 'bold' }}>
-                                  LKR {entry.runningInterestBalance.toLocaleString()}
-                                </td>
+                                {loanStatement.loan.is_flat_installment ? (
+                                  <td style={{ fontWeight: 'bold' }}>
+                                    LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}
+                                  </td>
+                                ) : (
+                                  <>
+                                    <td style={{ fontWeight: 'bold' }}>
+                                      LKR {entry.runningPrincipalBalance.toLocaleString()}
+                                    </td>
+                                    <td style={{ fontWeight: 'bold' }}>
+                                      LKR {entry.runningInterestBalance.toLocaleString()}
+                                    </td>
+                                  </>
+                                )}
                               </tr>
                             ))}
                           </tbody>
@@ -5704,9 +5718,9 @@ export default function LendApp() {
                               </div>
                               <div>
                                 <span className="mobile-row-card-label">Change:</span>
-                                <span className="mobile-row-card-value" style={{ 
-                                  fontWeight: 'bold', 
-                                  color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)' 
+                                <span className="mobile-row-card-value" style={{
+                                  fontWeight: 'bold',
+                                  color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
                                 }}>
                                   {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
                                 </span>
@@ -5715,14 +5729,23 @@ export default function LendApp() {
                                 <span className="mobile-row-card-label">Description:</span>
                                 <span className="mobile-row-card-value" style={{ fontSize: '13px' }}>{entry.details}</span>
                               </div>
-                              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
-                                <span className="mobile-row-card-label">Principal Bal:</span>
-                                <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
-                              </div>
-                              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
-                                <span className="mobile-row-card-label">Interest Bal:</span>
-                                <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
-                              </div>
+                              {loanStatement.loan.is_flat_installment ? (
+                                <div style={{ gridColumn: 'span 2', borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
+                                  <span className="mobile-row-card-label">Total Outstanding:</span>
+                                  <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}</span>
+                                </div>
+                              ) : (
+                                <>
+                                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
+                                    <span className="mobile-row-card-label">Principal Bal:</span>
+                                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
+                                  </div>
+                                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
+                                    <span className="mobile-row-card-label">Interest Bal:</span>
+                                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -6275,15 +6298,25 @@ export default function LendApp() {
                 <div className="desktop-only" style={{ overflowX: 'auto' }}>
                   <table className="glass-table">
                     <thead>
-                      <tr>
-                        <th style={{ width: '15%' }}>Date/Time</th>
-                        <th style={{ width: '15%' }}>Event Type</th>
-                        <th style={{ width: '30%' }}>Calculation Details / Log</th>
-                        <th style={{ width: '13%', textAlign: 'right' }}>Principal Change</th>
-                        <th style={{ width: '13%', textAlign: 'right' }}>Principal Balance</th>
-                        <th style={{ width: '13%', textAlign: 'right' }}>Interest Change</th>
-                        <th style={{ width: '13%', textAlign: 'right' }}>Interest Balance</th>
-                      </tr>
+                      {loanStatement.loan.is_flat_installment ? (
+                        <tr>
+                          <th style={{ width: '18%' }}>Date/Time</th>
+                          <th style={{ width: '18%' }}>Event Type</th>
+                          <th style={{ width: '34%' }}>Calculation Details / Log</th>
+                          <th style={{ width: '15%', textAlign: 'right' }}>Amount (+ / -)</th>
+                          <th style={{ width: '15%', textAlign: 'right' }}>Total Outstanding</th>
+                        </tr>
+                      ) : (
+                        <tr>
+                          <th style={{ width: '15%' }}>Date/Time</th>
+                          <th style={{ width: '15%' }}>Event Type</th>
+                          <th style={{ width: '30%' }}>Calculation Details / Log</th>
+                          <th style={{ width: '13%', textAlign: 'right' }}>Principal Change</th>
+                          <th style={{ width: '13%', textAlign: 'right' }}>Principal Balance</th>
+                          <th style={{ width: '13%', textAlign: 'right' }}>Interest Change</th>
+                          <th style={{ width: '13%', textAlign: 'right' }}>Interest Balance</th>
+                        </tr>
+                      )}
                     </thead>
                     <tbody>
                       {displayEvents.map((entry, idx) => (
@@ -6297,26 +6330,43 @@ export default function LendApp() {
                           <td style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
                             {entry.details}
                           </td>
-                          <td style={{
-                            textAlign: 'right',
-                            fontWeight: 'bold',
-                            color: entry.bucket === 'principal' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
-                          }}>
-                            {entry.bucket === 'principal' ? (entry.change === 'increase' ? `+LKR ${entry.amount.toLocaleString()}` : `-LKR ${entry.amount.toLocaleString()}`) : '-'}
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                            LKR {entry.runningPrincipalBalance.toLocaleString()}
-                          </td>
-                          <td style={{
-                            textAlign: 'right',
-                            fontWeight: 'bold',
-                            color: entry.bucket === 'interest' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
-                          }}>
-                            {entry.bucket === 'interest' ? (entry.change === 'increase' ? `+LKR ${entry.amount.toLocaleString()}` : `-LKR ${entry.amount.toLocaleString()}`) : '-'}
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                            LKR {entry.runningInterestBalance.toLocaleString()}
-                          </td>
+                          {loanStatement.loan.is_flat_installment ? (
+                            <>
+                              <td style={{
+                                textAlign: 'right',
+                                fontWeight: 'bold',
+                                color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
+                              }}>
+                                {entry.change === 'increase' ? `+LKR ${entry.amount.toLocaleString()}` : `-LKR ${entry.amount.toLocaleString()}`}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td style={{
+                                textAlign: 'right',
+                                fontWeight: 'bold',
+                                color: entry.principalDelta !== 0 ? (entry.principalDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                              }}>
+                                {entry.principalDelta !== 0 ? (entry.principalDelta > 0 ? `+LKR ${entry.principalDelta.toLocaleString()}` : `-LKR ${Math.abs(entry.principalDelta).toLocaleString()}`) : '-'}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                LKR {entry.runningPrincipalBalance.toLocaleString()}
+                              </td>
+                              <td style={{
+                                textAlign: 'right',
+                                fontWeight: 'bold',
+                                color: entry.interestDelta !== 0 ? (entry.interestDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                              }}>
+                                {entry.interestDelta !== 0 ? (entry.interestDelta > 0 ? `+LKR ${entry.interestDelta.toLocaleString()}` : `-LKR ${Math.abs(entry.interestDelta).toLocaleString()}`) : '-'}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                LKR {entry.runningInterestBalance.toLocaleString()}
+                              </td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -6342,34 +6392,52 @@ export default function LendApp() {
                             <strong>Calc Log:</strong> {entry.details}
                           </div>
                         )}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px' }}>
-                          <div>
-                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Principal Chg:</span>
-                            <span className="mobile-row-card-value" style={{ 
-                              fontSize: '12px',
-                              color: entry.bucket === 'principal' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
-                            }}>
-                              {entry.bucket === 'principal' ? (entry.change === 'increase' ? `+${entry.amount.toLocaleString()}` : `-${entry.amount.toLocaleString()}`) : '-'}
-                            </span>
+                        {loanStatement.loan.is_flat_installment ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px' }}>
+                            <div>
+                              <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Amount:</span>
+                              <span className="mobile-row-card-value" style={{
+                                fontSize: '12px',
+                                color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
+                              }}>
+                                {entry.change === 'increase' ? `+${entry.amount.toLocaleString()}` : `-${entry.amount.toLocaleString()}`}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Total Outstanding:</span>
+                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}</span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Interest Chg:</span>
-                            <span className="mobile-row-card-value" style={{ 
-                              fontSize: '12px',
-                              color: entry.bucket === 'interest' ? (entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
-                            }}>
-                              {entry.bucket === 'interest' ? (entry.change === 'increase' ? `+${entry.amount.toLocaleString()}` : `-${entry.amount.toLocaleString()}`) : '-'}
-                            </span>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px' }}>
+                            <div>
+                              <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Principal Chg:</span>
+                              <span className="mobile-row-card-value" style={{
+                                fontSize: '12px',
+                                color: entry.principalDelta !== 0 ? (entry.principalDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                              }}>
+                                {entry.principalDelta !== 0 ? (entry.principalDelta > 0 ? `+${entry.principalDelta.toLocaleString()}` : `-${Math.abs(entry.principalDelta).toLocaleString()}`) : '-'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Interest Chg:</span>
+                              <span className="mobile-row-card-value" style={{
+                                fontSize: '12px',
+                                color: entry.interestDelta !== 0 ? (entry.interestDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
+                              }}>
+                                {entry.interestDelta !== 0 ? (entry.interestDelta > 0 ? `+${entry.interestDelta.toLocaleString()}` : `-${Math.abs(entry.interestDelta).toLocaleString()}`) : '-'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Principal Bal:</span>
+                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
+                            </div>
+                            <div>
+                              <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Interest Bal:</span>
+                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Principal Bal:</span>
-                            <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
-                          </div>
-                          <div>
-                            <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Interest Bal:</span>
-                            <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     </div>
                   ))}
