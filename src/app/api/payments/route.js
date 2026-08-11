@@ -9,7 +9,7 @@ import { validateImageDataUrl } from '@/lib/services/image.js';
 export async function POST(request) {
   try {
     const authUser = await requireAuth(request, ['agent', 'admin', 'borrower']);
-    const { loan_id, amount, payment_type, notes, proof_image_url, payment_method, idempotency_key } = await request.json();
+    const { loan_id, amount, payment_type, notes, proof_image_url, payment_method, idempotency_key, payment_date } = await request.json();
 
     if (!loan_id || !amount || !idempotency_key) {
       return NextResponse.json({ message: 'Loan ID, payment amount, and idempotency key are required.' }, { status: 400 });
@@ -21,6 +21,23 @@ export async function POST(request) {
     const payAmount = parseFloat(amount);
     if (isNaN(payAmount) || payAmount <= 0) {
       return NextResponse.json({ message: 'Amount must be a positive number.' }, { status: 400 });
+    }
+
+    // Optional backdating — lets an agent log a collection under the day it
+    // actually happened (e.g. entering yesterday's round this morning)
+    // instead of always stamping "now". Omit it entirely to keep the
+    // default (payment_date = now, set at insert time).
+    let parsedPaymentDate;
+    if (payment_date) {
+      const candidate = new Date(payment_date);
+      if (isNaN(candidate.getTime())) {
+        return NextResponse.json({ message: 'Payment date is invalid.' }, { status: 400 });
+      }
+      const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+      if (candidate > oneHourFromNow) {
+        return NextResponse.json({ message: 'Payment date cannot be in the future.' }, { status: 400 });
+      }
+      parsedPaymentDate = candidate;
     }
 
     const existingTx = await db('transactions').where({ idempotency_key }).first();
@@ -62,7 +79,8 @@ export async function POST(request) {
       notes,
       proofImageUrl: savedProofUrl,
       paymentMethod: payment_method || 'cash',
-      idempotencyKey: idempotency_key
+      idempotencyKey: idempotency_key,
+      paymentDate: parsedPaymentDate
     });
 
     notifyPaymentReceived({

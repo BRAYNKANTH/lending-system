@@ -1369,7 +1369,7 @@ export default function LendApp() {
     setLoading(true);
     setError('');
     try {
-      const response = await api.post('/payments', {
+      await api.post('/payments', {
         loan_id: paymentForm.loan_id,
         payment_type: paymentForm.payment_type,
         amount: parseFloat(paymentForm.amount),
@@ -1388,28 +1388,11 @@ export default function LendApp() {
       // Update data
       fetchDashboardData();
 
-      // Open the detailed receipt automatically
-      if (response.transaction) {
-        handleOpenReceipt(response.transaction);
-      } else {
-        // Fallback local assembly if response.transaction is missing
-        handleOpenReceipt({
-          id: response.transactionId || 'N/A',
-          payment_date: new Date().toISOString(),
-          payment_type: paymentForm.payment_type,
-          borrower_name: loan?.borrower_name,
-          borrower_phone: loan?.borrower_phone,
-          agent_name: user.name,
-          amount: parseFloat(paymentForm.amount),
-          notes: paymentForm.notes,
-          idempotency_key: paymentForm.idempotency_key,
-          loan_principal: loan?.principal_amount,
-          loan_interest_rate: loan?.interest_rate,
-          loan_interest_type: loan?.interest_type,
-          loan_principal_outstanding: response.newPrincipalOutstanding !== undefined ? response.newPrincipalOutstanding : loan?.principal_outstanding,
-          loan_interest_balance: response.newInterestBalance !== undefined ? response.newInterestBalance : loan?.interest_balance
-        });
-      }
+      // Deliberately NOT auto-opening the receipt here — forcing a full
+      // receipt screen after every single collection is unnecessary
+      // friction, especially for daily loans collected every day. The
+      // receipt for this (or any past) transaction is still available
+      // on demand from the loan's passbook/payment history.
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1614,10 +1597,13 @@ export default function LendApp() {
     }
   };
 
-  // Dynamic Toast popup simulator (represents SMS alerts sent to mobile phones)
-  const showToast = (message) => {
+  // Generic in-app confirmation/error toast. This is a local UI
+  // acknowledgement only — it does NOT mean an SMS was sent (most calls are
+  // plain "saved successfully" confirmations). Pass type: 'error' for
+  // failures/validation messages; anything else renders as a success toast.
+  const showToast = (message, type = 'success') => {
     const id = Date.now() + '_' + Math.random().toString(36).slice(2);
-    setToastAlerts(prev => [...prev, { id, message }]);
+    setToastAlerts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToastAlerts(prev => prev.filter(t => t.id !== id));
     }, 6000);
@@ -1985,12 +1971,16 @@ export default function LendApp() {
         </div>
       )}
 
-      {/* Toast Alert overlay */}
+      {/* Toast Alert overlay — a local UI confirmation, not a claim that an
+          SMS was actually sent (see showToast above). */}
       <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '380px' }}>
         {toastAlerts.map(toast => (
-          <div key={toast.id} className="animate-fade-in" style={{ padding: '16px', background: 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
+          <div key={toast.id} className="animate-fade-in" style={{ padding: '16px', background: toast.type === 'error' ? 'var(--accent-rose, #dc2626)' : 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
             <div style={{ fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <span><Bell className="icon" /> SMS Notification sent</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {toast.type === 'error' ? <CircleAlert className="icon" /> : <CircleCheck className="icon" />}
+                {toast.type === 'error' ? 'Error' : 'Success'}
+              </span>
             </div>
             <p style={{ fontSize: '13px', lineHeight: '1.4' }}>{toast.message}</p>
           </div>
@@ -7245,6 +7235,17 @@ function projectCurrentInterestBalance(loan) {
 // partial amount. Renders as a compact table on desktop and as stacked
 // cards on mobile (a 7-column table forced horizontal scrolling on phones,
 // which is exactly the "uncomfortable to scroll" complaint this replaces).
+// Today's date, as the device's own local calendar day (not UTC) — used to
+// default the collection-date picker below and to tell whether a selected
+// date counts as "backdated".
+const todayLocalDateStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   const [collectionType, setCollectionType] = useState('daily'); // 'daily', 'weekly', 'monthly'
   const [searchTerm, setSearchTerm] = useState('');
@@ -7252,6 +7253,11 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   const [submittingIds, setSubmittingIds] = useState({});
   const [fetchedLoans, setFetchedLoans] = useState([]);
   const [loadingLoans, setLoadingLoans] = useState(false);
+  // Which day this batch of collections is being recorded for — defaults to
+  // today, but an agent entering a round late (e.g. the next morning) can
+  // set it back so the payment shows against the day it was actually
+  // collected instead of the day it was typed in.
+  const [collectionDate, setCollectionDate] = useState(todayLocalDateStr());
 
   useEffect(() => {
     if (!loans || loans.length === 0) {
@@ -7327,7 +7333,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     const row = selectedRows[loan.id] || {};
     const amountVal = parseFloat(row.amount);
     if (!amountVal || amountVal <= 0) {
-      if (showToast) showToast('Please enter a valid payment amount.');
+      if (showToast) showToast('Please enter a valid payment amount.', 'error');
       return;
     }
 
@@ -7336,13 +7342,15 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     setSubmittingIds(prev => ({ ...prev, [loan.id]: true }));
     try {
       const idempotencyKey = `idemp_${collectionType}_${loan.id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const isBackdated = collectionDate && collectionDate !== todayLocalDateStr();
       await api.post('/payments', {
         loan_id: loan.id,
         amount: amountVal,
         payment_type: paymentType,
         notes: `Recorded via Record Payment sheet (${collectionType})`,
         payment_method: 'cash',
-        idempotency_key: idempotencyKey
+        idempotency_key: idempotencyKey,
+        ...(isBackdated ? { payment_date: collectionDate } : {})
       });
 
       if (showToast) {
@@ -7359,7 +7367,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
 
       if (onRefresh) onRefresh();
     } catch (err) {
-      if (showToast) showToast(err.message || 'Payment recording failed.');
+      if (showToast) showToast(err.message || 'Payment recording failed.', 'error');
     } finally {
       setSubmittingIds(prev => ({ ...prev, [loan.id]: false }));
     }
@@ -7368,7 +7376,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   const handleSaveAllSelected = async () => {
     const activeEntries = Object.entries(selectedRows).filter(([_, r]) => parseFloat(r.amount) > 0);
     if (activeEntries.length === 0) {
-      if (showToast) showToast('No payment amounts entered.');
+      if (showToast) showToast('No payment amounts entered.', 'error');
       return;
     }
 
@@ -7419,6 +7427,26 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
             {t} ({activeSource.filter(l => l.status === 'active' && l.interest_type === t).length})
           </button>
         ))}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <label htmlFor="collection-date-picker" style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Calendar className="icon" style={{ width: '14px', height: '14px' }} /> Collection date
+        </label>
+        <input
+          id="collection-date-picker"
+          type="date"
+          className="glass-input"
+          value={collectionDate}
+          max={todayLocalDateStr()}
+          onChange={e => setCollectionDate(e.target.value)}
+          style={{ width: 'auto', padding: '6px 10px', fontSize: '13px' }}
+        />
+        {collectionDate !== todayLocalDateStr() && (
+          <span style={{ fontSize: '12px', color: 'var(--accent-amber)', fontWeight: '600' }}>
+            Backdated — recording as if collected on this date, not today.
+          </span>
+        )}
       </div>
 
       <input

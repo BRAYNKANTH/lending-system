@@ -9,7 +9,7 @@ import db from '../db.js';
  * explicitly repaid, and periodic interest is a recurring charge on top of it.
  * Executed inside a single transaction with row-level locks.
  */
-export async function recordPaymentCollection({ loanId, agentId, amount, paymentType, notes, proofImageUrl, idempotencyKey, paymentMethod }) {
+export async function recordPaymentCollection({ loanId, agentId, amount, paymentType, notes, proofImageUrl, idempotencyKey, paymentMethod, paymentDate }) {
   return await db.transaction(async (trx) => {
     // 1. Lock the loan row to prevent concurrent updates (Double payments)
     const loan = await trx('loans')
@@ -68,7 +68,8 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
         notes: notes || '',
         proof_image_url: proofImageUrl || null,
         payment_method: paymentMethod || 'cash',
-        idempotency_key: idempotencyKey
+        idempotency_key: idempotencyKey,
+        ...(paymentDate ? { payment_date: paymentDate } : {})
       })
       .returning('*');
 
@@ -162,7 +163,7 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
  * interest_balance in the same proportion, and both reach exactly zero on
  * schedule if every day's flat amount is collected in full.
  */
-export async function recordFlatInstallmentCollection({ loanId, agentId, amount, notes, proofImageUrl, idempotencyKey, paymentMethod }) {
+export async function recordFlatInstallmentCollection({ loanId, agentId, amount, notes, proofImageUrl, idempotencyKey, paymentMethod, paymentDate }) {
   return await db.transaction(async (trx) => {
     const loan = await trx('loans')
       .where({ id: loanId })
@@ -236,7 +237,8 @@ export async function recordFlatInstallmentCollection({ loanId, agentId, amount,
         notes: notes || '',
         proof_image_url: proofImageUrl || null,
         payment_method: paymentMethod || 'cash',
-        idempotency_key: idempotencyKey
+        idempotency_key: idempotencyKey,
+        ...(paymentDate ? { payment_date: paymentDate } : {})
       })
       .returning('*');
 

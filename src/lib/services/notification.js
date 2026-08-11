@@ -146,7 +146,11 @@ export async function notifyPaymentReceived({ borrower, admin, agent, amount, pa
   const formattedAmount = Number(amount).toLocaleString();
   const kind = paymentType === 'interest' ? 'interest' : paymentType === 'flat_installment' ? 'daily installment' : 'principal';
 
-  // RULE: Exclude daily collection payments from borrower SMS notifications. Only send for weekly & monthly.
+  // RULE: Exclude daily collection payments from SMS notifications entirely
+  // — for both the borrower and the admin. Daily collections happen every
+  // single day on every active daily loan, so an SMS per collection (to
+  // either side) is just noise at that volume; only send for weekly &
+  // monthly collections, which are infrequent enough to be worth alerting on.
   if (interestType !== 'daily') {
     const orgName = await getOrgName();
     const borrowerMsg = `Dear ${borrower.name},
@@ -168,19 +172,19 @@ ${orgName}`;
       message: borrowerMsg,
       role: 'borrower'
     });
-  } else {
-    console.log(`Skipped borrower SMS receipt for Daily collection loan ID (${borrower.name}).`);
-  }
 
-  if (admin) {
-    const agentName = agent ? agent.name : 'Unknown';
-    const adminMsg = `STN Alert: Collection of LKR ${formattedAmount} (${kind}) from ${borrower.name} recorded by Agent ${agentName}. Remaining Principal: LKR ${Number(principalOutstanding).toLocaleString()}, Remaining Interest: LKR ${Number(interestBalance).toLocaleString()}.`;
-    await sendNotification({
-      recipientName: admin.name,
-      phone: admin.phone,
-      message: adminMsg,
-      role: 'admin'
-    });
+    if (admin) {
+      const agentName = agent ? agent.name : 'Unknown';
+      const adminMsg = `STN Alert: Collection of LKR ${formattedAmount} (${kind}) from ${borrower.name} recorded by Agent ${agentName}. Remaining Principal: LKR ${Number(principalOutstanding).toLocaleString()}, Remaining Interest: LKR ${Number(interestBalance).toLocaleString()}.`;
+      await sendNotification({
+        recipientName: admin.name,
+        phone: admin.phone,
+        message: adminMsg,
+        role: 'admin'
+      });
+    }
+  } else {
+    console.log(`Skipped SMS receipt (borrower + admin) for Daily collection loan (${borrower.name}).`);
   }
 }
 
