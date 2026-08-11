@@ -7390,8 +7390,15 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
               </thead>
               <tbody>
                 {filteredLoans.map(loan => {
+                  // For a flat-installment (daily principal+interest bundled)
+                  // loan, "Due" means today's fixed daily amount — the whole
+                  // point of daily collection is a flat LKR X/day, not the
+                  // loan's total remaining balance. Showing the full
+                  // remaining balance as the prominent due figure here was
+                  // misleading agents into thinking that was what needed
+                  // collecting today.
                   const totalDue = loan.is_flat_installment
-                    ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
+                    ? periodDue(loan)
                     : parseFloat(loan.interest_balance) || 0;
                   const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
                   const isSubmitting = submittingIds[loan.id];
@@ -7412,7 +7419,9 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                           LKR {totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </span>
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}{loan.is_flat_installment ? ' (flat)' : ''}
+                          {loan.is_flat_installment
+                            ? `Flat installment · LKR ${(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} remaining`
+                            : `LKR ${periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}${periodLabel}`}
                         </span>
                       </td>
                       <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
@@ -7481,8 +7490,11 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
           {/* Mobile: one compact card per loan instead of a wide table */}
           <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {filteredLoans.map(loan => {
+              // Same reasoning as the desktop table above: for a flat
+              // daily-installment loan, "Due" is today's fixed LKR X/day,
+              // not the whole loan's remaining balance.
               const totalDue = loan.is_flat_installment
-                ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
+                ? periodDue(loan)
                 : parseFloat(loan.interest_balance) || 0;
               const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
               const isSubmitting = submittingIds[loan.id];
@@ -7502,7 +7514,9 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                         LKR {totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </span>
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                        LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}{loan.is_flat_installment ? ' (flat)' : ''}
+                        {loan.is_flat_installment
+                          ? `Flat installment · LKR ${(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} remaining`
+                          : `LKR ${periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}${periodLabel}`}
                       </span>
                     </div>
                   </div>
