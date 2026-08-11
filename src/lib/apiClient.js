@@ -24,7 +24,14 @@ async function request(endpoint, options = {}) {
     config.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, config);
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, config);
+  } catch {
+    // Network failure — offline, DNS, connection dropped mid-request, etc.
+    // Never let the raw browser TypeError ("Failed to fetch") surface.
+    throw new Error('Could not reach the server. Check your connection and try again.');
+  }
 
   if (response.status === 401) {
     // JWT expired or missing
@@ -33,10 +40,24 @@ async function request(endpoint, options = {}) {
     window.dispatchEvent(new Event('auth-expired'));
   }
 
-  const data = await response.json();
+  // Not every failure comes back as our own JSON error body — a platform
+  // timeout, a cold-start crash, or a proxy/edge error can return an HTML
+  // error page instead. Parsing that as JSON throws a cryptic "Unexpected
+  // token '<'..." SyntaxError, which would otherwise leak straight through
+  // to the UI looking like a raw browser/Vercel error. Fall back to a
+  // friendly message keyed off the HTTP status instead.
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    if (!response.ok) {
+      throw new Error(`Server error (${response.status}). Please try again in a moment.`);
+    }
+    data = null;
+  }
 
   if (!response.ok) {
-    throw new Error(data.message || 'Something went wrong with the request.');
+    throw new Error(data?.message || 'Something went wrong with the request.');
   }
 
   return data;

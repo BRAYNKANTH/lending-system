@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { platformApi } from '@/lib/platformApiClient.js';
 import {
   Building2, Plus, LogOut, Search, X, Check,
-  ShieldCheck, Pencil, Copy, Eye, EyeOff
+  ShieldCheck, Pencil, Copy, Eye, EyeOff, CircleCheck, CircleAlert
 } from 'lucide-react';
 
 const STATUS_LABEL = { active: 'Active', trial: 'Trial', suspended: 'Suspended' };
@@ -46,6 +46,15 @@ export default function PlatformAdminApp() {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [showDbUrl, setShowDbUrl] = useState(false);
+  const [toastAlerts, setToastAlerts] = useState([]);
+
+  const showToast = (message, type = 'success') => {
+    const id = Date.now() + '_' + Math.random().toString(36).slice(2);
+    setToastAlerts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToastAlerts(prev => prev.filter(t => t.id !== id));
+    }, 6000);
+  };
 
   useEffect(() => {
     const storedToken = localStorage.getItem('platform_admin_token');
@@ -166,9 +175,10 @@ export default function PlatformAdminApp() {
   const handleQuickStatusChange = async (org, status) => {
     try {
       await platformApi.patch(`/organizations/${org.id}`, { status });
+      showToast(`${org.name} status changed to ${STATUS_LABEL[status] || status}.`);
       fetchOrgs();
     } catch (err) {
-      alert(err.message);
+      showToast(err.message || 'Could not update organization status.', 'error');
     }
   };
 
@@ -222,6 +232,21 @@ export default function PlatformAdminApp() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
+      {/* Toast Alert overlay — local UI confirmation/error, not tied to any real notification. */}
+      <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '380px' }}>
+        {toastAlerts.map(toast => (
+          <div key={toast.id} className="animate-fade-in" style={{ padding: '16px', background: toast.type === 'error' ? 'var(--accent-rose, #dc2626)' : 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {toast.type === 'error' ? <CircleAlert className="icon" /> : <CircleCheck className="icon" />}
+                {toast.type === 'error' ? 'Error' : 'Success'}
+              </span>
+            </div>
+            <p style={{ fontSize: '13px', lineHeight: '1.4' }}>{toast.message}</p>
+          </div>
+        ))}
+      </div>
+
       <header className="app-header">
         <div className="app-header-info">
           <h1 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>

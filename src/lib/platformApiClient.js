@@ -23,7 +23,12 @@ async function request(endpoint, options = {}) {
     config.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, config);
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, config);
+  } catch {
+    throw new Error('Could not reach the server. Check your connection and try again.');
+  }
 
   if (response.status === 401) {
     localStorage.removeItem('platform_admin_token');
@@ -31,10 +36,21 @@ async function request(endpoint, options = {}) {
     window.dispatchEvent(new Event('platform-auth-expired'));
   }
 
-  const data = await response.json();
+  // See the matching comment in src/lib/apiClient.js — a non-JSON error
+  // page (timeout/crash/proxy error) shouldn't leak a raw parse exception
+  // to the UI.
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    if (!response.ok) {
+      throw new Error(`Server error (${response.status}). Please try again in a moment.`);
+    }
+    data = null;
+  }
 
   if (!response.ok) {
-    throw new Error(data.message || 'Something went wrong with the request.');
+    throw new Error(data?.message || 'Something went wrong with the request.');
   }
 
   return data;
