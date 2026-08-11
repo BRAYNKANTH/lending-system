@@ -1,8 +1,22 @@
 import fs from 'fs';
 import path from 'path';
 import { sendSms } from './sms.js';
+import db from '../db.js';
 
 const logFilePath = path.join(process.cwd(), 'notifications_log.txt');
+
+// This organization's own display name, read from its own database (see
+// org_settings in scripts/migrate.js) instead of a hardcoded "STN CREDIT" —
+// used for the SMS sign-off. Falls back to a generic label if the lookup
+// fails for any reason, so a DB hiccup never breaks payment notifications.
+async function getOrgName() {
+  try {
+    const settings = await db('org_settings').first();
+    return settings?.org_name || 'Your Lender';
+  } catch {
+    return 'Your Lender';
+  }
+}
 
 /**
  * Dispatches a notification to a specific phone number/user via Text.lk SMS
@@ -134,6 +148,7 @@ export async function notifyPaymentReceived({ borrower, admin, agent, amount, pa
 
   // RULE: Exclude daily collection payments from borrower SMS notifications. Only send for weekly & monthly.
   if (interestType !== 'daily') {
+    const orgName = await getOrgName();
     const borrowerMsg = `Dear ${borrower.name},
 
 You have successfully paid LKR ${formattedAmount} (${kind}) for your loan.
@@ -145,7 +160,7 @@ Receipt Details:
 - Remaining Interest Due: LKR ${Number(interestBalance).toLocaleString()}
 
 Thank you,
-STN CREDIT`;
+${orgName}`;
 
     await sendNotification({
       recipientName: borrower.name,

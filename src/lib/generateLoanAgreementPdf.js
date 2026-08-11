@@ -38,10 +38,17 @@ const COLORS = {
  * field for backward compatibility. Triggers a browser download; runs
  * entirely client-side, no server round trip or headless-browser infra
  * needed on Vercel.
+ *
+ * `orgSettings` ({ org_name, logo_url }) comes from GET /api/settings —
+ * this org's own branding, read from their own database, rather than a
+ * hardcoded company name/logo — so the exact same function produces a
+ * correctly-branded agreement no matter which organization's deployment
+ * it runs in. Falls back to a generic name/no logo if not provided.
  */
-export async function downloadLoanAgreementPdf(loanStatement) {
+export async function downloadLoanAgreementPdf(loanStatement, orgSettings = {}) {
   const { loan } = loanStatement;
   const guarantors = loanStatement.guarantors || (loanStatement.guarantor ? [loanStatement.guarantor] : []);
+  const orgName = orgSettings.org_name || 'This Company';
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -55,7 +62,7 @@ export async function downloadLoanAgreementPdf(loanStatement) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLORS.muted);
-    doc.text('STN Micro Credit Company (Pvt) Ltd — System-generated loan agreement', marginX, footerY);
+    doc.text(`${orgName} — System-generated loan agreement`, marginX, footerY);
     doc.text(`Page ${pageNum}`, pageWidth - marginX, footerY, { align: 'right' });
   };
 
@@ -71,21 +78,36 @@ export async function downloadLoanAgreementPdf(loanStatement) {
   };
 
   // --- Header: logo + company name ---
-  try {
-    const logoDataUrl = await loadImageAsDataUrl('/stn_logo.png');
-    doc.addImage(logoDataUrl, 'PNG', marginX, y, 52, 52);
-  } catch {
-    // Logo failed to load (offline, blocked, etc.) — proceed text-only
-    // rather than failing the whole download.
+  if (orgSettings.logo_url) {
+    try {
+      let logoDataUrl, logoFormat;
+      if (orgSettings.logo_url.startsWith('data:')) {
+        // Uploaded via Settings — jsPDF can embed it directly, but its
+        // format argument has to match the actual image data (JPEG, PNG,
+        // or WebP, per what the upload form accepts) rather than being
+        // hardcoded, or jsPDF fails to decode it.
+        logoDataUrl = orgSettings.logo_url;
+        const mimeMatch = orgSettings.logo_url.match(/^data:image\/(png|jpe?g|webp)/i);
+        logoFormat = mimeMatch ? mimeMatch[1].toUpperCase().replace('JPG', 'JPEG') : 'PNG';
+      } else {
+        // Hosted URL — loadImageAsDataUrl always normalizes to PNG via canvas.
+        logoDataUrl = await loadImageAsDataUrl(orgSettings.logo_url);
+        logoFormat = 'PNG';
+      }
+      doc.addImage(logoDataUrl, logoFormat, marginX, y, 52, 52);
+    } catch {
+      // Logo failed to load (offline, blocked, unsupported format, etc.) —
+      // proceed text-only rather than failing the whole download.
+    }
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
   doc.setTextColor(...COLORS.ink);
-  doc.text('STN MICRO CREDIT', marginX + 64, y + 22);
+  doc.text(orgName.toUpperCase(), marginX + 64, y + 22);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(...COLORS.muted);
-  doc.text('Company (Pvt) Ltd — Cash Lending & Micro Credit Services', marginX + 64, y + 37);
+  doc.text('Cash Lending & Micro Credit Services', marginX + 64, y + 37);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
@@ -108,7 +130,7 @@ export async function downloadLoanAgreementPdf(loanStatement) {
 
   // --- Intro paragraph ---
   const dobText = loan.date_of_birth ? `, Date of Birth: ${new Date(loan.date_of_birth).toLocaleDateString()}` : '';
-  const introText = `This agreement is entered into on ${new Date(loan.created_at).toLocaleDateString()} between STN Micro Credit Company (Pvt) Ltd (the "Lender") and ${loan.borrower_name} (NIC: ${loan.nic_number || 'N/A'}${dobText}, Address: ${loan.borrower_address || 'N/A'}) (the "Borrower").`;
+  const introText = `This agreement is entered into on ${new Date(loan.created_at).toLocaleDateString()} between ${orgName} (the "Lender") and ${loan.borrower_name} (NIC: ${loan.nic_number || 'N/A'}${dobText}, Address: ${loan.borrower_address || 'N/A'}) (the "Borrower").`;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10.5);
   doc.setTextColor(...COLORS.ink);
@@ -217,7 +239,7 @@ export async function downloadLoanAgreementPdf(loanStatement) {
   // --- Signature block --- wraps into rows of up to 3 columns so it stays
   // legible even with several guarantors (one per dependent).
   const signatories = [
-    { role: 'Lender', name: 'STN Micro Credit Company (Pvt) Ltd' },
+    { role: 'Lender', name: orgName },
     { role: 'Borrower', name: loan.borrower_name },
     ...guarantors.map((g, gi) => ({ role: guarantors.length > 1 ? `Guarantor ${gi + 1}` : 'Guarantor', name: g.full_name }))
   ];

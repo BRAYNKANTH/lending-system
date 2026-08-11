@@ -1,0 +1,68 @@
+import { NextResponse } from 'next/server';
+import db from '@/lib/db.js';
+import { requireAuth, AuthError } from '@/lib/auth.js';
+import { validateImageDataUrl } from '@/lib/services/image.js';
+
+// Org branding (name + logo) — deliberately public/unauthenticated on GET,
+// since the login screen itself needs to show the org's name and logo
+// before anyone has signed in. There's only ever one row (one organization
+// per database, per the database-per-tenant architecture), so this always
+// returns/updates that single row rather than taking an id.
+export async function GET() {
+  try {
+    let settings = await db('org_settings').first();
+    if (!settings) {
+      // Shouldn't happen post-migration, but fail soft with a sane default
+      // rather than a broken login screen if it somehow does.
+      settings = { org_name: 'My Organization', logo_url: null };
+    }
+    return NextResponse.json({ org_name: settings.org_name, logo_url: settings.logo_url });
+  } catch (error) {
+    console.error('Get settings error:', error);
+    return NextResponse.json({ org_name: 'My Organization', logo_url: null });
+  }
+}
+
+export async function PATCH(request) {
+  try {
+    await requireAuth(request, ['admin']);
+    const { org_name, logo_url } = await request.json();
+
+    const updates = {};
+    if (org_name !== undefined) {
+      if (!org_name || !org_name.trim()) {
+        return NextResponse.json({ message: 'Organization name cannot be blank.' }, { status: 400 });
+      }
+      updates.org_name = org_name.trim();
+    }
+    if (logo_url !== undefined) {
+      if (logo_url === null || logo_url === '') {
+        updates.logo_url = null;
+      } else {
+        const validated = validateImageDataUrl(logo_url);
+        if (!validated) {
+          return NextResponse.json({ message: 'Invalid logo image. Use a JPEG, PNG, or WebP under 4MB.' }, { status: 400 });
+        }
+        updates.logo_url = validated;
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ message: 'No fields to update.' }, { status: 400 });
+    }
+    updates.updated_at = db.fn.now();
+
+    const existing = await db('org_settings').first();
+    let settings;
+    if (existing) {
+      [settings] = await db('org_settings').where({ id: existing.id }).update(updates).returning('*');
+    } else {
+      [settings] = await db('org_settings').insert({ org_name: 'My Organization', ...updates }).returning('*');
+    }
+
+    return NextResponse.json({ message: 'Organization settings updated.', org_name: settings.org_name, logo_url: settings.logo_url });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Update settings error:', error);
+    return NextResponse.json({ message: 'Internal server error while updating organization settings.' }, { status: 500 });
+  }
+}

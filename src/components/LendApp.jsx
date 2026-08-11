@@ -43,6 +43,13 @@ export default function LendApp() {
   const [agentCollectMobileTab, setAgentCollectMobileTab] = useState('form'); // mobile-only: 'form', 'customers'
   const [passbookMobileTab, setPassbookMobileTab] = useState('record'); // mobile-only: 'record', 'activity', 'receipts', 'accruals'
   const [showMoreMenu, setShowMoreMenu] = useState(false); // mobile-only: bottom-sheet for admin destinations that don't have their own bottom-nav slot
+  // This organization's own branding (name + logo), read from this
+  // deployment's own database via GET /api/settings — public/unauthenticated
+  // since the login screen needs it before anyone's signed in. Replaces the
+  // old hardcoded "STN Micro Credit" strings throughout the app.
+  const [orgSettings, setOrgSettings] = useState({ org_name: '', logo_url: null });
+  const [orgSettingsForm, setOrgSettingsForm] = useState({ org_name: '', logo_url: '' });
+  const [orgSettingsError, setOrgSettingsError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -231,6 +238,15 @@ export default function LendApp() {
     };
     window.addEventListener('auth-expired', handleAuthExpired);
     return () => window.removeEventListener('auth-expired', handleAuthExpired);
+  }, []);
+
+  // Load this organization's own branding — runs unconditionally (not
+  // gated on login) since the login screen itself needs to show the org's
+  // name/logo before anyone's authenticated.
+  useEffect(() => {
+    api.get('/settings')
+      .then(res => setOrgSettings({ org_name: res.org_name || '', logo_url: res.logo_url || null }))
+      .catch(() => {}); // Falls back to the empty default — never blocks the app on this.
   }, []);
 
   // Fetch dashboards based on user role
@@ -692,7 +708,7 @@ export default function LendApp() {
     setDownloadingAgreement(true);
     try {
       const { downloadLoanAgreementPdf } = await import('@/lib/generateLoanAgreementPdf.js');
-      await downloadLoanAgreementPdf(loanStatement);
+      await downloadLoanAgreementPdf(loanStatement, orgSettings);
     } catch (err) {
       console.error('PDF generation failed:', err);
       showToast('Could not generate the PDF. Please try again.');
@@ -1053,7 +1069,7 @@ export default function LendApp() {
     if (!receipt) return;
     const cleanPhone = (receipt.borrower_phone || '').replace(/[^0-9]/g, '');
     const intlPhone = cleanPhone.startsWith('0') ? '94' + cleanPhone.slice(1) : (cleanPhone.startsWith('94') ? cleanPhone : '94' + cleanPhone);
-    const text = `*STN MICRO CREDIT (PVT) LTD — OFFICIAL PAYMENT RECEIPT*\n\n` +
+    const text = `*${(orgSettings.org_name || 'YOUR ORGANIZATION').toUpperCase()} — OFFICIAL PAYMENT RECEIPT*\n\n` +
       `🧾 *Receipt ID:* ${receipt.id}\n` +
       `📅 *Date:* ${new Date(receipt.payment_date).toLocaleString()}\n` +
       `👤 *Borrower:* ${receipt.borrower_name}\n` +
@@ -1598,12 +1614,6 @@ export default function LendApp() {
     }
   };
 
-  // Quick fill credential helper
-  const fillCredentials = (phone, password) => {
-    setLoginPhone(phone);
-    setLoginPassword(password);
-  };
-
   // Dynamic Toast popup simulator (represents SMS alerts sent to mobile phones)
   const showToast = (message) => {
     const id = Date.now() + '_' + Math.random().toString(36).slice(2);
@@ -1642,7 +1652,7 @@ export default function LendApp() {
           <div className="receipt-modal-card" onClick={e => e.stopPropagation()}>
             <div className="receipt-header">
               <div className="receipt-header-icon"><Banknote /></div>
-              <div className="receipt-title">STN MICRO CREDIT</div>
+              <div className="receipt-title">{orgSettings.org_name || 'Loan Receipt'}</div>
               <div className="receipt-subtitle">Official Payment Receipt</div>
             </div>
 
@@ -1745,8 +1755,8 @@ export default function LendApp() {
       {selectedReceipt && (
         <div className="receipt-print-only">
           <div className="print-header">
-            <img src="/stn_logo.png" alt="STN Micro Credit Logo" style={{ height: '44px', width: 'auto', marginBottom: '6px' }} />
-            <div className="print-title">STN MICRO CREDIT COMPANY (PVT) LTD</div>
+            {orgSettings.logo_url && <img src={orgSettings.logo_url} alt={`${orgSettings.org_name || 'Organization'} Logo`} style={{ height: '44px', width: 'auto', marginBottom: '6px' }} />}
+            <div className="print-title">{orgSettings.org_name || 'Loan Receipt'}</div>
             <div style={{ fontSize: '9pt', color: '#555555', fontWeight: 'bold' }}>Official Payment Receipt</div>
           </div>
 
@@ -1992,8 +2002,14 @@ export default function LendApp() {
         <header className="app-header animate-fade-in">
           <div className="app-header-info">
             <h1 style={{ fontSize: '22px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <img src="/stn_emblem.png?v=2" alt="STN Micro Credit Logo" style={{ height: '42px', width: 'auto', objectFit: 'contain' }} />
-              <span style={{ fontWeight: '800', letterSpacing: '0.5px' }}>STN MICRO CREDIT</span>
+              {orgSettings.logo_url ? (
+                <img src={orgSettings.logo_url} alt={`${orgSettings.org_name || 'Organization'} Logo`} style={{ height: '42px', width: 'auto', objectFit: 'contain' }} />
+              ) : (
+                <div style={{ height: '42px', width: '42px', borderRadius: '10px', background: 'var(--accent-blue-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Landmark style={{ width: '22px', height: '22px', color: 'var(--accent-blue)' }} />
+                </div>
+              )}
+              <span style={{ fontWeight: '800', letterSpacing: '0.5px' }}>{(orgSettings.org_name || 'Loading...').toUpperCase()}</span>
             </h1>
             <span className="badge badge-active">{user.role}</span>
           </div>
@@ -2143,6 +2159,26 @@ export default function LendApp() {
                 onClick={() => setSettingsTab('security')}>
                 Security & Password
               </button>
+              {user?.role === 'admin' && (
+                <button type="button"
+                  style={{
+                    padding: '8px 4px',
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    color: settingsTab === 'organization' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                    borderBottom: settingsTab === 'organization' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    setOrgSettingsForm({ org_name: orgSettings.org_name || '', logo_url: orgSettings.logo_url || '' });
+                    setOrgSettingsError('');
+                    setSettingsTab('organization');
+                  }}>
+                  Organization
+                </button>
+              )}
             </div>
 
             {/* Tab 1: Profile Settings */}
@@ -2224,6 +2260,81 @@ export default function LendApp() {
                 </div>
               </form>
             )}
+
+            {/* Tab 3: Organization Branding (admin only) — org_name + logo,
+                stored in this deployment's own database. This is what lets
+                an org's own admin change their name/logo without anyone
+                touching code or redeploying — see GET/PATCH /api/settings. */}
+            {settingsTab === 'organization' && user?.role === 'admin' && (
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setOrgSettingsError('');
+                if (!orgSettingsForm.org_name.trim()) {
+                  setOrgSettingsError('Organization name cannot be blank.');
+                  return;
+                }
+                setLoading(true);
+                try {
+                  const res = await api.patch('/settings', {
+                    org_name: orgSettingsForm.org_name,
+                    logo_url: orgSettingsForm.logo_url || null
+                  });
+                  setOrgSettings({ org_name: res.org_name || '', logo_url: res.logo_url || null });
+                  showToast('Organization branding updated.');
+                  setShowSettings(false);
+                } catch (err) {
+                  setOrgSettingsError(err.message);
+                } finally {
+                  setLoading(false);
+                }
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                  This name and logo appear on the header, login screen, receipts, and downloadable loan agreement PDFs.
+                </p>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>ORGANIZATION NAME *</label>
+                  <input type="text" required className="glass-input" style={{ width: '100%' }}
+                    value={orgSettingsForm.org_name}
+                    onChange={e => setOrgSettingsForm(prev => ({ ...prev, org_name: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>LOGO</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {orgSettingsForm.logo_url ? (
+                      <img src={orgSettingsForm.logo_url} alt="Logo preview" style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--bg-tertiary)' }} />
+                    ) : (
+                      <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'var(--accent-blue-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Landmark style={{ width: '24px', height: '24px', color: 'var(--accent-blue)' }} />
+                      </div>
+                    )}
+                    <input type="file" accept="image/*" className="glass-input" style={{ flex: 1, padding: '8px' }}
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onloadend = () => setOrgSettingsForm(prev => ({ ...prev, logo_url: reader.result }));
+                        reader.readAsDataURL(file);
+                      }} />
+                    {orgSettingsForm.logo_url && (
+                      <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '8px 12px', fontSize: '12px' }} onClick={() => setOrgSettingsForm(prev => ({ ...prev, logo_url: '' }))}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {orgSettingsError && (
+                  <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--accent-rose)', color: 'var(--accent-rose)', padding: '10px 14px', borderRadius: '8px', fontSize: '13px' }}>
+                    {orgSettingsError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={() => setShowSettings(false)}>Cancel</button>
+                  <button type="submit" className="glass-btn glass-btn-emerald" style={{ flex: 1 }} disabled={loading}>Save Branding</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -2247,9 +2358,15 @@ export default function LendApp() {
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
             <div className="glass-card" style={{ width: '100%', maxWidth: '420px', padding: '32px 28px' }}>
               <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-                <img src="/stn_logo.png" alt="STN Micro Credit Logo" style={{ width: '140px', height: 'auto', margin: '0 auto 12px auto', display: 'block', borderRadius: '8px' }} />
-                <h2 style={{ fontSize: '26px', margin: '0 0 4px 0', fontWeight: '800', color: 'var(--text-primary)' }}>STN MICRO CREDIT</h2>
-                <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-gold)', textTransform: 'uppercase', letterSpacing: '1.5px', display: 'block' }}>Company (Pvt) Ltd</span>
+                {orgSettings.logo_url ? (
+                  <img src={orgSettings.logo_url} alt={`${orgSettings.org_name || 'Organization'} Logo`} style={{ width: '140px', maxHeight: '140px', height: 'auto', margin: '0 auto 12px auto', display: 'block', borderRadius: '8px', objectFit: 'contain' }} />
+                ) : (
+                  <div style={{ width: '96px', height: '96px', borderRadius: '16px', background: 'var(--accent-blue-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto' }}>
+                    <Landmark style={{ width: '48px', height: '48px', color: 'var(--accent-blue)' }} />
+                  </div>
+                )}
+                <h2 style={{ fontSize: '26px', margin: '0 0 4px 0', fontWeight: '800', color: 'var(--text-primary)' }}>{(orgSettings.org_name || 'Loading...').toUpperCase()}</h2>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-gold)', textTransform: 'uppercase', letterSpacing: '1.5px', display: 'block' }}>Cash Lending & Micro Credit</span>
               </div>
 
               {!showForgotPassword ? (
@@ -2290,13 +2407,6 @@ export default function LendApp() {
                 </form>
               )}
 
-              <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '12px', fontWeight: 'bold' }}>DEMO QUICK-FILL CREDENTIALS</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 4px', fontSize: '11px' }} onClick={() => fillCredentials('0774048194', 'password123')}>Admin</button>
-                  <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 4px', fontSize: '11px' }} onClick={() => fillCredentials('+94777654321', 'password123')}>Agent</button>
-                </div>
-              </div>
             </div>
           </div>
         )}
@@ -2305,7 +2415,7 @@ export default function LendApp() {
         {token && user && view === 'portal' && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', gap: '28px', padding: '20px' }}>
             <div style={{ textAlign: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '8px' }}>STN UNIFIED PLATFORM</span>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '8px' }}>{orgSettings.org_name ? `${orgSettings.org_name.toUpperCase()} — UNIFIED PLATFORM` : 'UNIFIED PLATFORM'}</span>
               <h2 style={{ fontSize: '32px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Welcome, {user.name}</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '6px' }}>Select a service portal below to proceed</p>
             </div>

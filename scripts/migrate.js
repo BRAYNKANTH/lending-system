@@ -43,13 +43,17 @@ async function runIncrementalMigrations() {
     table.string('email', 100).nullable().alter();
   });
 
-  // The real business phone becomes the primary admin login.
-  const adminUpdate = await db('users')
-    .where({ id: 'a1111111-1111-1111-1111-111111111111' })
-    .update({ phone: '0774048194' });
-  if (adminUpdate) {
-    console.log('Migration: set primary admin phone to 0774048194.');
-  }
+  // NOTE: a one-time "set the seeded admin's phone to STN's real business
+  // number" step used to live here. It unconditionally overwrote whatever
+  // phone number was on that seeded admin row every single time this
+  // script ran — harmless while this codebase only ever ran against STN's
+  // own database, but actively destructive now that the same seed IDs get
+  // reused across every new organization's database (see the
+  // scripts/tmp-onboard-*.mjs pattern): re-running `db:migrate` against an
+  // already-onboarded org silently reset their real admin phone number
+  // back to STN's. Removed rather than left in — it already did its
+  // one-time job for STN long ago, and has no legitimate reason to run
+  // again for anyone.
 
   await addColumnIfMissing('loans', 'default_reason', (t) => t.text('default_reason').nullable());
   await addColumnIfMissing('loans', 'defaulted_at', (t) => t.timestamp('defaulted_at').nullable());
@@ -279,6 +283,36 @@ async function runIncrementalMigrations() {
   // for receipts/reporting to reconstruct it later).
   await addColumnIfMissing('transactions', 'principal_component', (t) => t.decimal('principal_component', 15, 2).nullable());
   await addColumnIfMissing('transactions', 'interest_component', (t) => t.decimal('interest_component', 15, 2).nullable());
+
+  // Per-organization branding, read at runtime (header, login screen, PDF
+  // agreements, receipts, SMS sign-off) instead of the old hardcoded "STN
+  // Micro Credit" strings — this is what lets the exact same codebase be
+  // deployed for a different organization and show that org's own name and
+  // logo, with each org's own admin able to change it via Settings without
+  // anyone touching code or redeploying. Deliberately a single-row table
+  // (one org per database, per the database-per-tenant architecture) rather
+  // than keyed by org id — there's only ever one organization's worth of
+  // branding in any given deployment's database.
+  if (!(await db.schema.hasTable('org_settings'))) {
+    await db.schema.createTable('org_settings', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.string('org_name', 150).notNullable().defaultTo('My Organization');
+      table.text('logo_url').nullable();
+      // Loan reference numbers (e.g. "SC-007") are generated from this
+      // prefix at creation time — see src/app/api/loans/route.js. Kept
+      // short and uppercase since it's printed on every receipt/agreement.
+      table.string('reference_prefix', 10).notNullable().defaultTo('LN');
+      table.timestamps(true, true);
+    });
+    console.log("Migration: created table 'org_settings'.");
+    // Seed the single settings row with a neutral placeholder — the org's
+    // own admin sets their real name/logo via Settings -> Organization
+    // after first login (or the platform owner sets it directly during
+    // onboarding, same as any other seed step).
+    await db('org_settings').insert({ org_name: 'My Organization' });
+    console.log('Migration: seeded default org_settings row.');
+  }
+  await addColumnIfMissing('org_settings', 'reference_prefix', (t) => t.string('reference_prefix', 10).notNullable().defaultTo('LN'));
 }
 
 async function createSchemaAndSeed() {
