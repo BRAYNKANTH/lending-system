@@ -78,6 +78,42 @@ export async function POST(request) {
       }
     }
 
+    const principal = parseFloat(principal_amount);
+    const rate = parseFloat(interest_rate);
+    if (isNaN(principal) || principal <= 0) {
+      return NextResponse.json({ message: 'Principal amount must be a positive number.' }, { status: 400 });
+    }
+    if (isNaN(rate) || rate < 0) {
+      return NextResponse.json({ message: 'Interest rate must be a non-negative number.' }, { status: 400 });
+    }
+
+    // Flat Daily Installment: Daily + Fixed Term loans bundle principal and
+    // interest into one flat amount collected every day (starting the
+    // disbursement day itself) for the FULL entered duration — which
+    // includes one extra collection day per month beyond the nominal
+    // 30/60/90 (31 = 1 month, 62 = 2 months, 93 = 3 months, ...). This is
+    // how the client's agents actually collect in the field, and is
+    // fundamentally different from the interest-only model every other
+    // loan type (Weekly, Monthly, and Open-Ended Daily) still uses.
+    const isFlatInstallment = interest_type === 'daily' && colMode === 'fixed_term';
+    let dailyInstallmentAmount = null;
+    let principalPerDay = null;
+    let interestPerDay = null;
+    let initialInterestBalance = 0;
+
+    if (isFlatInstallment) {
+      if (periods % 31 !== 0) {
+        return NextResponse.json({ message: 'Daily Fixed Term duration must be a multiple of 31 days — 31 for 1 month, 62 for 2 months, 93 for 3 months, and so on (30/60/90 is the nominal period; the extra day per month is collected too).' }, { status: 400 });
+      }
+      const numMonths = periods / 31;
+      const nominalDays = periods - numMonths; // 30, 60, 90, ...
+      const totalInterest = principal * (rate / 100) * numMonths;
+      dailyInstallmentAmount = (principal + totalInterest) / nominalDays;
+      principalPerDay = principal / periods;
+      interestPerDay = dailyInstallmentAmount - principalPerDay;
+      initialInterestBalance = interestPerDay * periods;
+    }
+
     // An agent submitting a loan application is always its own collector —
     // whatever the client sent for assigned_agent_id is ignored so an agent
     // can't route a loan they're proposing to someone else's route.
@@ -91,15 +127,6 @@ export async function POST(request) {
       if (!agentUser) {
         return NextResponse.json({ message: 'Assigned agent/admin not found.' }, { status: 404 });
       }
-    }
-
-    const principal = parseFloat(principal_amount);
-    const rate = parseFloat(interest_rate);
-    if (isNaN(principal) || principal <= 0) {
-      return NextResponse.json({ message: 'Principal amount must be a positive number.' }, { status: 400 });
-    }
-    if (isNaN(rate) || rate < 0) {
-      return NextResponse.json({ message: 'Interest rate must be a non-negative number.' }, { status: 400 });
     }
 
     // Accepts either the newer `guarantors` array (one form per dependent,
@@ -300,7 +327,14 @@ export async function POST(request) {
     const nextAccrualDate = addInterval(creationDate, interest_type);
     let calculatedMaturityDate = null;
     if (colMode === 'fixed_term') {
-      calculatedMaturityDate = addInterval(creationDate, interest_type, periods);
+      // Flat installment collection starts ON the disbursement day (day 0
+      // is the first of the `periods` collection days), so the last
+      // collection day is `periods - 1` days after creation — one earlier
+      // than every other fixed-term loan, where collection starts the day
+      // after disbursement.
+      calculatedMaturityDate = isFlatInstallment
+        ? addInterval(creationDate, interest_type, periods - 1)
+        : addInterval(creationDate, interest_type, periods);
     }
 
     const initialStatus = isAgentSubmission ? 'pending' : 'active';
@@ -318,7 +352,11 @@ export async function POST(request) {
         interest_rate: rate,
         interest_type,
         principal_outstanding: principal,
-        interest_balance: 0,
+        interest_balance: isFlatInstallment ? initialInterestBalance : 0,
+        is_flat_installment: isFlatInstallment,
+        daily_installment_amount: dailyInstallmentAmount,
+        principal_per_day: principalPerDay,
+        interest_per_day: interestPerDay,
         status: initialStatus,
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,

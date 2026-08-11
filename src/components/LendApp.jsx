@@ -1151,6 +1151,9 @@ export default function LendApp() {
     if (newLoan.collection_mode === 'fixed_term' && (!newLoan.duration_periods || parseInt(newLoan.duration_periods, 10) <= 0)) {
       errors.duration_periods = "Duration period is required for fixed term loans.";
       if (!firstErrorField) firstErrorField = "duration_periods";
+    } else if (newLoan.interest_type === 'daily' && newLoan.collection_mode === 'fixed_term' && parseInt(newLoan.duration_periods, 10) % 31 !== 0) {
+      errors.duration_periods = "Daily Fixed Term duration must be 31, 62, 93, etc. (a multiple of 31 — one extra collection day per month).";
+      if (!firstErrorField) firstErrorField = "duration_periods";
     }
 
     setValidationErrors(prev => ({ ...prev, ...errors }));
@@ -1402,10 +1405,11 @@ export default function LendApp() {
 
     setLoading(true);
     setError('');
+    const isFlatInstallmentLoan = !!loanStatement.loan.is_flat_installment;
     try {
       const response = await api.post('/payments', {
         loan_id: loanId,
-        payment_type: ledgerPaymentForm.payment_type,
+        payment_type: isFlatInstallmentLoan ? 'flat_installment' : ledgerPaymentForm.payment_type,
         amount: parseFloat(ledgerPaymentForm.amount),
         notes: ledgerPaymentForm.notes,
         proof_image_url: ledgerPaymentForm.proof_image || null,
@@ -1413,7 +1417,7 @@ export default function LendApp() {
         idempotency_key: ledgerPaymentForm.idempotency_key || (Math.random().toString(36).substring(2) + Date.now())
       });
 
-      const kind = ledgerPaymentForm.payment_type === 'interest' ? 'Interest' : 'Principal';
+      const kind = isFlatInstallmentLoan ? 'Daily installment' : (ledgerPaymentForm.payment_type === 'interest' ? 'Interest' : 'Principal');
       showToast(`${kind} collection recorded successfully! LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString()} collected.`);
 
       setLedgerPaymentForm({
@@ -4358,25 +4362,54 @@ export default function LendApp() {
                                 {newLoan.collection_mode === 'fixed_term' && (
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
-                                      DURATION (in {newLoan.interest_type === 'daily' ? 'days' : newLoan.interest_type === 'weekly' ? 'weeks' : 'months'}) *
+                                      {newLoan.interest_type === 'daily'
+                                        ? 'DURATION (days) — 31 = 1 month, 62 = 2 months, 93 = 3 months *'
+                                        : `DURATION (in ${newLoan.interest_type === 'weekly' ? 'weeks' : 'months'}) *`}
                                     </label>
-                                    <input id="duration_periods" type="number" min="1" required className="glass-input" style={{ borderColor: validationErrors.duration_periods ? 'var(--accent-rose)' : '', borderWidth: validationErrors.duration_periods ? '2px' : '' }} placeholder="e.g. 30" value={newLoan.duration_periods} onChange={e => { setNewLoan(prev => ({ ...prev, duration_periods: e.target.value })); clearFieldError('duration_periods'); }} />
+                                    <input id="duration_periods" type="number" min="1" required className="glass-input" style={{ borderColor: validationErrors.duration_periods ? 'var(--accent-rose)' : '', borderWidth: validationErrors.duration_periods ? '2px' : '' }} placeholder={newLoan.interest_type === 'daily' ? 'e.g. 31, 62, or 93' : 'e.g. 30'} value={newLoan.duration_periods} onChange={e => { setNewLoan(prev => ({ ...prev, duration_periods: e.target.value })); clearFieldError('duration_periods'); }} />
+                                    {newLoan.interest_type === 'daily' && (
+                                      <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                                        {[31, 62, 93].map(d => (
+                                          <button key={d} type="button" className={`glass-btn ${String(newLoan.duration_periods) === String(d) ? 'glass-btn-emerald' : 'glass-btn-secondary'}`} style={{ padding: '5px 12px', fontSize: '12px' }} onClick={() => { setNewLoan(prev => ({ ...prev, duration_periods: String(d) })); clearFieldError('duration_periods'); }}>
+                                            {d} days ({d === 31 ? '1' : d === 62 ? '2' : '3'} mo)
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
                                     {validationErrors.duration_periods && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.duration_periods}</span>}
                                   </div>
                                 )}
                               </div>
 
-                              {newLoan.principal_amount > 0 && newLoan.interest_rate > 0 && (
-                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0' }}>
-                                  {(() => {
+                              {newLoan.interest_type === 'daily' && newLoan.collection_mode === 'fixed_term'
+                                ? (newLoan.principal_amount > 0 && newLoan.interest_rate > 0 && parseInt(newLoan.duration_periods, 10) > 0 && parseInt(newLoan.duration_periods, 10) % 31 === 0) && (() => {
                                     const p = parseFloat(newLoan.principal_amount) || 0;
                                     const r = parseFloat(newLoan.interest_rate) || 0;
-                                    const monthlyInt = p * (r / 100);
-                                    const perPeriod = newLoan.interest_type === 'daily' ? monthlyInt / 30 : newLoan.interest_type === 'weekly' ? monthlyInt / 4 : monthlyInt;
-                                    return `Monthly interest: LKR ${monthlyInt.toLocaleString(undefined, { maximumFractionDigits: 2 })} (at ${r}% monthly rate). Collection mode '${newLoan.interest_type}': borrower is charged LKR ${perPeriod.toLocaleString(undefined, { maximumFractionDigits: 2 })} per ${newLoan.interest_type === 'daily' ? 'day (30 days = 1 month of interest)' : newLoan.interest_type === 'weekly' ? 'week' : 'month'}.`;
-                                  })()}
-                                </p>
-                              )}
+                                    const d = parseInt(newLoan.duration_periods, 10);
+                                    const numMonths = d / 31;
+                                    const nominalDays = d - numMonths;
+                                    const totalInterest = p * (r / 100) * numMonths;
+                                    const dailyInstallment = (p + totalInterest) / nominalDays;
+                                    const trueTotal = dailyInstallment * d;
+                                    return (
+                                      <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Flat Daily Installment (principal + interest):</span><strong style={{ color: 'var(--accent-blue)' }}>LKR {dailyInstallment.toLocaleString(undefined, { maximumFractionDigits: 2 })}/day</strong></div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Collected for:</span><strong>{d} days ({nominalDays} nominal + {numMonths} extra day{numMonths > 1 ? 's' : ''})</strong></div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-light)', paddingTop: '4px', marginTop: '2px' }}><span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>Total Repayable:</span><strong style={{ color: 'var(--accent-emerald)' }}>LKR {trueTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
+                                      </div>
+                                    );
+                                  })()
+                                : (newLoan.principal_amount > 0 && newLoan.interest_rate > 0 && (
+                                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0' }}>
+                                    {(() => {
+                                      const p = parseFloat(newLoan.principal_amount) || 0;
+                                      const r = parseFloat(newLoan.interest_rate) || 0;
+                                      const monthlyInt = p * (r / 100);
+                                      const perPeriod = newLoan.interest_type === 'daily' ? monthlyInt / 30 : newLoan.interest_type === 'weekly' ? monthlyInt / 4 : monthlyInt;
+                                      return `Monthly interest: LKR ${monthlyInt.toLocaleString(undefined, { maximumFractionDigits: 2 })} (at ${r}% monthly rate). Collection mode '${newLoan.interest_type}': borrower is charged LKR ${perPeriod.toLocaleString(undefined, { maximumFractionDigits: 2 })} per ${newLoan.interest_type === 'daily' ? 'day (30 days = 1 month of interest)' : newLoan.interest_type === 'weekly' ? 'week' : 'month'}.`;
+                                    })()}
+                                  </p>
+                                ))}
 
                               {user.role === 'agent' ? (
                                 <div style={{ padding: '12px 14px', background: 'var(--accent-blue-light)', borderRadius: 'var(--radius-md)', fontSize: '13px', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -5399,20 +5432,31 @@ export default function LendApp() {
                           <form onSubmit={handleLedgerCollectPayment} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <div>
                               <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>PAYMENT TYPE</label>
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                <button type="button"
-                                  className={`glass-btn ${ledgerPaymentForm.payment_type === 'interest' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
-                                  style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
-                                  onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'interest' }))}>
-                                  Interest
-                                </button>
-                                <button type="button"
-                                  className={`glass-btn ${ledgerPaymentForm.payment_type === 'principal' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
-                                  style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
-                                  onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'principal' }))}>
-                                  Principal
-                                </button>
-                              </div>
+                              {loanStatement.loan.is_flat_installment ? (
+                                <div className="glass-btn glass-btn-emerald" style={{ width: '100%', padding: '8px 12px', fontSize: '12px', textAlign: 'center', cursor: 'default' }}>
+                                  Principal + Interest (Flat Installment)
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button type="button"
+                                    className={`glass-btn ${ledgerPaymentForm.payment_type === 'interest' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                                    style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
+                                    onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'interest' }))}>
+                                    Interest
+                                  </button>
+                                  <button type="button"
+                                    className={`glass-btn ${ledgerPaymentForm.payment_type === 'principal' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                                    style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
+                                    onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'principal' }))}>
+                                    Principal
+                                  </button>
+                                </div>
+                              )}
+                              {loanStatement.loan.is_flat_installment && (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '4px' }}>
+                                  Daily installment due: LKR {parseFloat(loanStatement.loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                              )}
                             </div>
 
                             <div>
@@ -6756,6 +6800,10 @@ function PaymentHistoryLoader() {
 // borrower/agent an honest "as of right now" estimate alongside it.
 function projectCurrentInterestBalance(loan) {
   const stored = parseFloat(loan.interest_balance) || 0;
+  // Flat installment loans have their full interest total booked upfront
+  // (see recordFlatInstallmentCollection) — nothing accrues incrementally,
+  // so the stored balance already IS the current balance.
+  if (loan.is_flat_installment) return stored;
   if (loan.status !== 'active' || !loan.next_accrual_date) return stored;
 
   const principal = parseFloat(loan.principal_amount) || 0;
@@ -6829,6 +6877,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   });
 
   const periodDue = (loan) => {
+    if (loan.is_flat_installment) return parseFloat(loan.daily_installment_amount) || 0;
     const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
     if (loan.interest_type === 'daily') return monthlyInterest / 30;
     if (loan.interest_type === 'weekly') return monthlyInterest / 4;
@@ -6848,9 +6897,13 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
 
   // mode is 'full' or 'partial' — the two checkboxes are mutually exclusive.
   const handleToggleMode = (loan, mode, checked) => {
-    const totalDue = parseFloat(loan.interest_balance) > 0
-      ? parseFloat(loan.interest_balance)
-      : periodDue(loan);
+    // Flat installment loans: "Full Due" means today's flat amount (which
+    // covers a mix of principal + interest), not the whole remaining
+    // interest_balance the way every other loan type works — the borrower
+    // isn't expected to pay off the entire remaining term in one day.
+    const totalDue = loan.is_flat_installment
+      ? Math.min(periodDue(loan), parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance))
+      : (parseFloat(loan.interest_balance) > 0 ? parseFloat(loan.interest_balance) : periodDue(loan));
 
     setSelectedRows(prev => {
       const current = prev[loan.id] || { paymentType: 'interest' };
@@ -6876,7 +6929,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
       return;
     }
 
-    const paymentType = row.paymentType || 'interest';
+    const paymentType = loan.is_flat_installment ? 'flat_installment' : (row.paymentType || 'interest');
 
     setSubmittingIds(prev => ({ ...prev, [loan.id]: true }));
     try {
@@ -6891,7 +6944,8 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
       });
 
       if (showToast) {
-        showToast(`Recorded LKR ${amountVal.toLocaleString()} ${paymentType} payment for ${loan.borrower_name}!`);
+        const typeLabel = paymentType === 'flat_installment' ? 'daily installment' : paymentType;
+        showToast(`Recorded LKR ${amountVal.toLocaleString()} ${typeLabel} payment for ${loan.borrower_name}!`);
       }
 
       // Clear completed row input
@@ -7004,7 +7058,9 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
               </thead>
               <tbody>
                 {filteredLoans.map(loan => {
-                  const totalDue = parseFloat(loan.interest_balance) || 0;
+                  const totalDue = loan.is_flat_installment
+                    ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
+                    : parseFloat(loan.interest_balance) || 0;
                   const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
                   const isSubmitting = submittingIds[loan.id];
 
@@ -7024,7 +7080,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                           LKR {totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </span>
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}
+                          LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}{loan.is_flat_installment ? ' (flat)' : ''}
                         </span>
                       </td>
                       <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
@@ -7058,15 +7114,19 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                         </div>
                       </td>
                       <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
-                        <select
-                          value={row.paymentType || 'interest'}
-                          onChange={e => updateRowField(loan.id, 'paymentType', e.target.value)}
-                          className="glass-input"
-                          style={{ padding: '6px 8px', fontSize: '12px', width: '100px' }}
-                        >
-                          <option value="interest">Interest</option>
-                          <option value="principal">Principal</option>
-                        </select>
+                        {loan.is_flat_installment ? (
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>Principal + Interest</span>
+                        ) : (
+                          <select
+                            value={row.paymentType || 'interest'}
+                            onChange={e => updateRowField(loan.id, 'paymentType', e.target.value)}
+                            className="glass-input"
+                            style={{ padding: '6px 8px', fontSize: '12px', width: '100px' }}
+                          >
+                            <option value="interest">Interest</option>
+                            <option value="principal">Principal</option>
+                          </select>
+                        )}
                       </td>
                       <td style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                         <button
@@ -7089,7 +7149,9 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
           {/* Mobile: one compact card per loan instead of a wide table */}
           <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {filteredLoans.map(loan => {
-              const totalDue = parseFloat(loan.interest_balance) || 0;
+              const totalDue = loan.is_flat_installment
+                ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
+                : parseFloat(loan.interest_balance) || 0;
               const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
               const isSubmitting = submittingIds[loan.id];
 
@@ -7108,7 +7170,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                         LKR {totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </span>
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                        LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}
+                        LKR {periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}{periodLabel}{loan.is_flat_installment ? ' (flat)' : ''}
                       </span>
                     </div>
                   </div>
@@ -7149,15 +7211,19 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
 
                   {row.mode && (
                     <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                      <select
-                        value={row.paymentType || 'interest'}
-                        onChange={e => updateRowField(loan.id, 'paymentType', e.target.value)}
-                        className="glass-input"
-                        style={{ flex: 1, padding: '8px 10px', fontSize: '13px' }}
-                      >
-                        <option value="interest">Interest</option>
-                        <option value="principal">Principal</option>
-                      </select>
+                      {loan.is_flat_installment ? (
+                        <span style={{ flex: 1, display: 'flex', alignItems: 'center', fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Principal + Interest</span>
+                      ) : (
+                        <select
+                          value={row.paymentType || 'interest'}
+                          onChange={e => updateRowField(loan.id, 'paymentType', e.target.value)}
+                          className="glass-input"
+                          style={{ flex: 1, padding: '8px 10px', fontSize: '13px' }}
+                        >
+                          <option value="interest">Interest</option>
+                          <option value="principal">Principal</option>
+                        </select>
+                      )}
                       <button
                         type="button"
                         className="glass-btn glass-btn-emerald"

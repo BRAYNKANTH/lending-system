@@ -262,6 +262,23 @@ async function runIncrementalMigrations() {
     });
     console.log("Migration: created table 'ticket_payments'.");
   }
+
+  // Flat daily installment loans — the client's real field practice for
+  // Daily + Fixed Term loans: each day's collection is one flat amount
+  // that bundles BOTH principal and interest (not interest-only like every
+  // other loan type). See src/lib/services/ledger.js
+  // recordFlatInstallmentCollection for the split math.
+  await addColumnIfMissing('loans', 'is_flat_installment', (t) => t.boolean('is_flat_installment').notNullable().defaultTo(false));
+  await addColumnIfMissing('loans', 'daily_installment_amount', (t) => t.decimal('daily_installment_amount', 15, 2).nullable());
+  await addColumnIfMissing('loans', 'principal_per_day', (t) => t.decimal('principal_per_day', 15, 2).nullable());
+  await addColumnIfMissing('loans', 'interest_per_day', (t) => t.decimal('interest_per_day', 15, 2).nullable());
+
+  // Records how a single flat-installment collection split between
+  // principal and interest, since transactions.payment_type stays a plain
+  // 'flat_installment' string (the split itself needs somewhere to live
+  // for receipts/reporting to reconstruct it later).
+  await addColumnIfMissing('transactions', 'principal_component', (t) => t.decimal('principal_component', 15, 2).nullable());
+  await addColumnIfMissing('transactions', 'interest_component', (t) => t.decimal('interest_component', 15, 2).nullable());
 }
 
 async function createSchemaAndSeed() {
@@ -322,6 +339,10 @@ async function createSchemaAndSeed() {
     table.string('collection_mode', 30).notNullable().defaultTo('passbook');
     table.integer('duration_periods').nullable();
     table.timestamp('maturity_date').nullable();
+    table.boolean('is_flat_installment').notNullable().defaultTo(false);
+    table.decimal('daily_installment_amount', 15, 2).nullable();
+    table.decimal('principal_per_day', 15, 2).nullable();
+    table.decimal('interest_per_day', 15, 2).nullable();
     table.timestamps(true, true);
 
     table.index('borrower_id');
@@ -341,6 +362,8 @@ async function createSchemaAndSeed() {
     table.text('proof_image_url');
     table.string('payment_method', 50).defaultTo('cash');
     table.string('idempotency_key', 255).unique().notNullable();
+    table.decimal('principal_component', 15, 2).nullable();
+    table.decimal('interest_component', 15, 2).nullable();
     table.timestamp('created_at').defaultTo(db.fn.now());
 
     table.index('loan_id');

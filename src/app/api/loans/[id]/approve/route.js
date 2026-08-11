@@ -31,7 +31,12 @@ export async function POST(request, { params }) {
       const nextAccrualDate = addInterval(now, loan.interest_type);
       let maturityDate = loan.maturity_date;
       if (loan.collection_mode === 'fixed_term' && loan.duration_periods) {
-        maturityDate = addInterval(now, loan.interest_type, loan.duration_periods);
+        // Flat installment loans start collecting on approval day itself
+        // (day 0 = the 1st of duration_periods collection days), same as
+        // the day-0-counts rule applied at creation time.
+        maturityDate = loan.is_flat_installment
+          ? addInterval(now, loan.interest_type, loan.duration_periods - 1)
+          : addInterval(now, loan.interest_type, loan.duration_periods);
       }
 
       await trx('loans').where({ id }).update({

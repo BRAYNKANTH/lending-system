@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
-import { recordPaymentCollection } from '@/lib/services/ledger.js';
+import { recordPaymentCollection, recordFlatInstallmentCollection } from '@/lib/services/ledger.js';
 import { notifyPaymentReceived } from '@/lib/services/notification.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
 
@@ -14,8 +14,8 @@ export async function POST(request) {
     if (!loan_id || !amount || !idempotency_key) {
       return NextResponse.json({ message: 'Loan ID, payment amount, and idempotency key are required.' }, { status: 400 });
     }
-    if (!['interest', 'principal'].includes(payment_type)) {
-      return NextResponse.json({ message: "Payment type is required and must be 'interest' or 'principal'." }, { status: 400 });
+    if (!['interest', 'principal', 'flat_installment'].includes(payment_type)) {
+      return NextResponse.json({ message: "Payment type is required and must be 'interest', 'principal', or 'flat_installment'." }, { status: 400 });
     }
 
     const payAmount = parseFloat(amount);
@@ -53,7 +53,8 @@ export async function POST(request) {
       savedProofUrl = validateImageDataUrl(proof_image_url);
     }
 
-    const result = await recordPaymentCollection({
+    const collectFn = payment_type === 'flat_installment' ? recordFlatInstallmentCollection : recordPaymentCollection;
+    const result = await collectFn({
       loanId: loan_id,
       agentId,
       amount: payAmount,
@@ -106,7 +107,7 @@ export async function POST(request) {
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     console.error('Payment collection error:', error);
-    if (error.message?.includes('exceeds outstanding') || error.message?.includes('already been fully paid') || error.message?.includes('defaulted') || error.message?.includes('written off') || error.message?.includes('awaiting admin approval') || error.message?.includes('was rejected') || error.message?.includes("must be 'interest' or 'principal'")) {
+    if (error.message?.includes('exceeds outstanding') || error.message?.includes('exceeds the total outstanding') || error.message?.includes('already been fully paid') || error.message?.includes('defaulted') || error.message?.includes('written off') || error.message?.includes('awaiting admin approval') || error.message?.includes('was rejected') || error.message?.includes("must be 'interest' or 'principal'") || error.message?.includes('not a flat installment loan')) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }
     return NextResponse.json({ message: 'Internal server error while processing payment.' }, { status: 500 });

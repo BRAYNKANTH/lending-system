@@ -121,7 +121,7 @@ export async function notifyLoanApplicationRejected({ submittedBy, borrowerName,
  */
 export async function notifyPaymentReceived({ borrower, admin, agent, amount, paymentType, principalOutstanding, interestBalance, interestType }) {
   const formattedAmount = Number(amount).toLocaleString();
-  const kind = paymentType === 'interest' ? 'interest' : 'principal';
+  const kind = paymentType === 'interest' ? 'interest' : paymentType === 'flat_installment' ? 'daily installment' : 'principal';
 
   // RULE: Exclude daily collection payments from borrower SMS notifications. Only send for weekly & monthly.
   if (interestType !== 'daily') {

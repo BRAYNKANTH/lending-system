@@ -18,7 +18,11 @@ export async function runInterestAccruals(loanId) {
   console.log(loanId ? `Running interest accrual check for loan ${loanId}...` : 'Running interest accrual checks...');
   let query = db('loans')
     .where('status', 'active')
-    .andWhere('next_accrual_date', '<=', db.fn.now());
+    .andWhere('next_accrual_date', '<=', db.fn.now())
+    // Flat installment loans (Daily + Fixed Term) have their full interest
+    // total set upfront at creation/approval — see recordFlatInstallmentCollection
+    // in ledger.js — not accrued incrementally like every other loan type.
+    .andWhere('is_flat_installment', false);
   if (loanId) query = query.andWhere('id', loanId);
   const activeLoans = await query;
 
