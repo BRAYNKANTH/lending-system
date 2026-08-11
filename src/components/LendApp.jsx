@@ -5172,6 +5172,16 @@ export default function LendApp() {
           // principal and interest are two separate running balances:
           // disbursement/principal-payments only move the principal balance,
           // accruals/penalties/interest-payments only move the interest balance.
+          //
+          // Flat-installment loans never generate interest_accrual rows going
+          // forward (the daily accrual cron skips them — the flat daily
+          // amount already bundles principal+interest). Any accrual rows on
+          // a loan that's flat-installment now are leftovers from before it
+          // was converted from the old interest-only model, and would only
+          // show up here as confusing stale "Interest Added" entries under a
+          // schedule the loan no longer follows — so they're excluded from
+          // this loan's activity log entirely.
+          const relevantAccruals = loanStatement.loan.is_flat_installment ? [] : loanStatement.accruals;
           const events = [
             {
               date: loanStatement.loan.created_at,
@@ -5181,7 +5191,7 @@ export default function LendApp() {
               change: 'increase',
               details: 'Initial principal loan amount'
             },
-            ...loanStatement.accruals.map(acc => ({
+            ...relevantAccruals.map(acc => ({
               date: acc.created_at,
               type: 'Interest Added',
               amount: parseFloat(acc.amount_accrued),
@@ -5570,7 +5580,7 @@ export default function LendApp() {
                       className={`subtab-pill ${passbookMobileTab === 'accruals' ? 'active' : ''}`}
                       onClick={() => setPassbookMobileTab('accruals')}
                     >
-                      <TrendingUp style={{ width: '14px', height: '14px' }} /> Interest Log ({loanStatement.accruals.length})
+                      <TrendingUp style={{ width: '14px', height: '14px' }} /> Interest Log ({relevantAccruals.length})
                     </button>
                   </div>
 
@@ -5803,11 +5813,13 @@ export default function LendApp() {
                       {/* Accrued Interest list */}
                       <div className={`glass-card ${passbookMobileTab !== 'accruals' ? 'mobile-hidden' : ''}`}>
                         <h3 style={{ fontSize: '18px', marginBottom: '14px' }}><TrendingUp className="icon" /> Interest Charged History</h3>
-                        {loanStatement.accruals.length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No interest accrued yet.</p>
+                        {relevantAccruals.length === 0 ? (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+                            {loanStatement.loan.is_flat_installment ? 'Not applicable — flat installment loans bundle interest into the fixed daily amount.' : 'No interest accrued yet.'}
+                          </p>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
-                            {loanStatement.accruals.map((acc, idx) => (
+                            {relevantAccruals.map((acc, idx) => (
                               <div key={idx} style={{ padding: '12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
                                   <span>Accrued Date</span>
@@ -6098,7 +6110,12 @@ export default function LendApp() {
             <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Loading passbook details...</p>
           </div>
         ) : (() => {
-          // Event compilation (chronological order)
+          // Event compilation (chronological order). See the same
+          // relevantAccruals note in the 'ledger' view above — flat
+          // installment loans never accrue interest_accrual rows going
+          // forward, so any that exist here are pre-conversion leftovers
+          // and are excluded from this loan's activity log.
+          const relevantAccruals = loanStatement.loan.is_flat_installment ? [] : loanStatement.accruals;
           const events = [
             {
               date: loanStatement.loan.created_at,
@@ -6108,7 +6125,7 @@ export default function LendApp() {
               change: 'increase',
               details: 'Initial principal loan amount'
             },
-            ...loanStatement.accruals.map(acc => ({
+            ...relevantAccruals.map(acc => ({
               date: acc.created_at,
               type: 'Interest Added',
               amount: parseFloat(acc.amount_accrued),
