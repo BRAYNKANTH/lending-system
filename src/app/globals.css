@@ -1370,14 +1370,22 @@ table.desktop-only {
   .wizard-layout {
     flex-direction: column;
   }
+  /* Kept as a COLUMN on mobile too (progress bar on its own row, step
+     chips in a row underneath) rather than the sidebar itself going row —
+     the step chips live inside .wizard-step-nodes-container, a sibling of
+     the progress bar, not a direct child of .wizard-sidebar. Making the
+     sidebar row previously put the (always-vertical, inline-styled)
+     step-nodes column beside the progress bar as one squeezed unit instead
+     of laying the steps out as their own row — that mismatch between this
+     CSS's assumption and the actual nesting was the cause of the cramped,
+     misaligned mobile stepper. */
   .wizard-sidebar {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--border-light);
-    flex-direction: row;
+    flex-direction: column;
     padding: 12px;
     gap: 8px;
-    justify-content: space-around;
   }
   /* The "LOAN WIZARD" title used to sit in this same flex row as the two
      step buttons (they're siblings), squeezing all three into a cramped
@@ -1402,12 +1410,36 @@ table.desktop-only {
     gap: 5px !important;
     flex-shrink: 0;
   }
+  /* !important needed: this container's flex-direction/gap are also set
+     inline in LendApp.jsx (flexDirection: 'column', gap: '16px' — shared
+     with the desktop layout), which otherwise wins over this stylesheet
+     rule outright regardless of specificity or media-query order. */
+  .wizard-step-nodes-container {
+    flex-direction: row !important;
+    gap: 4px !important;
+    width: 100%;
+  }
   .step-indicator {
-    padding: 8px 10px;
-    flex-direction: row;
-    gap: 8px;
-    width: auto;
+    /* Same !important reasoning — width: '100%' is set inline on this
+       button (shared with desktop, where it needs to fill the sidebar
+       column). Icon-over-label instead of icon-beside-label so each of
+       the 3-4 chips stays legible at roughly a quarter of screen width. */
+    width: auto !important;
     flex: 1;
+    min-width: 0;
+    flex-direction: column !important;
+    align-items: center;
+    text-align: center;
+    justify-content: flex-start;
+    gap: 4px !important;
+    padding: 8px 4px;
+  }
+  .step-label {
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
   .step-subtext {
     display: none;
