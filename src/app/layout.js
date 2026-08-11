@@ -22,6 +22,17 @@ const outfit = Outfit({
   display: 'swap'
 });
 
+// Forces this layout (and the metadata below) to be rendered per-request
+// rather than baked into a static HTML shell at build time — without
+// this, Next prerenders the page once at build time with whatever was in
+// the database THEN, so an admin changing the org name/logo in Settings
+// wouldn't show up in the browser tab title or favicon until the next
+// deploy, breaking the "no redeploy needed" point of this whole feature
+// (the in-app header/login already update instantly since those are
+// fetched client-side, but this server-rendered metadata needs the same
+// opt-out explicitly).
+export const dynamic = 'force-dynamic';
+
 // Reads this org's own name from its own database for the browser tab
 // title — same org_settings row the app itself reads via GET /api/settings
 // (see src/app/api/settings/route.js). Falls back to a generic title
@@ -29,9 +40,14 @@ const outfit = Outfit({
 // the case for the dedicated /platform-admin deployment: this root layout
 // wraps every route in the app, including that one, and that deployment
 // deliberately has no DATABASE_URL (only PLATFORM_DATABASE_URL) — see
-// src/lib/platformDb.js. The icon/PWA assets stay static build-time
-// files rather than per-org, since changing those needs different actual
-// image files per deployment, not just a database row.
+// src/lib/platformDb.js.
+//
+// Favicon/apple-touch-icon point at /api/org-icon (see that route) instead
+// of the old static per-file STN icons — it resizes/pads THIS org's own
+// uploaded logo (or a neutral placeholder if none is set yet) to whatever
+// size each icon slot needs, using sharp. The PWA manifest itself is
+// src/app/manifest.js, a Next.js special file Next auto-links on its own
+// — no `manifest:` entry needed here.
 export async function generateMetadata() {
   let orgName = 'Cash Lending Management System';
   try {
@@ -47,14 +63,13 @@ export async function generateMetadata() {
   return {
     title: orgName.toUpperCase(),
     description: 'Cash Lending & Agent Collection Management System',
-    manifest: '/manifest.webmanifest',
     icons: {
       icon: [
-        { url: '/stn_emblem.png?v=2', type: 'image/png' },
-        { url: '/favicon.ico?v=2' }
+        { url: '/api/org-icon?size=32', type: 'image/png', sizes: '32x32' },
+        { url: '/api/org-icon?size=192', type: 'image/png', sizes: '192x192' }
       ],
-      shortcut: '/stn_emblem.png?v=2',
-      apple: '/icons/apple-touch-icon.png?v=2'
+      shortcut: '/api/org-icon?size=48',
+      apple: '/api/org-icon?size=180'
     },
     appleWebApp: {
       capable: true,
