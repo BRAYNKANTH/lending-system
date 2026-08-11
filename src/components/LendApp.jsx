@@ -6538,7 +6538,11 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   // whatever's actually still left on the loan.
   const periodDueOf = (loan) => {
     const remaining = totalOutstandingOf(loan);
-    if (loan.is_flat_installment) return Math.min(parseFloat(loan.daily_installment_amount) || 0, remaining);
+    // Flat-installment loans: use flatInstallmentDueToday, which already
+    // accounts for whatever's been collected today (or since the last
+    // collection) — not just the flat daily rate, which stayed nonzero
+    // even seconds after that exact amount had just been paid in full.
+    if (loan.is_flat_installment) return flatInstallmentDueToday(loan);
     const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
     const period = loan.interest_type === 'daily' ? monthlyInterest / 30 : loan.interest_type === 'weekly' ? monthlyInterest / 4 : monthlyInterest;
     return Math.min(period, remaining);
@@ -7307,6 +7311,38 @@ const todayLocalDateStr = () => {
   return `${y}-${m}-${day}`;
 };
 
+// What's actually still owed for a flat-installment loan's CURRENT
+// collection round — not just the flat daily rate. Without this, "Due"
+// stayed at the fixed daily_installment_amount forever, even the instant
+// after that exact amount had just been collected: pay today's LKR 1,000
+// in full and the screen kept showing "Due: LKR 1,000.00" for the rest of
+// the day, looking like the payment hadn't registered.
+//
+// Compares what SHOULD have been collected by today (elapsed calendar
+// days since disbursement × the daily rate, Day 1 = disbursement day)
+// against what actually HAS been collected so far (derived from how much
+// of the original total term has been paid down) — so it reads as 0 once
+// today's round is settled, and only grows again tomorrow (or sooner,
+// as a catch-up figure, if a day was missed entirely).
+const flatInstallmentDueToday = (loan) => {
+  const dailyAmt = parseFloat(loan.daily_installment_amount) || 0;
+  const totalTerm = dailyAmt * (parseFloat(loan.duration_periods) || 0);
+  const remaining = (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0);
+  const collectedSoFar = Math.max(0, totalTerm - remaining);
+
+  const start = new Date(loan.created_at);
+  start.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const elapsedDays = Math.min(
+    Math.max(1, Math.floor((today - start) / (1000 * 60 * 60 * 24)) + 1),
+    parseFloat(loan.duration_periods) || 1
+  );
+  const expectedSoFar = dailyAmt * elapsedDays;
+
+  return Math.max(0, Math.min(expectedSoFar - collectedSoFar, remaining));
+};
+
 function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   const [collectionType, setCollectionType] = useState('daily'); // 'daily', 'weekly', 'monthly'
   const [searchTerm, setSearchTerm] = useState('');
@@ -7346,7 +7382,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   });
 
   const periodDue = (loan) => {
-    if (loan.is_flat_installment) return parseFloat(loan.daily_installment_amount) || 0;
+    if (loan.is_flat_installment) return flatInstallmentDueToday(loan);
     const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
     if (loan.interest_type === 'daily') return monthlyInterest / 30;
     if (loan.interest_type === 'weekly') return monthlyInterest / 4;
