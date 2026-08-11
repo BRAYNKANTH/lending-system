@@ -5300,27 +5300,45 @@ export default function LendApp() {
                     )}
                   </h2>
                   
-                  {/* Styled responsive metrics grid */}
+                  {/* Styled responsive metrics grid. Flat-installment (daily
+                      principal+interest bundled) loans show one combined
+                      "Total Outstanding" instead of splitting Principal
+                      Outstanding / Interest Due into two figures — that
+                      split is internal bookkeeping (it's what drives the
+                      two separate ledger accounts), not something a daily
+                      collection borrower/agent needs to reason about;
+                      showing it prominently here was just confusing. Every
+                      other loan type is unchanged. */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px 16px', margin: '12px 0' }}>
                     <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
                       Original Principal: <strong style={{ color: 'var(--text-primary)' }}>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>
                     </div>
-                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                      Principal Outstanding: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.principal_outstanding).toLocaleString()}</strong>
-                    </div>
-                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                      Interest Due: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString()}</strong>
-                      {(() => {
-                        const projected = projectCurrentInterestBalance(loanStatement.loan);
-                        const stored = parseFloat(loanStatement.loan.interest_balance) || 0;
-                        if (Math.abs(projected - stored) < 0.01) return null;
-                        return (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', display: 'block', marginTop: '2px' }}>
-                            (Est. now: <strong style={{ color: 'var(--accent-rose)' }}>LKR {projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>)
-                          </span>
-                        );
-                      })()}
-                    </div>
+                    {loanStatement.loan.is_flat_installment ? (
+                      <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                        Total Outstanding: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
+                          LKR {(parseFloat(loanStatement.loan.principal_outstanding || 0) + parseFloat(loanStatement.loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                          Principal Outstanding: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.principal_outstanding).toLocaleString()}</strong>
+                        </div>
+                        <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                          Interest Due: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString()}</strong>
+                          {(() => {
+                            const projected = projectCurrentInterestBalance(loanStatement.loan);
+                            const stored = parseFloat(loanStatement.loan.interest_balance) || 0;
+                            if (Math.abs(projected - stored) < 0.01) return null;
+                            return (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '12px', display: 'block', marginTop: '2px' }}>
+                                (Est. now: <strong style={{ color: 'var(--accent-rose)' }}>LKR {projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>)
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <p style={{ color: 'var(--text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 6px', flexWrap: 'wrap' }}>
@@ -5490,16 +5508,37 @@ export default function LendApp() {
                         const start = new Date(loanStatement.loan.created_at);
                         const maturity = new Date(loanStatement.loan.maturity_date);
                         const today = new Date();
-                        
-                        const totalDays = Math.max(1, Math.round((maturity - start) / (1000 * 60 * 60 * 24)));
-                        const elapsedDays = Math.max(0, Math.round((today - start) / (1000 * 60 * 60 * 24)));
-                        const percent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
-                        
+
+                        let totalDays, currentDay;
+                        if (loanStatement.loan.is_flat_installment) {
+                          // Flat-installment loans store their true collection
+                          // day count directly (duration_periods, e.g. 62) —
+                          // deriving it from (maturity - start) instead gave
+                          // the wrong denominator, since maturity_date is
+                          // start + (periods - 1) days by design (collection
+                          // starts on the disbursement day itself). Day
+                          // numbering counts the disbursement day as Day 1,
+                          // using calendar-day differences rather than raw
+                          // elapsed hours, so "today" reads correctly
+                          // regardless of what time of day the loan was
+                          // disbursed at.
+                          totalDays = loanStatement.loan.duration_periods || 1;
+                          const startMidnight = new Date(start); startMidnight.setHours(0, 0, 0, 0);
+                          const todayMidnight = new Date(today); todayMidnight.setHours(0, 0, 0, 0);
+                          const daysSinceStart = Math.round((todayMidnight - startMidnight) / (1000 * 60 * 60 * 24));
+                          currentDay = Math.min(totalDays, Math.max(1, daysSinceStart + 1));
+                        } else {
+                          totalDays = Math.max(1, Math.round((maturity - start) / (1000 * 60 * 60 * 24)));
+                          const elapsedDays = Math.max(0, Math.round((today - start) / (1000 * 60 * 60 * 24)));
+                          currentDay = Math.min(totalDays, elapsedDays);
+                        }
+                        const percent = Math.min(100, Math.max(0, (currentDay / totalDays) * 100));
+
                         return (
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '8px', color: 'var(--text-secondary)' }}>
                               <span>Disbursed: <strong>{start.toLocaleDateString()}</strong></span>
-                              <span>Day {Math.min(totalDays, elapsedDays)} of {totalDays} ({percent.toFixed(0)}%)</span>
+                              <span>Day {currentDay} of {totalDays} ({percent.toFixed(0)}%)</span>
                               <span>Maturity: <strong>{maturity.toLocaleDateString()}</strong></span>
                             </div>
                             <div style={{ width: '100%', height: '8px', background: 'var(--border-light)', borderRadius: '4px', overflow: 'hidden' }}>
@@ -6670,12 +6709,31 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{loan.interest_rate}%</td>
-                      <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.principal_outstanding) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap' }}>
-                        {parseFloat(loan.principal_outstanding) > 0 ? `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}` : 'Settled'}
-                      </td>
-                      <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.interest_balance) > 0 ? 'var(--accent-amber)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                        {parseFloat(loan.interest_balance) > 0 ? `LKR ${parseFloat(loan.interest_balance).toLocaleString()}` : '—'}
-                      </td>
+                      {loan.is_flat_installment ? (
+                        <>
+                          {/* Flat-installment loans bundle principal+interest
+                              into one daily figure — showing them split
+                              across these two columns (which every other
+                              loan type genuinely needs, since they're
+                              collected separately) just duplicates the same
+                              confusing split. One combined total instead. */}
+                          <td style={{ padding: '12px 14px', fontWeight: '700', color: (parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap' }}>
+                            {(parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)) > 0
+                              ? `LKR ${(parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                              : 'Settled'}
+                          </td>
+                          <td style={{ padding: '12px 14px', fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>(flat)</td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.principal_outstanding) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap' }}>
+                            {parseFloat(loan.principal_outstanding) > 0 ? `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}` : 'Settled'}
+                          </td>
+                          <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.interest_balance) > 0 ? 'var(--accent-amber)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            {parseFloat(loan.interest_balance) > 0 ? `LKR ${parseFloat(loan.interest_balance).toLocaleString()}` : '—'}
+                          </td>
+                        </>
+                      )}
                       <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-secondary)' }}>{loan.agent_name || <em style={{ color: 'var(--text-muted)' }}>Office</em>}</td>
                       <td style={{ padding: '12px 14px' }}>
                         <span className={`status-pill ${isActive ? 'status-pill-active' : isPaid ? 'status-pill-paid' : isPending ? 'status-pill-pending' : isRejected ? 'status-pill-rejected' : 'status-pill-defaulted'}`}>
@@ -6722,7 +6780,19 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    {[['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null], ['Rate', `${loan.interest_rate}%`, null], ['Principal Due', `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}`, 'var(--accent-rose)'], ['Interest Due', `LKR ${parseFloat(loan.interest_balance).toLocaleString()}`, 'var(--accent-amber)']].map(([lbl, val, col]) => (
+                    {(loan.is_flat_installment
+                      ? [
+                          ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null],
+                          ['Daily Installment', `LKR ${parseFloat(loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, null],
+                          ['Total Outstanding', `LKR ${(parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 'var(--accent-rose)']
+                        ]
+                      : [
+                          ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null],
+                          ['Rate', `${loan.interest_rate}%`, null],
+                          ['Principal Due', `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}`, 'var(--accent-rose)'],
+                          ['Interest Due', `LKR ${parseFloat(loan.interest_balance).toLocaleString()}`, 'var(--accent-amber)']
+                        ]
+                    ).map(([lbl, val, col]) => (
                       <div key={lbl} style={{ background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '8px' }}>
                         <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>{lbl}</span>
                         <span style={{ fontWeight: '700', fontSize: '12px', color: col || 'var(--text-primary)' }}>{val}</span>
