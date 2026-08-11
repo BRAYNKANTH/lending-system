@@ -2059,6 +2059,22 @@ table.desktop-only {
     width: 36px;
     height: 36px;
   }
+
+  /* Loan Directory's 5-card KPI strip (Total Disbursed / Principal
+     Outstanding / Interest Due / Active-Unpaid / Fully Paid) uses
+     `repeat(auto-fit, minmax(150px, 1fr))` inline, which naturally lands
+     on 2 columns at phone widths — leaving the 5th card alone in a
+     half-empty last row. !important is required to win over that inline
+     gridTemplateColumns (same reasoning as .form-grid-2-col above). The
+     nth-child(odd):last-child rule then makes a lone trailing card in an
+     odd-count grid span the full row instead of sitting stranded on the
+     left. */
+  .kpi-summary-strip {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .kpi-summary-strip > *:nth-child(odd):last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 /* Unified Portal Selector */

@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
-import { downloadLoanAgreementPdf } from '@/lib/generateLoanAgreementPdf.js';
 import {
   Home, Banknote, ClipboardList, Users, Landmark, KeyRound, LogOut,
   ArrowLeft, ArrowRight, ScrollText, Check, X, Phone, IdCard, ShieldCheck,
@@ -10,7 +9,7 @@ import {
   Briefcase, Truck, BookOpen, ArrowDown, User, Settings, Ban, Receipt,
   Search, CreditCard, Smartphone, PiggyBank, MessageSquare, UserPlus, Trash2, ClipboardCheck,
   CircleCheck, CircleAlert, RefreshCcw, Download, ChevronRight, Calendar,
-  Plus, ThumbsUp, ThumbsDown, Clock, Filter
+  Plus, ThumbsUp, ThumbsDown, Clock, Filter, LayoutGrid
 } from 'lucide-react';
 
 export default function LendApp() {
@@ -43,6 +42,7 @@ export default function LendApp() {
   const [agentCustomerTab, setAgentCustomerTab] = useState('active'); // 'active', 'defaulted', 'closed'
   const [agentCollectMobileTab, setAgentCollectMobileTab] = useState('form'); // mobile-only: 'form', 'customers'
   const [passbookMobileTab, setPassbookMobileTab] = useState('record'); // mobile-only: 'record', 'activity', 'receipts', 'accruals'
+  const [showMoreMenu, setShowMoreMenu] = useState(false); // mobile-only: bottom-sheet for admin destinations that don't have their own bottom-nav slot
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -680,11 +680,18 @@ export default function LendApp() {
 
   // Downloads a formatted Loan Agreement PDF (with the company logo) for
   // the currently open loan statement — runs client-side via jsPDF, no
-  // server round trip needed.
+  // server round trip needed. jsPDF (and this generator module) are loaded
+  // on demand via a dynamic import rather than a top-level import — jsPDF
+  // is a sizeable library that was previously bundled into every single
+  // page load of the app, even though downloading an agreement is a rare
+  // action relative to total page views. Splitting it into its own
+  // on-demand chunk keeps it out of the initial JS payload everyone else
+  // pays for.
   const handleDownloadAgreement = async () => {
     if (!loanStatement) return;
     setDownloadingAgreement(true);
     try {
+      const { downloadLoanAgreementPdf } = await import('@/lib/generateLoanAgreementPdf.js');
       await downloadLoanAgreementPdf(loanStatement);
     } catch (err) {
       console.error('PDF generation failed:', err);
@@ -2960,34 +2967,63 @@ export default function LendApp() {
                     {ticketAuctions.length === 0 ? (
                       <p style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '20px' }}>No auction rounds completed yet.</p>
                     ) : (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table className="glass-table">
-                          <thead>
-                            <tr>
-                              <th>Round #</th>
-                              <th>Date</th>
-                              <th>Bid (கழிவு)</th>
-                              <th>Winner Member</th>
-                              <th>Payout to Winner</th>
-                              <th>Repayment / Member</th>
-                              <th>Host Fee Collected</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {ticketAuctions.map(a => (
-                              <tr key={a.id}>
-                                <td style={{ fontWeight: 'bold' }}>Round {a.round_number}</td>
-                                <td>{new Date(a.auction_date).toLocaleDateString()}</td>
-                                <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</td>
-                                <td><strong>{a.winner_name || 'N/A (No Winner)'}</strong></td>
-                                <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(a.winner_payout).toLocaleString()}</td>
-                                <td>LKR {parseFloat(a.amount_per_member).toLocaleString()}</td>
-                                <td>LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString()}</td>
+                      <>
+                        <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                          <table className="glass-table">
+                            <thead>
+                              <tr>
+                                <th>Round #</th>
+                                <th>Date</th>
+                                <th>Bid (கழிவு)</th>
+                                <th>Winner Member</th>
+                                <th>Payout to Winner</th>
+                                <th>Repayment / Member</th>
+                                <th>Host Fee Collected</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              {ticketAuctions.map(a => (
+                                <tr key={a.id}>
+                                  <td style={{ fontWeight: 'bold' }}>Round {a.round_number}</td>
+                                  <td>{new Date(a.auction_date).toLocaleDateString()}</td>
+                                  <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</td>
+                                  <td><strong>{a.winner_name || 'N/A (No Winner)'}</strong></td>
+                                  <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(a.winner_payout).toLocaleString()}</td>
+                                  <td>LKR {parseFloat(a.amount_per_member).toLocaleString()}</td>
+                                  <td>LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="mobile-only mobile-card-list">
+                          {ticketAuctions.map(a => (
+                            <div key={a.id} className="mobile-row-card">
+                              <div className="mobile-row-card-header">
+                                <span className="mobile-row-card-title">Round {a.round_number}</span>
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(a.auction_date).toLocaleDateString()}</span>
+                              </div>
+                              <div className="mobile-row-card-grid">
+                                <span className="mobile-row-card-label">Winner</span>
+                                <span className="mobile-row-card-value">{a.winner_name || 'N/A (No Winner)'}</span>
+
+                                <span className="mobile-row-card-label">Bid (கழிவு)</span>
+                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</span>
+
+                                <span className="mobile-row-card-label">Payout</span>
+                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)' }}>LKR {parseFloat(a.winner_payout).toLocaleString()}</span>
+
+                                <span className="mobile-row-card-label">Per Member</span>
+                                <span className="mobile-row-card-value">LKR {parseFloat(a.amount_per_member).toLocaleString()}</span>
+
+                                <span className="mobile-row-card-label">Host Fee</span>
+                                <span className="mobile-row-card-value">LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString()}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
@@ -3298,28 +3334,45 @@ export default function LendApp() {
                     {!adminData.recentAccruals || adminData.recentAccruals.length === 0 ? (
                       <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No interest accrued yet.</p>
                     ) : (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table className="glass-table" style={{ fontSize: '14px' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ padding: '12px 16px', fontSize: '12px' }}>Borrower</th>
-                              <th style={{ padding: '12px 16px', fontSize: '12px' }}>Accrual Date</th>
-                              <th style={{ padding: '12px 16px', fontSize: '12px' }}>Accrued Amount</th>
-                              <th style={{ padding: '12px 16px', fontSize: '12px' }}>Calculation Log (Formula Step)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {adminData.recentAccruals.map((acc, idx) => (
-                              <tr key={idx} style={{ fontSize: '14px' }}>
-                                <td style={{ padding: '12px 16px' }}><strong>{acc.borrower_name}</strong></td>
-                                <td style={{ padding: '12px 16px' }}>{new Date(acc.created_at).toLocaleString()}</td>
-                                <td style={{ padding: '12px 16px', color: 'var(--accent-rose)', fontWeight: 'bold' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</td>
-                                <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-secondary)' }}>{acc.calculation_log}</td>
+                      <>
+                        <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                          <table className="glass-table" style={{ fontSize: '14px' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ padding: '12px 16px', fontSize: '12px' }}>Borrower</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px' }}>Accrual Date</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px' }}>Accrued Amount</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px' }}>Calculation Log (Formula Step)</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              {adminData.recentAccruals.map((acc, idx) => (
+                                <tr key={idx} style={{ fontSize: '14px' }}>
+                                  <td style={{ padding: '12px 16px' }}><strong>{acc.borrower_name}</strong></td>
+                                  <td style={{ padding: '12px 16px' }}>{new Date(acc.created_at).toLocaleString()}</td>
+                                  <td style={{ padding: '12px 16px', color: 'var(--accent-rose)', fontWeight: 'bold' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</td>
+                                  <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-secondary)' }}>{acc.calculation_log}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="mobile-only mobile-card-list">
+                          {adminData.recentAccruals.map((acc, idx) => (
+                            <div key={idx} className="mobile-row-card">
+                              <div className="mobile-row-card-header">
+                                <span className="mobile-row-card-title">{acc.borrower_name}</span>
+                                <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold', fontSize: '14px' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</span>
+                              </div>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(acc.created_at).toLocaleString()}</span>
+                              <div style={{ fontFamily: 'monospace', fontSize: '11.5px', color: 'var(--text-secondary)', background: 'var(--bg-tertiary)', borderRadius: '6px', padding: '8px 10px', marginTop: '4px', wordBreak: 'break-word' }}>
+                                {acc.calculation_log}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
@@ -5165,9 +5218,9 @@ export default function LendApp() {
                     {loanStatement.loan.nic_photo_url && (
                       <>
                         <span>•</span>
-                        <a 
-                          href="#" 
-                          style={{ color: 'var(--accent-blue)', textDecoration: 'underline', fontWeight: '500' }}
+                        <a
+                          href="#"
+                          style={{ color: 'var(--accent-blue)', textDecoration: 'underline', fontWeight: '500', display: 'inline-block', padding: '10px 4px', margin: '-10px -4px' }}
                           onClick={(e) => {
                             e.preventDefault();
                             const win = window.open();
@@ -6092,6 +6145,71 @@ export default function LendApp() {
 
       </main>
 
+      {/* "More" bottom sheet (admin, mobile) — gives every admin screen
+          that only lived in the desktop-only top nav (display:none on
+          mobile) a real, permanent path on a phone. Next Day Tasklist and
+          Record Payment were at least reachable via the dashboard's menu
+          grid; Payment History and Audit Log had NO mobile path at all
+          before this — the desktop top nav was their only link. */}
+      {showMoreMenu && (
+        <div className="receipt-modal-overlay" onClick={() => setShowMoreMenu(false)}>
+          <div className="receipt-modal-card" style={{ maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+            <div className="receipt-header">
+              <div className="receipt-header-icon"><LayoutGrid /></div>
+              <div className="receipt-title">More</div>
+              <div className="receipt-subtitle">Jump to another screen</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <Calendar className="icon" /> Next Day Tasklist
+              </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <CreditCard className="icon" /> Record Payment
+              </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('interest-center'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <TrendingUp className="icon" /> Interest Accrual Center
+              </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <Receipt className="icon" /> Payment History
+              </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <ScrollText className="icon" /> Audit Log
+              </button>
+            </div>
+            <div className="receipt-actions" style={{ gridTemplateColumns: '1fr' }}>
+              <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowMoreMenu(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sticky Bottom Navigation Bar */}
       {token && user && view !== 'portal' && view !== 'ticket-dashboard' && (
         <nav className="bottom-nav-bar animate-fade-in">
@@ -6116,6 +6234,17 @@ export default function LendApp() {
               <button className={`bottom-nav-item ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}>
                 <span className="bottom-nav-icon"><Landmark /></span>
                 <span className="bottom-nav-label">Users & Cash</span>
+              </button>
+              {/* "More" — Next Day Tasklist, Record Payment, and Interest
+                  Accrual Center are real, frequently-needed screens that
+                  only had a path in from the dashboard's menu grid (or the
+                  desktop-only top nav, hidden on mobile). On mobile that
+                  meant Home -> scroll -> tap from ANY other screen just to
+                  reach them. This bottom sheet gives them a permanent,
+                  reachable path without crowding 8 items into one row. */}
+              <button className={`bottom-nav-item ${['next-day-tasklist', 'record-payment', 'interest-center', 'payment-history', 'audit-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)}>
+                <span className="bottom-nav-icon"><LayoutGrid /></span>
+                <span className="bottom-nav-label">More</span>
               </button>
             </>
           )}
@@ -6280,7 +6409,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
       </div>
 
       {/* Summary KPI Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+      <div className="kpi-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
         {[
           { label: 'Total Disbursed', val: `LKR ${Math.round(totalPrincipal).toLocaleString()}`, color: 'var(--accent-blue)', icon: '💰' },
           { label: 'Principal Outstanding', val: `LKR ${Math.round(totalOutstanding).toLocaleString()}`, color: 'var(--accent-rose)', icon: '📊' },
@@ -6627,7 +6756,7 @@ function AuditLogLoader() {
         </div>
       ) : (
         <>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="desktop-only" style={{ overflowX: 'auto' }}>
             <table className="glass-table">
               <thead>
                 <tr>
@@ -6648,6 +6777,19 @@ function AuditLogLoader() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="mobile-only mobile-card-list">
+            {data.data.map(log => (
+              <div key={log.id} className="mobile-row-card">
+                <div className="mobile-row-card-header">
+                  <span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>{log.action_type}</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
+                </div>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{log.actor_name || 'System'}{log.actor_role ? ` (${log.actor_role})` : ''}</span>
+                <p style={{ fontSize: '13px', margin: '4px 0 0', color: 'var(--text-primary)' }}>{log.description}</p>
+              </div>
+            ))}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
@@ -6806,7 +6948,7 @@ function PaymentHistoryLoader() {
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', padding: '16px 0' }}>No payments recorded yet.</p>
       ) : (
         <>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="desktop-only" style={{ overflowX: 'auto' }}>
             <table className="glass-table">
               <thead>
                 <tr>
@@ -6824,13 +6966,35 @@ function PaymentHistoryLoader() {
                     <td style={{ whiteSpace: 'nowrap' }}>{new Date(tx.payment_date).toLocaleString()}</td>
                     <td>{tx.borrower_name}</td>
                     <td>{tx.agent_name}</td>
-                    <td style={{ textTransform: 'capitalize' }}>{tx.payment_type}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{tx.payment_type === 'flat_installment' ? 'Daily installment' : tx.payment_type}</td>
                     <td style={{ fontWeight: 'bold' }}>LKR {parseFloat(tx.amount).toLocaleString()}</td>
                     <td style={{ textTransform: 'capitalize' }}>{(tx.payment_method || '').replace('_', ' ')}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="mobile-only mobile-card-list">
+            {data.data.map(tx => (
+              <div key={tx.id} className="mobile-row-card mobile-row-card-success">
+                <div className="mobile-row-card-header">
+                  <span className="mobile-row-card-title">{tx.borrower_name}</span>
+                  <span style={{ fontWeight: 'bold', color: 'var(--accent-emerald)', fontSize: '15px' }}>LKR {parseFloat(tx.amount).toLocaleString()}</span>
+                </div>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(tx.payment_date).toLocaleString()}</span>
+                <div className="mobile-row-card-grid">
+                  <span className="mobile-row-card-label">Agent</span>
+                  <span className="mobile-row-card-value">{tx.agent_name}</span>
+
+                  <span className="mobile-row-card-label">Type</span>
+                  <span className="mobile-row-card-value" style={{ textTransform: 'capitalize' }}>{tx.payment_type === 'flat_installment' ? 'Daily installment' : tx.payment_type}</span>
+
+                  <span className="mobile-row-card-label">Method</span>
+                  <span className="mobile-row-card-value" style={{ textTransform: 'capitalize' }}>{(tx.payment_method || '').replace('_', ' ')}</span>
+                </div>
+              </div>
+            ))}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
@@ -7233,8 +7397,8 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-light)' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-light)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', padding: '9px 10px', borderRadius: '8px', background: row.mode === 'full' ? 'var(--accent-blue-light)' : 'transparent' }}>
                       <input
                         type="checkbox"
                         checked={row.mode === 'full'}
@@ -7243,7 +7407,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                       />
                       Full Due
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', padding: '9px 10px', borderRadius: '8px', background: row.mode === 'partial' ? 'var(--accent-blue-light)' : 'transparent' }}>
                       <input
                         type="checkbox"
                         checked={row.mode === 'partial'}
