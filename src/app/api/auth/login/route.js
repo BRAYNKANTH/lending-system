@@ -6,9 +6,6 @@ import { JWT_SECRET } from '@/lib/jwt.js';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit.js';
 import { normalizePhone } from '@/lib/phone.js';
 
-const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
-
 export async function POST(request) {
   try {
     const ip = getClientIp(request);
@@ -38,27 +35,15 @@ export async function POST(request) {
     if (!user || !user.is_active) {
       return NextResponse.json({ message: 'Invalid phone number or inactive account.' }, { status: 401 });
     }
-    if (user.locked_until && new Date(user.locked_until) > new Date()) {
-      const minutesLeft = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
-      return NextResponse.json(
-        { message: `Account temporarily locked due to repeated failed logins. Try again in ${minutesLeft} minute(s).` },
-        { status: 423 }
-      );
-    }
-
+    // Per-account lockout after repeated failed attempts was removed at the
+    // client's request (it was locking out legitimate admins, e.g. Sabesh
+    // Capital's own admin, after a handful of mistyped passwords). The
+    // failed_login_attempts/locked_until columns are left in place — still
+    // cleared below on a successful login — but nothing sets or checks them
+    // anymore. The per-IP rate limit above (10 attempts / 15 min / network)
+    // is untouched and still provides basic anti-automation protection.
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      const attempts = (user.failed_login_attempts || 0) + 1;
-      const update = { failed_login_attempts: attempts };
-      if (attempts >= LOGIN_MAX_ATTEMPTS) {
-        update.locked_until = new Date(Date.now() + LOGIN_LOCKOUT_MS);
-        update.failed_login_attempts = 0;
-      }
-      await db('users').where({ id: user.id }).update(update);
-
-      if (update.locked_until) {
-        return NextResponse.json({ message: 'Too many failed login attempts. Account locked for 15 minutes.' }, { status: 423 });
-      }
       return NextResponse.json({ message: 'Invalid credentials.' }, { status: 401 });
     }
 
