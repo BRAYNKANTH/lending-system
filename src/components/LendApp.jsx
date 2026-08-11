@@ -15,6 +15,15 @@ import {
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('lend_user')));
+  // Only these top-level destinations are safe to restore after a reload —
+  // they fetch their own data from scratch via token/user alone. Deeper
+  // views (a specific loan's statement, mid-wizard loan creation, etc.)
+  // depend on other in-memory state (selectedLoanId, loanStatement, wizard
+  // form fields...) that reload can't recover, so landing back on one of
+  // those with nothing behind it would show a stuck spinner or a half-
+  // filled form instead of actually helping — better to fall back to a
+  // known-good screen than to a broken one.
+  const RESTORABLE_VIEWS = ['dashboard', 'portal', 'ticket-dashboard'];
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined') {
       const storedUser = localStorage.getItem('lend_user');
@@ -22,6 +31,10 @@ export default function LendApp() {
         try {
           const parsed = JSON.parse(storedUser);
           if (parsed) {
+            const savedView = sessionStorage.getItem('lend_view');
+            if (savedView && RESTORABLE_VIEWS.includes(savedView)) {
+              return savedView;
+            }
             if (parsed.finance_access && !parsed.ticket_access) {
               return 'dashboard';
             }
@@ -128,7 +141,11 @@ export default function LendApp() {
   };
 
   // Form states
-  const [loginPhone, setLoginPhone] = useState('');
+  // Restored from sessionStorage (never the password — only the phone
+  // number, which isn't sensitive) so a page reload or a mobile PWA
+  // getting suspended and reopened mid-login doesn't throw away what was
+  // already typed.
+  const [loginPhone, setLoginPhone] = useState(() => (typeof window !== 'undefined' && sessionStorage.getItem('lend_login_phone_draft')) || '');
   const [loginPassword, setLoginPassword] = useState('');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotIdentifier, setForgotIdentifier] = useState('');
@@ -239,6 +256,29 @@ export default function LendApp() {
     window.addEventListener('auth-expired', handleAuthExpired);
     return () => window.removeEventListener('auth-expired', handleAuthExpired);
   }, []);
+
+  // Remember the current top-level screen (see RESTORABLE_VIEWS above) so
+  // a reload — or a mobile PWA getting suspended in the background and
+  // reopened — lands back where the user actually was, not a generic
+  // default. Only writes for the safe/self-sufficient views; entering a
+  // deeper view (a specific loan, mid-wizard, etc.) leaves the last safe
+  // value in place rather than saving something reload can't recover.
+  useEffect(() => {
+    if (RESTORABLE_VIEWS.includes(view)) {
+      sessionStorage.setItem('lend_view', view);
+    }
+  }, [view]);
+
+  // Remember the in-progress login phone number (never the password) so
+  // typing it and then getting interrupted — switching apps, the PWA
+  // getting backgrounded and reloaded — doesn't throw it away.
+  useEffect(() => {
+    if (loginPhone) {
+      sessionStorage.setItem('lend_login_phone_draft', loginPhone);
+    } else {
+      sessionStorage.removeItem('lend_login_phone_draft');
+    }
+  }, [loginPhone]);
 
   // Load this organization's own branding — runs unconditionally (not
   // gated on login) since the login screen itself needs to show the org's
@@ -863,6 +903,7 @@ export default function LendApp() {
       const data = await api.post('/auth/login', { phone: loginPhone, password: loginPassword });
       localStorage.setItem('lend_token', data.token);
       localStorage.setItem('lend_user', JSON.stringify(data.user));
+      sessionStorage.removeItem('lend_login_phone_draft');
       setToken(data.token);
       setUser(data.user);
       if (data.user.finance_access && !data.user.ticket_access) {
@@ -904,6 +945,7 @@ export default function LendApp() {
   const handleLogout = () => {
     localStorage.removeItem('lend_token');
     localStorage.removeItem('lend_user');
+    sessionStorage.removeItem('lend_view');
     setToken(null);
     setUser(null);
     setAdminData(null);
