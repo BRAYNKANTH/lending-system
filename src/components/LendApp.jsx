@@ -6467,6 +6467,10 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [agentFilter, setAgentFilter] = useState('all');
+  // Which figure the single outstanding-balance column shows: the loan's
+  // full remaining balance, or just what's due for one collection period
+  // (today's round) on its schedule.
+  const [outstandingView, setOutstandingView] = useState('total');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -6518,22 +6522,42 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const currentPage = Math.min(page, totalPages);
   const pagedLoans = filteredLoans.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  // The loan's full remaining balance — principal and interest combined
+  // into one figure. Splitting these into two columns only made sense as
+  // an accounting detail; a field agent or admin scanning the directory
+  // just needs to know what's still owed.
+  const totalOutstandingOf = (loan) => (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0);
+
+  // What one collection round on this loan's own schedule is worth —
+  // the flat daily installment for flat-installment loans, or the
+  // period's interest amount (daily/weekly/monthly) for every other loan
+  // type. Same formula the Record Payment sheet uses for "Due", so this
+  // matches what an agent would actually be collecting today, capped at
+  // whatever's actually still left on the loan.
+  const periodDueOf = (loan) => {
+    const remaining = totalOutstandingOf(loan);
+    if (loan.is_flat_installment) return Math.min(parseFloat(loan.daily_installment_amount) || 0, remaining);
+    const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
+    const period = loan.interest_type === 'daily' ? monthlyInterest / 30 : loan.interest_type === 'weekly' ? monthlyInterest / 4 : monthlyInterest;
+    return Math.min(period, remaining);
+  };
+
   const handleExportCsv = () => {
     downloadCsv(
       `loans-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Principal Outstanding', 'Interest Due', 'Agent', 'Status'],
+      ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Total Outstanding', "Today's Due", 'Agent', 'Status'],
       filteredLoans.map(loan => [
         new Date(loan.created_at).toLocaleDateString(), loan.borrower_name, loan.borrower_phone,
         loan.nic_number || '', parseFloat(loan.principal_amount).toFixed(2), loan.interest_type,
-        loan.interest_rate, parseFloat(loan.principal_outstanding).toFixed(2),
-        parseFloat(loan.interest_balance).toFixed(2), loan.agent_name || 'Self-Collect', loan.status
+        loan.interest_rate, totalOutstandingOf(loan).toFixed(2),
+        periodDueOf(loan).toFixed(2), loan.agent_name || 'Self-Collect', loan.status
       ])
     );
   };
 
   const totalPrincipal = filteredLoans.reduce((s, l) => s + (parseFloat(l.principal_amount) || 0), 0);
-  const totalOutstanding = filteredLoans.reduce((s, l) => s + (parseFloat(l.principal_outstanding) || 0), 0);
-  const totalInterest = filteredLoans.reduce((s, l) => s + (parseFloat(l.interest_balance) || 0), 0);
+  const totalOutstanding = filteredLoans.reduce((s, l) => s + totalOutstandingOf(l), 0);
+  const totalDueToday = filteredLoans.filter(l => l.status === 'active').reduce((s, l) => s + periodDueOf(l), 0);
   const activeCount = filteredLoans.filter(l => l.status === 'active').length;
   const paidCount = filteredLoans.filter(l => l.status === 'fully_paid').length;
   const typeColor = { daily: 'var(--accent-blue)', weekly: 'var(--accent-amber)', monthly: 'var(--accent-emerald)' };
@@ -6566,12 +6590,39 @@ function LoansLoader({ onSelect, fetchTrigger }) {
         </div>
       </div>
 
+      {/* Outstanding column toggle — switches the table/card "Outstanding"
+          figure between the loan's full remaining balance and just what's
+          due for today's collection round. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Show:</span>
+        <div style={{ display: 'inline-flex', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '3px' }}>
+          {[
+            { key: 'total', label: 'Total Outstanding' },
+            { key: 'today', label: "Today's Outstanding" }
+          ].map(opt => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setOutstandingView(opt.key)}
+              style={{
+                padding: '7px 14px', fontSize: '12px', fontWeight: '700', borderRadius: '7px', border: 'none', cursor: 'pointer',
+                background: outstandingView === opt.key ? 'var(--accent-blue)' : 'transparent',
+                color: outstandingView === opt.key ? '#ffffff' : 'var(--text-secondary)',
+                transition: 'background 0.15s'
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Summary KPI Strip */}
       <div className="kpi-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
         {[
           { label: 'Total Disbursed', val: `LKR ${Math.round(totalPrincipal).toLocaleString()}`, color: 'var(--accent-blue)', icon: '💰' },
-          { label: 'Principal Outstanding', val: `LKR ${Math.round(totalOutstanding).toLocaleString()}`, color: 'var(--accent-rose)', icon: '📊' },
-          { label: 'Interest Due', val: `LKR ${Math.round(totalInterest).toLocaleString()}`, color: 'var(--accent-amber)', icon: '📈' },
+          { label: 'Total Outstanding', val: `LKR ${Math.round(totalOutstanding).toLocaleString()}`, color: 'var(--accent-rose)', icon: '📊' },
+          { label: "Today's Due (Active)", val: `LKR ${Math.round(totalDueToday).toLocaleString()}`, color: 'var(--accent-amber)', icon: '📅' },
           { label: 'Active / Unpaid', val: activeCount, color: 'var(--accent-emerald)', icon: '🟢' },
           { label: 'Fully Paid', val: paidCount, color: 'var(--text-secondary)', icon: '✅' },
         ].map(k => (
@@ -6677,7 +6728,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
                 <tr style={{ background: 'var(--bg-tertiary)', borderBottom: '2px solid var(--border-light)' }}>
-                  {['Date Given', 'Borrower', 'Amount', 'Type', 'Rate', 'Principal Due', 'Interest Due', 'Agent', 'Status', ''].map(h => (
+                  {['Date Given', 'Borrower', 'Amount', 'Type', 'Rate', outstandingView === 'total' ? 'Total Outstanding' : "Today's Due", 'Agent', 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -6718,31 +6769,17 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{loan.interest_rate}%</td>
-                      {loan.is_flat_installment ? (
-                        <>
-                          {/* Flat-installment loans bundle principal+interest
-                              into one daily figure — showing them split
-                              across these two columns (which every other
-                              loan type genuinely needs, since they're
-                              collected separately) just duplicates the same
-                              confusing split. One combined total instead. */}
-                          <td style={{ padding: '12px 14px', fontWeight: '700', color: (parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap' }}>
-                            {(parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)) > 0
-                              ? `LKR ${(parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
-                              : 'Settled'}
-                          </td>
-                          <td style={{ padding: '12px 14px', fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>(flat)</td>
-                        </>
-                      ) : (
-                        <>
-                          <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.principal_outstanding) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap' }}>
-                            {parseFloat(loan.principal_outstanding) > 0 ? `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}` : 'Settled'}
-                          </td>
-                          <td style={{ padding: '12px 14px', fontWeight: '700', color: parseFloat(loan.interest_balance) > 0 ? 'var(--accent-amber)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                            {parseFloat(loan.interest_balance) > 0 ? `LKR ${parseFloat(loan.interest_balance).toLocaleString()}` : '—'}
-                          </td>
-                        </>
-                      )}
+                      {/* Single combined outstanding figure — either the
+                          loan's full remaining balance or today's period
+                          due, per the Total/Today's toggle above. Splitting
+                          principal vs interest into two columns was just an
+                          internal accounting detail that confused borrowers
+                          and agents reading the directory. */}
+                      <td style={{ padding: '12px 14px', fontWeight: '700', color: totalOutstandingOf(loan) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap' }}>
+                        {totalOutstandingOf(loan) <= 0
+                          ? 'Settled'
+                          : `LKR ${(outstandingView === 'total' ? totalOutstandingOf(loan) : periodDueOf(loan)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                      </td>
                       <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-secondary)' }}>{loan.agent_name || <em style={{ color: 'var(--text-muted)' }}>Office</em>}</td>
                       <td style={{ padding: '12px 14px' }}>
                         <span className={`status-pill ${isActive ? 'status-pill-active' : isPaid ? 'status-pill-paid' : isPending ? 'status-pill-pending' : isRejected ? 'status-pill-rejected' : 'status-pill-defaulted'}`}>
@@ -6792,16 +6829,19 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                     {(loan.is_flat_installment
                       ? [
                           ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null],
-                          ['Daily Installment', `LKR ${parseFloat(loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, null],
-                          ['Total Outstanding', `LKR ${(parseFloat(loan.principal_outstanding) + parseFloat(loan.interest_balance)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 'var(--accent-rose)']
+                          ['Daily Installment', `LKR ${parseFloat(loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, null]
                         ]
                       : [
                           ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null],
-                          ['Rate', `${loan.interest_rate}%`, null],
-                          ['Principal Due', `LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}`, 'var(--accent-rose)'],
-                          ['Interest Due', `LKR ${parseFloat(loan.interest_balance).toLocaleString()}`, 'var(--accent-amber)']
+                          ['Rate', `${loan.interest_rate}%`, null]
                         ]
-                    ).map(([lbl, val, col]) => (
+                    ).concat([
+                      [
+                        outstandingView === 'total' ? 'Total Outstanding' : "Today's Due",
+                        totalOutstandingOf(loan) <= 0 ? 'Settled' : `LKR ${(outstandingView === 'total' ? totalOutstandingOf(loan) : periodDueOf(loan)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                        totalOutstandingOf(loan) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)'
+                      ]
+                    ]).map(([lbl, val, col]) => (
                       <div key={lbl} style={{ background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '8px' }}>
                         <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>{lbl}</span>
                         <span style={{ fontWeight: '700', fontSize: '12px', color: col || 'var(--text-primary)' }}>{val}</span>
