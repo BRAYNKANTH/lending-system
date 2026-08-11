@@ -615,6 +615,21 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
     padding: 10px !important;
   }
 
+  /* Loan Details page actions (View Agreement / Download PDF / Go Back) —
+     icon-only on mobile instead of long text buttons crowding the header.
+     Full text label stays for desktop; title="" attributes on each button
+     (set in LendApp.jsx) cover accessibility/hover-hint on mobile. */
+  .loan-detail-actions .btn-label-text {
+    display: none;
+  }
+  .loan-detail-actions .glass-btn,
+  .loan-detail-actions .glass-btn-secondary,
+  .loan-detail-actions .glass-btn-emerald {
+    flex: 0 0 auto !important;
+    min-width: 0 !important;
+    padding: 10px 14px !important;
+  }
+
 
   .responsive-grid-2-col {
     /* !important: the Interest Accrual Center panel duplicates this same

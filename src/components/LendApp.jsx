@@ -5390,16 +5390,18 @@ export default function LendApp() {
                   </p>
                 </div>
                 
-                {/* Actions group with flex layout */}
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', width: '100%', maxWidth: '360px' }}>
-                  <button className="glass-btn glass-btn-secondary" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => setShowLoanAgreement(true)}>
-                    <FileText className="icon" /> View Agreement
+                {/* Actions group with flex layout — icon-only on mobile (see
+                    .loan-detail-actions in globals.css), full label + icon
+                    on desktop. */}
+                <div className="loan-detail-actions" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', width: '100%', maxWidth: '360px' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }} onClick={() => setShowLoanAgreement(true)} title="View Agreement">
+                    <FileText className="icon" /> <span className="btn-label-text">View Agreement</span>
                   </button>
-                  <button className="glass-btn" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={handleDownloadAgreement} disabled={downloadingAgreement}>
-                    <Download className="icon" /> {downloadingAgreement ? 'Generating...' : 'Download PDF'}
+                  <button className="glass-btn" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }} onClick={handleDownloadAgreement} disabled={downloadingAgreement} title={downloadingAgreement ? 'Generating...' : 'Download PDF'}>
+                    <Download className="icon" /> <span className="btn-label-text">{downloadingAgreement ? 'Generating...' : 'Download PDF'}</span>
                   </button>
-                  <button className="glass-btn glass-btn-emerald" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                    <ArrowLeft className="icon" /> Go Back
+                  <button className="glass-btn glass-btn-emerald" style={{ flex: 1, minWidth: '160px', padding: '10px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }} title="Go Back">
+                    <ArrowLeft className="icon" /> <span className="btn-label-text">Go Back</span>
                   </button>
                 </div>
               </div>
