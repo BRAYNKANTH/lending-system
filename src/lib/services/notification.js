@@ -189,13 +189,20 @@ ${orgName}`;
 }
 
 /**
- * Proactive daily reminder for an active loan's outstanding interest.
+ * Reminder for an active (non-daily) loan's upcoming interest payment,
+ * sent proactively before the due date rather than after — see
+ * runPaymentReminders in reminders.js for the timing logic.
  */
-export async function notifyPaymentReminder({ borrower, interestBalance, interestType }) {
+export async function notifyPaymentReminder({ borrower, interestBalance, interestType, daysUntilDue }) {
+  const dueText = daysUntilDue === 0
+    ? 'is due today'
+    : daysUntilDue === 1
+      ? 'is due tomorrow'
+      : `is due in ${daysUntilDue} days`;
   await sendNotification({
     recipientName: borrower.name,
     phone: borrower.phone,
-    message: `Reminder: your ${interestType} interest payment of LKR ${Number(interestBalance).toLocaleString()} is due. Please arrange payment with your collection agent.`,
+    message: `Reminder: your ${interestType} interest payment of LKR ${Number(interestBalance).toLocaleString()} ${dueText}. Please arrange payment with your collection agent.`,
     role: 'borrower'
   });
 }
@@ -212,6 +219,44 @@ export async function notifyMissedPayment({ borrower, admin, collectionDate }) {
       recipientName: admin.name,
       phone: admin.phone,
       message: `Missed collection: ${borrower.name} did not pay on ${dateStr}.`,
+      role: 'admin'
+    });
+  }
+}
+
+/**
+ * Alerts the borrower, assigned agent, and admin when a flat-installment
+ * (daily collection) loan has gone missedDays or more calendar days without
+ * its expected installment being collected — see runMissedDailyCollectionAlerts
+ * in reminders.js. All three get a message every time this fires (it
+ * repeats daily while the loan stays behind, by design), each phrased for
+ * their role.
+ */
+export async function notifyMissedDailyCollection({ borrower, agent, admin, missedDays, missedAmount, dailyInstallmentAmount }) {
+  const amountStr = `LKR ${Number(missedAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  const dailyStr = `LKR ${Number(dailyInstallmentAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+
+  await sendNotification({
+    recipientName: borrower.name,
+    phone: borrower.phone,
+    message: `Your daily installment of ${dailyStr} has not been collected for ${missedDays} day(s) (${amountStr} behind). Please arrange payment with your collection agent as soon as possible.`,
+    role: 'borrower'
+  });
+
+  if (agent) {
+    await sendNotification({
+      recipientName: agent.name,
+      phone: agent.phone,
+      message: `Collection alert: ${borrower.name}'s daily installment has been missed for ${missedDays} day(s) (${amountStr} behind schedule). Please follow up.`,
+      role: agent.role
+    });
+  }
+
+  if (admin) {
+    await sendNotification({
+      recipientName: admin.name,
+      phone: admin.phone,
+      message: `Collection alert: ${borrower.name}'s daily loan is ${missedDays} day(s) behind (${amountStr} uncollected)${agent ? `, assigned to ${agent.name}` : ''}.`,
       role: 'admin'
     });
   }

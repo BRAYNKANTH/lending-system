@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { runPaymentReminders } from '@/lib/services/reminders.js';
+import { runPaymentReminders, runMissedDailyCollectionAlerts } from '@/lib/services/reminders.js';
 
 // One real SMS API call per loan with interest due, sent sequentially —
 // slower per-iteration than a plain DB write, so this hits the same
@@ -20,8 +20,15 @@ export async function GET(request) {
   }
 
   try {
-    const results = await runPaymentReminders();
-    return NextResponse.json({ message: 'Scheduled payment reminders completed.', results });
+    const [reminderResults, missedDailyResults] = await Promise.all([
+      runPaymentReminders(),
+      runMissedDailyCollectionAlerts()
+    ]);
+    return NextResponse.json({
+      message: 'Scheduled payment reminders completed.',
+      results: reminderResults,
+      missedDailyCollectionResults: missedDailyResults
+    });
   } catch (error) {
     console.error('Cron payment reminders error:', error);
     return NextResponse.json({ message: 'Payment reminder job execution failed.' }, { status: 500 });

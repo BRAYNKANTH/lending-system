@@ -12,6 +12,13 @@ import {
   Plus, ThumbsUp, ThumbsDown, Clock, Filter, LayoutGrid
 } from 'lucide-react';
 
+// Threshold for the manual "Active Loans Overdue" review table in Reminder
+// Settings — a plain "what's overdue right now" display filter (days since
+// last accrual), kept separate from overdueDaysThreshold below, which
+// configures the automated before-due-date reminder cron and means
+// something different ("days before due", not "days since last accrual").
+const MANUAL_OVERDUE_REVIEW_DAYS = 3;
+
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('lend_user')));
@@ -4133,10 +4140,10 @@ export default function LendApp() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
                       <div>
                         <h3 style={{ fontSize: '22px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Bell className="icon" style={{ color: 'var(--accent-amber)' }} /> Overdue Reminder Settings & Alert Controls
+                          <Bell className="icon" style={{ color: 'var(--accent-amber)' }} /> Reminder Settings & Alert Controls
                         </h3>
                         <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>
-                          Configure automated overdue alert thresholds. If payments are not recorded within this threshold, automated notifications and alerts are triggered.
+                          Weekly/monthly borrowers get a proactive SMS before their interest is due (below). Daily-installment loans work differently — borrower, agent, and admin are all alerted automatically once a loan falls 3+ days behind on its expected daily collection, repeating every day it stays unresolved.
                         </p>
                       </div>
                     </div>
@@ -4144,7 +4151,7 @@ export default function LendApp() {
                     {/* Setting Form */}
                     <div style={{ padding: '18px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '12px', marginBottom: '24px', maxWidth: '520px' }}>
                       <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                        OVERDUE REMINDER THRESHOLD (DAYS)
+                        REMIND BEFORE DUE DATE (DAYS)
                       </label>
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <input
@@ -4157,16 +4164,19 @@ export default function LendApp() {
                           onBlur={e => handleUpdateOverdueThreshold(e.target.value)}
                           style={{ width: '120px', padding: '10px', fontSize: '16px', fontWeight: 'bold' }}
                         />
-                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Days uncollected past due</span>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>days before the due date</span>
                       </div>
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '8px' }}>
-                        Active loans uncollected for more than {overdueDaysThreshold} days will trigger overdue alerts for Admins and Agents.
+                        Weekly/monthly borrowers get a one-time SMS reminder exactly {overdueDaysThreshold} day{overdueDaysThreshold === 1 ? '' : 's'} before their next interest payment is due — e.g. with this set to 1, a loan due June 2nd gets its reminder on June 1st. Doesn't apply to daily-installment loans (see above).
                       </span>
                     </div>
 
-                    {/* Overdue Loans Table */}
+                    {/* Overdue Loans Table — a separate, manual "what's
+                        currently overdue right now" review list (days since
+                        last accrual), distinct from the proactive
+                        before-due-date reminder configured above. */}
                     <h4 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '12px' }}>
-                      Active Loans Overdue ({overdueDaysThreshold}+ Days)
+                      Active Loans Overdue ({MANUAL_OVERDUE_REVIEW_DAYS}+ Days Since Last Accrual)
                     </h4>
                     {(() => {
                       const now = new Date();
@@ -4174,14 +4184,14 @@ export default function LendApp() {
                         if (l.status !== 'active') return false;
                         const lastAcc = l.last_accrual_date ? new Date(l.last_accrual_date) : new Date(l.created_at);
                         const diffDays = Math.floor((now - lastAcc) / (1000 * 60 * 60 * 24));
-                        return diffDays >= overdueDaysThreshold;
+                        return diffDays >= MANUAL_OVERDUE_REVIEW_DAYS;
                       });
 
                       if (overdueLoansList.length === 0) {
                         return (
                           <div className="empty-state">
                             <div className="empty-state-icon"><CircleCheck style={{ width: '28px', height: '28px', color: 'var(--accent-emerald)' }} /></div>
-                            <h4 className="empty-state-title">No Loans Past {overdueDaysThreshold} Days Overdue</h4>
+                            <h4 className="empty-state-title">No Loans Past {MANUAL_OVERDUE_REVIEW_DAYS} Days Overdue</h4>
                             <p className="empty-state-text">All active customer accounts are up to date within the configured threshold.</p>
                           </div>
                         );

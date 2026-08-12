@@ -315,11 +315,12 @@ async function runIncrementalMigrations() {
   await addColumnIfMissing('org_settings', 'reference_prefix', (t) => t.string('reference_prefix', 10).notNullable().defaultTo('LN'));
   // Backs the "Overdue Reminder Threshold (days)" admin setting — previously
   // stored in localStorage only, so it never actually controlled anything
-  // server-side despite the name implying it gated the reminder cron. Now
-  // read by runPaymentReminders() (src/lib/services/reminders.js) to decide
-  // how many days of unpaid interest must accumulate before a reminder SMS
-  // goes out, instead of firing on every loan with any balance every day.
-  await addColumnIfMissing('org_settings', 'overdue_reminder_threshold_days', (t) => t.integer('overdue_reminder_threshold_days').notNullable().defaultTo(3));
+  // server-side despite the name implying it gated the reminder cron. Read
+  // by runPaymentReminders() (src/lib/services/reminders.js) as "how many
+  // days BEFORE the next interest due date to send a reminder" — a
+  // proactive heads-up, not a reactive "you're already late" nag. Default
+  // of 1 means "the day before it's due".
+  await addColumnIfMissing('org_settings', 'overdue_reminder_threshold_days', (t) => t.integer('overdue_reminder_threshold_days').notNullable().defaultTo(1));
 }
 
 async function createSchemaAndSeed() {
