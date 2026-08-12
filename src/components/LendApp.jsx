@@ -146,21 +146,22 @@ export default function LendApp() {
   const [defaultReason, setDefaultReason] = useState('');
   const [penaltyForm, setPenaltyForm] = useState({ amount: '', reason: '' });
 
-  // Configurable Overdue Reminder Days Threshold (default 3 days)
-  const [overdueDaysThreshold, setOverdueDaysThreshold] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return Math.max(1, parseInt(localStorage.getItem('stn_overdue_threshold_days') || '3', 10));
-    }
-    return 3;
-  });
+  // Configurable Overdue Reminder Days Threshold (default 3 days). Loaded
+  // from and saved to org_settings (see the /settings fetch effect below
+  // and handleUpdateOverdueThreshold) — this used to be localStorage-only,
+  // which meant it never actually reached the server-side reminder cron
+  // despite the UI implying it controlled when reminder SMS go out.
+  const [overdueDaysThreshold, setOverdueDaysThreshold] = useState(3);
 
-  const handleUpdateOverdueThreshold = (newDays) => {
+  const handleUpdateOverdueThreshold = async (newDays) => {
     const parsed = Math.max(1, parseInt(newDays, 10) || 3);
-    setOverdueDaysThreshold(parsed);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('stn_overdue_threshold_days', String(parsed));
+    setOverdueDaysThreshold(parsed); // optimistic — the input should feel responsive while typing
+    try {
+      await api.patch('/settings', { overdue_reminder_threshold_days: parsed });
+      showToast(`Overdue alert threshold updated to ${parsed} days.`);
+    } catch (err) {
+      showToast(err.message || 'Could not save the overdue threshold.', 'error');
     }
-    showToast(`Overdue alert threshold updated to ${parsed} days.`);
   };
 
   // Form states
@@ -314,7 +315,15 @@ export default function LendApp() {
   // name/logo before anyone's authenticated.
   useEffect(() => {
     api.get('/settings')
-      .then(res => setOrgSettings({ org_name: res.org_name || '', logo_url: res.logo_url || null }))
+      .then(res => {
+        setOrgSettings({ org_name: res.org_name || '', logo_url: res.logo_url || null });
+        // Org-wide now (used by the real reminder cron server-side too —
+        // see reminders.js) rather than a per-browser localStorage value
+        // that never actually controlled anything outside this tab.
+        if (res.overdue_reminder_threshold_days) {
+          setOverdueDaysThreshold(res.overdue_reminder_threshold_days);
+        }
+      })
       .catch(() => {}); // Falls back to the empty default — never blocks the app on this.
   }, []);
 
@@ -4144,7 +4153,8 @@ export default function LendApp() {
                           max="30"
                           className="glass-input"
                           value={overdueDaysThreshold}
-                          onChange={e => handleUpdateOverdueThreshold(e.target.value)}
+                          onChange={e => setOverdueDaysThreshold(e.target.value === '' ? '' : parseInt(e.target.value, 10) || 1)}
+                          onBlur={e => handleUpdateOverdueThreshold(e.target.value)}
                           style={{ width: '120px', padding: '10px', fontSize: '16px', fontWeight: 'bold' }}
                         />
                         <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Days uncollected past due</span>
@@ -4177,11 +4187,19 @@ export default function LendApp() {
                         );
                       }
 
-                      const sendAlert = (l) => {
-                        if (l.interest_type !== 'daily') {
-                          showToast(`Sent SMS reminder to ${l.borrower_name} (${l.borrower_phone})`);
-                        } else {
-                          showToast(`In-app alert recorded for ${l.borrower_name}. (Daily loans exclude SMS)`);
+                      // Actually calls the backend now — this used to just
+                      // show a toast claiming an SMS had gone out without
+                      // sending anything, which meant clicking it told the
+                      // admin a borrower had been reminded when nothing had
+                      // actually happened.
+                      const sendAlert = async (l) => {
+                        try {
+                          const result = await api.post(`/loans/${l.id}/send-reminder`);
+                          showToast(result.smsSent
+                            ? `Sent SMS reminder to ${l.borrower_name} (${l.borrower_phone}).`
+                            : `Logged for ${l.borrower_name} — no SMS sent (daily/flat-installment loan).`);
+                        } catch (err) {
+                          showToast(err.message || 'Could not send the reminder.', 'error');
                         }
                       };
 

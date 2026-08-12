@@ -67,6 +67,7 @@ export async function POST(request, { params }) {
         admin: paymentResult.admin,
         amount: paymentResult.amount,
         paymentType: 'interest',
+        interestType: loan.interest_type,
         principalOutstanding: paymentResult.newPrincipalOutstanding,
         interestBalance: paymentResult.newInterestBalance
       }).catch((err) => console.error('Notification failed:', err));
