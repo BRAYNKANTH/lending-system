@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
@@ -2678,7 +2678,7 @@ export default function LendApp() {
                       <form onSubmit={handleCreateTicket} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                         <div>
                           <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>TICKET GROUP NAME *</label>
-                          <input required type="text" className="glass-input" placeholder="e.g. STN Aug 300k Group" value={newTicketForm.name} onChange={e => setNewTicketForm(prev => ({ ...prev, name: e.target.value }))} />
+                          <input required type="text" className="glass-input" placeholder="e.g. name of group" value={newTicketForm.name} onChange={e => setNewTicketForm(prev => ({ ...prev, name: e.target.value }))} />
                         </div>
                         <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                           <div>
