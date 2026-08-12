@@ -135,10 +135,12 @@ export default function LendApp() {
   const [ticketPayments, setTicketPayments] = useState([]);
   const [activeTicketTab, setActiveTicketTab] = useState('auction'); // 'auction', 'members', 'history'
   const [showCreateTicket, setShowCreateTicket] = useState(false);
-  const [newTicketForm, setNewTicketForm] = useState({ name: '', total_value: '', member_count: '', start_date: '', host_fee_type: 'percentage', host_fee_value: '' });
+  const [newTicketForm, setNewTicketForm] = useState({ name: '', total_value: '', member_count: '', start_date: '', host_fee_type: 'percentage', host_fee_value: '', starting_round: '' });
   const [newMemberForm, setNewMemberForm] = useState({ name: '', phone: '' });
   const [auctionForm, setAuctionForm] = useState({ bid_amount: '', winner_member_id: '', auction_date: new Date().toISOString().slice(0, 10), next_round_date: '' });
   const [ticketPaymentFilterRound, setTicketPaymentFilterRound] = useState('');
+  const [editingMemberCount, setEditingMemberCount] = useState(false);
+  const [memberCountInput, setMemberCountInput] = useState('');
 
   // Agent: cash remittance submission form
   const [remittanceForm, setRemittanceForm] = useState({ amount: '', notes: '' });
@@ -1091,16 +1093,33 @@ export default function LendApp() {
         member_count: parseInt(newTicketForm.member_count, 10),
         start_date: newTicketForm.start_date,
         host_fee_type: newTicketForm.host_fee_type,
-        host_fee_value: parseFloat(newTicketForm.host_fee_value)
+        host_fee_value: parseFloat(newTicketForm.host_fee_value),
+        starting_round: newTicketForm.starting_round || undefined
       });
       showToast(`Ticket group '${newTicketForm.name}' created successfully.`);
       setShowCreateTicket(false);
-      setNewTicketForm({ name: '', total_value: '', member_count: '', start_date: '', host_fee_type: 'percentage', host_fee_value: '' });
+      setNewTicketForm({ name: '', total_value: '', member_count: '', start_date: '', host_fee_type: 'percentage', host_fee_value: '', starting_round: '' });
       fetchTickets();
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateMemberCount = async () => {
+    const newCount = parseInt(memberCountInput, 10);
+    if (isNaN(newCount) || newCount <= 0) {
+      showToast('Enter a valid member count.', 'error');
+      return;
+    }
+    try {
+      const updated = await api.patch(`/tickets/${selectedTicket.id}`, { member_count: newCount });
+      setSelectedTicket(updated);
+      setEditingMemberCount(false);
+      showToast(`Member count increased to ${newCount}. You can now add more members and run additional rounds.`);
+    } catch (err) {
+      showToast(err.message || 'Could not update member count.', 'error');
     }
   };
 
@@ -2651,7 +2670,19 @@ export default function LendApp() {
                           </label>
                           <input required type="number" inputMode="decimal" step="0.01" min="0" className="glass-input" placeholder={newTicketForm.host_fee_type === 'percentage' ? 'e.g. 5.00' : 'e.g. 500'} value={newTicketForm.host_fee_value} onChange={e => setNewTicketForm(prev => ({ ...prev, host_fee_value: e.target.value }))} />
                         </div>
-                        
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>STARTING ROUND (OPTIONAL)</label>
+                          <input
+                            type="number" inputMode="numeric" min="1" max={newTicketForm.member_count || undefined}
+                            className="glass-input" placeholder="Leave blank to start at round 1"
+                            value={newTicketForm.starting_round}
+                            onChange={e => setNewTicketForm(prev => ({ ...prev, starting_round: e.target.value }))}
+                          />
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                            Only if this group already ran some rounds before you started using the app — e.g. already finished round 6 on paper, so enter 7 here. No history is recorded for the earlier rounds.
+                          </span>
+                        </div>
+
                         {/* Auto calculations display */}
                         {parseFloat(newTicketForm.total_value) > 0 && parseInt(newTicketForm.member_count, 10) > 0 && (
                           <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '14px', fontSize: '13px' }}>
@@ -2757,8 +2788,32 @@ export default function LendApp() {
 
                 <div className="glass-card" style={{ padding: '24px' }}>
                   <h2 style={{ fontSize: '26px', margin: '0 0 6px 0' }}>{selectedTicket.name}</h2>
-                  <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    <span>Members: <strong>{ticketMembers.length} / {selectedTicket.member_count}</strong></span>
+                  <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    {editingMemberCount ? (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        Members: <strong>{ticketMembers.length} /</strong>
+                        <input
+                          type="number" min={selectedTicket.member_count + 1} autoFocus
+                          className="glass-input" style={{ width: '70px', padding: '4px 8px', fontSize: '13px' }}
+                          value={memberCountInput} onChange={e => setMemberCountInput(e.target.value)}
+                        />
+                        <button type="button" className="glass-btn glass-btn-emerald" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={handleUpdateMemberCount}>Save</button>
+                        <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => setEditingMemberCount(false)}>Cancel</button>
+                      </span>
+                    ) : (
+                      <span>
+                        Members: <strong>{ticketMembers.length} / {selectedTicket.member_count}</strong>
+                        <button
+                          type="button"
+                          className="glass-btn glass-btn-secondary"
+                          style={{ padding: '2px 8px', fontSize: '10px', marginLeft: '8px' }}
+                          onClick={() => { setMemberCountInput(String(selectedTicket.member_count + 1)); setEditingMemberCount(true); }}
+                          title="Increase member count — adds more rounds to the group"
+                        >
+                          <UserPlus className="icon" style={{ width: '11px', height: '11px' }} /> Increase
+                        </button>
+                      </span>
+                    )}
                     <span>•</span>
                     <span>Start: <strong>{new Date(selectedTicket.start_date).toLocaleDateString()}</strong></span>
                     <span>•</span>
