@@ -24,6 +24,46 @@ export async function GET(request, { params }) {
   }
 }
 
+// Permanently delete a ticket group — unlike loans (which deliberately
+// block deleting anything with payment history via ON DELETE RESTRICT),
+// tickets/members/auctions/payments are wired with ON DELETE CASCADE, so
+// this genuinely removes the whole group's history: every member, every
+// round's auction record, every payment-tracking row. That's an
+// intentional, real capability here (e.g. a group created by mistake, or
+// test data), not an oversight — but it's permanent, so the frontend
+// requires typing the group's name to confirm before calling this.
+export async function DELETE(request, { params }) {
+  try {
+    const user = await requireAuth(request, ['admin']);
+    if (!user.ticket_access) {
+      return NextResponse.json({ message: 'Forbidden. You do not have access to the Ticket system.' }, { status: 403 });
+    }
+
+    const { id } = params;
+    const ticket = await db('tickets').where({ id }).first();
+    if (!ticket) {
+      return NextResponse.json({ message: 'Ticket group not found.' }, { status: 404 });
+    }
+
+    const [{ count: memberCount }] = await db('ticket_members').where({ ticket_id: id }).count('id as count');
+    const [{ count: auctionCount }] = await db('ticket_auctions').where({ ticket_id: id }).count('id as count');
+
+    await db('tickets').where({ id }).del();
+
+    await db('audit_logs').insert({
+      actor_id: user.id,
+      action_type: 'TICKET_DELETE',
+      description: `Permanently deleted ticket group '${ticket.name}' (${memberCount} member(s), ${auctionCount} round(s) of history removed).`
+    });
+
+    return NextResponse.json({ message: `'${ticket.name}' deleted.` });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Delete ticket error:', error);
+    return NextResponse.json({ message: 'Failed to delete ticket group.' }, { status: 500 });
+  }
+}
+
 // Increase a group's member count mid-cycle — a real chit-fund scenario:
 // someone new wants in after a few rounds have already run. Deliberately
 // increase-only (never shrink): total_rounds is directly tied to

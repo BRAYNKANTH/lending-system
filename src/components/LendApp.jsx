@@ -1109,6 +1109,27 @@ export default function LendApp() {
     }
   };
 
+  // Permanently removes the group and its whole history (members, every
+  // round, all payment tracking — see the DELETE route's comment). Typing
+  // the exact name is a higher bar than a plain confirm dialog on purpose,
+  // given how much gets wiped in one action.
+  const handleDeleteTicket = async (ticket, e) => {
+    if (e) e.stopPropagation();
+    const typed = window.prompt(`This permanently deletes '${ticket.name}' — every member, every round's auction record, and all payment tracking. This cannot be undone.\n\nType the group's name exactly to confirm:`);
+    if (typed === null) return;
+    if (typed.trim() !== ticket.name) {
+      showToast('Name did not match — deletion cancelled.', 'error');
+      return;
+    }
+    try {
+      await api.delete(`/tickets/${ticket.id}`);
+      showToast(`'${ticket.name}' deleted.`);
+      fetchTickets();
+    } catch (err) {
+      showToast(err.message || 'Could not delete this group.', 'error');
+    }
+  };
+
   const handleUpdateMemberCount = async () => {
     const newCount = parseInt(memberCountInput, 10);
     if (isNaN(newCount) || newCount <= 0) {
@@ -2754,13 +2775,22 @@ export default function LendApp() {
                       const originalShare = totalVal / t.member_count;
                       return (
                         <div key={t.id} className="glass-card" style={{ cursor: 'pointer', transition: 'transform 0.2s', padding: '24px', position: 'relative' }} onClick={() => fetchTicketDetails(t.id)}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+                          <button
+                            type="button"
+                            className="glass-btn glass-btn-rose"
+                            style={{ position: 'absolute', top: '14px', right: '14px', padding: '5px 9px', fontSize: '11px' }}
+                            onClick={(e) => handleDeleteTicket(t, e)}
+                            title={`Delete '${t.name}'`}
+                          >
+                            <Trash2 className="icon" style={{ width: '13px', height: '13px' }} />
+                          </button>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px', paddingRight: '36px' }}>
                             <h3 style={{ fontSize: '18px', margin: 0, fontWeight: 'bold' }}>{t.name}</h3>
                             <span className={`status-pill ${t.status === 'active' ? 'status-pill-active' : 'status-pill-paid'}`}>
                               <span className="status-pill-dot" />{t.status === 'active' ? 'Active' : 'Completed'}
                             </span>
                           </div>
-                          
+
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Total Ticket Value</span>
