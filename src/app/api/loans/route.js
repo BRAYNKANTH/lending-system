@@ -3,7 +3,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
 import { notifyLoanCreation, notifyLoanPendingApproval } from '@/lib/services/notification.js';
-import { isValidSriLankanNIC, addInterval } from '@/lib/loanSchedule.js';
+import { isValidSriLankanNIC, addInterval, getSriLankaTodayRange } from '@/lib/loanSchedule.js';
 import { normalizePhone } from '@/lib/phone.js';
 import { stripLoanMediaList } from '@/lib/stripMedia.js';
 import bcrypt from 'bcryptjs';
@@ -434,6 +434,12 @@ export async function GET(request) {
     const status = request.nextUrl.searchParams.get('status');
     const borrowerId = request.nextUrl.searchParams.get('borrowerId');
 
+    // Whether this loan already had a payment recorded today (Sri Lanka
+    // wall-clock day) — backs the Remaining/Done split on the Record
+    // Payment screen, so an agent partway through a collection round can
+    // see at a glance who's left rather than re-scanning the whole list.
+    const { start: todayStart, end: todayEnd } = getSriLankaTodayRange();
+
     let query = db('loans')
       .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
       .leftJoin('users as agents', 'loans.assigned_agent_id', 'agents.id')
@@ -443,7 +449,16 @@ export async function GET(request) {
         'borrowers.phone as borrower_phone',
         'borrowers.email as borrower_email',
         'borrowers.gender as borrower_gender',
-        'agents.name as agent_name'
+        'agents.name as agent_name',
+        db.raw(
+          `EXISTS (
+            SELECT 1 FROM transactions
+            WHERE transactions.loan_id = loans.id
+              AND transactions.payment_date >= ?
+              AND transactions.payment_date < ?
+          ) as paid_today`,
+          [todayStart, todayEnd]
+        )
       );
 
     if (role === 'agent') {

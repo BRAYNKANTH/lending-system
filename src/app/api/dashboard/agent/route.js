@@ -3,6 +3,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { getAgentCashInHand } from '@/lib/services/remittance.js';
 import { stripLoanMediaList, stripTransactionMediaList } from '@/lib/stripMedia.js';
+import { getSriLankaTodayRange } from '@/lib/loanSchedule.js';
 
 export async function GET(request) {
   try {
@@ -10,6 +11,7 @@ export async function GET(request) {
     const agentId = authUser.id;
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const { start: slTodayStart, end: slTodayEnd } = getSriLankaTodayRange();
 
     // These four don't depend on each other — run concurrently instead of
     // as four sequential round-trips.
@@ -22,10 +24,27 @@ export async function GET(request) {
       // Defaulted, and Closed (fully_paid/written_off) tabs. Previously this
       // hardcoded status='active', so agents could never see a defaulted or
       // closed loan on their own route at all.
+      //
+      // paid_today backs the Remaining/Done split on Record Payment — checked
+      // against transactions directly (not daily_collections below, a
+      // separate/narrower tracker that only the daily-collection-mark
+      // endpoint writes to) since that's what the normal payment save flow
+      // actually records.
       db('loans')
         .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
         .where({ assigned_agent_id: agentId })
-        .select('loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone')
+        .select(
+          'loans.*', 'borrowers.name as borrower_name', 'borrowers.phone as borrower_phone',
+          db.raw(
+            `EXISTS (
+              SELECT 1 FROM transactions
+              WHERE transactions.loan_id = loans.id
+                AND transactions.payment_date >= ?
+                AND transactions.payment_date < ?
+            ) as paid_today`,
+            [slTodayStart, slTodayEnd]
+          )
+        )
         .orderBy('loans.principal_outstanding', 'desc'),
       db('transactions')
         .join('users as borrowers', 'transactions.borrower_id', 'borrowers.id')

@@ -6,6 +6,19 @@ export function isValidSriLankanNIC(nic) {
 // Sri Lanka is UTC+5:30 year-round (no DST) — fixed, safe to hardcode.
 const SRI_LANKA_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 
+// The UTC instants bounding "today" in Sri Lanka wall-clock time — [start,
+// end) — for queries like "was there a transaction today" that need to
+// agree with what a Sri Lankan user considers "today" regardless of the
+// server process's own timezone (UTC on Vercel, local elsewhere). Same
+// shift-compute-shift-back approach as addInterval below.
+export function getSriLankaTodayRange(now = new Date()) {
+  const slTime = new Date(now.getTime() + SRI_LANKA_OFFSET_MS);
+  slTime.setUTCHours(0, 0, 0, 0);
+  const start = new Date(slTime.getTime() - SRI_LANKA_OFFSET_MS);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
 export function addInterval(date, interestType, count = 1) {
   // "Midnight" here means Sri Lanka midnight, not the server's own local
   // time — setHours()/setDate() operate on whatever timezone the Node

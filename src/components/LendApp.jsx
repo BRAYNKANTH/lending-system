@@ -7627,6 +7627,15 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     );
   });
 
+  // Today's task-list split — paid_today comes from the API (checked
+  // against real transactions, not just this screen's own in-memory
+  // state), so it stays correct even for payments recorded elsewhere or
+  // before this screen was last loaded. Remaining is what actually needs
+  // action; Done is just a quick "already collected today" reference.
+  const remainingLoans = filteredLoans.filter(l => !l.paid_today);
+  const doneLoans = filteredLoans.filter(l => l.paid_today);
+  const [showDoneToday, setShowDoneToday] = useState(false);
+
   const periodDue = (loan) => {
     if (loan.is_flat_installment) return flatInstallmentDueToday(loan);
     const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
@@ -7801,6 +7810,14 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
         style={{ marginBottom: '16px' }}
       />
 
+      {!loadingLoans && filteredLoans.length > 0 && (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', fontSize: '13px', fontWeight: '600' }}>
+          <span style={{ color: 'var(--accent-rose)' }}>{remainingLoans.length} Remaining</span>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          <span style={{ color: 'var(--accent-emerald)' }}>{doneLoans.length} Done Today</span>
+        </div>
+      )}
+
       {loadingLoans ? (
         <SkeletonCards count={4} lines={2} />
       ) : filteredLoans.length === 0 ? (
@@ -7812,6 +7829,12 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
           <p className="empty-state-text">
             {searchTerm ? `No ${collectionType} collection loans match "${searchTerm}".` : `There are no active ${collectionType} collection loans currently.`}
           </p>
+        </div>
+      ) : remainingLoans.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon"><CircleCheck style={{ width: '28px', height: '28px', color: 'var(--accent-emerald)' }} /></div>
+          <h4 className="empty-state-title">All {collectionType} Collections Done for Today</h4>
+          <p className="empty-state-text">Every {collectionType} loan has a payment recorded today — nothing left in this round.</p>
         </div>
       ) : (
         <>
@@ -7830,7 +7853,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredLoans.map(loan => {
+                {remainingLoans.map(loan => {
                   // For a flat-installment (daily principal+interest bundled)
                   // loan, "Due" means today's fixed daily amount — the whole
                   // point of daily collection is a flat LKR X/day, not the
@@ -7930,7 +7953,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
 
           {/* Mobile: one compact card per loan instead of a wide table */}
           <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {filteredLoans.map(loan => {
+            {remainingLoans.map(loan => {
               // Same reasoning as the desktop table above: for a flat
               // daily-installment loan, "Due" is today's fixed LKR X/day,
               // not the whole loan's remaining balance.
@@ -8026,6 +8049,38 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
               );
             })}
           </div>
+
+          {/* Done Today — collapsed by default so it doesn't compete with
+              the actionable Remaining list above, but still lets an agent
+              double-check who they've already collected from today
+              without leaving this screen. */}
+          {doneLoans.length > 0 && (
+            <div style={{ marginTop: '20px' }}>
+              <button
+                type="button"
+                onClick={() => setShowDoneToday(v => !v)}
+                className="glass-btn glass-btn-secondary"
+                style={{ padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <CircleCheck className="icon" style={{ color: 'var(--accent-emerald)' }} />
+                {showDoneToday ? 'Hide' : 'Show'} {doneLoans.length} Done Today
+              </button>
+              {showDoneToday && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
+                  {doneLoans.map(loan => (
+                    <div key={loan.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '8px', fontSize: '13px' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <CircleCheck className="icon" style={{ width: '14px', height: '14px', color: 'var(--accent-emerald)' }} />
+                        <strong>{loan.borrower_name}</strong>
+                        <span style={{ color: 'var(--text-muted)' }}>{loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}</span>
+                      </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{loan.borrower_phone}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
