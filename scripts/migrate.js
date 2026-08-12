@@ -321,6 +321,42 @@ async function runIncrementalMigrations() {
   // proactive heads-up, not a reactive "you're already late" nag. Default
   // of 1 means "the day before it's due".
   await addColumnIfMissing('org_settings', 'overdue_reminder_threshold_days', (t) => t.integer('overdue_reminder_threshold_days').notNullable().defaultTo(1));
+
+  // Public, unauthenticated borrower-intake submissions — a shareable link
+  // (see /apply, a standalone public page) an agent can send ahead of a
+  // visit, or have a literate family member fill in on the borrower's
+  // behalf, instead of the agent re-typing everything into the Give Loan
+  // wizard on the spot. Deliberately NOT auto-created as a loan — every
+  // submission lands here first for an admin/agent to review (see
+  // /api/borrower-intakes) before "Create Loan from This" pre-fills the
+  // real wizard with it. No NIC/address-proof photo fields — those still
+  // get attached inside the wizard when the intake is converted, keeping
+  // this public endpoint simple and not a place to upload sensitive ID
+  // photos before anyone's reviewed the submission at all.
+  if (!(await db.schema.hasTable('borrower_intakes'))) {
+    await db.schema.createTable('borrower_intakes', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.string('status', 20).notNullable().defaultTo('pending'); // 'pending', 'converted', 'dismissed'
+      table.string('borrower_name', 100).notNullable();
+      table.string('borrower_phone', 20).notNullable();
+      table.text('borrower_address').nullable();
+      table.date('date_of_birth').nullable();
+      table.string('nic_number', 50).nullable();
+      table.text('loan_purpose').nullable();
+      table.integer('dependents_count').nullable();
+      table.decimal('monthly_income', 15, 2).nullable();
+      table.string('spouse_name', 100).nullable();
+      table.string('spouse_nic', 50).nullable();
+      table.string('spouse_occupation', 100).nullable();
+      table.text('notes').nullable(); // free text from whoever filled the form in — context for the reviewer
+      table.string('submitted_language', 10).nullable(); // 'en' or 'ta' — which toggle they used, in case wording needs revisiting later
+      table.uuid('converted_loan_id').references('id').inTable('loans').onDelete('SET NULL').nullable();
+      table.uuid('reviewed_by').references('id').inTable('users').onDelete('SET NULL').nullable();
+      table.timestamp('reviewed_at').nullable();
+      table.timestamps(true, true);
+    });
+    console.log("Migration: created table 'borrower_intakes'.");
+  }
 }
 
 async function createSchemaAndSeed() {

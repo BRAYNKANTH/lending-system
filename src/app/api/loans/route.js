@@ -22,7 +22,7 @@ export async function POST(request) {
     const {
       borrower_name, borrower_phone, borrower_address, borrower_date_of_birth, principal_amount, interest_rate, interest_type,
       assigned_agent_id, nic_number, nic_photo, address_proof, guarantor, guarantors, borrower_profile,
-      collection_mode, duration_periods, borrower_email, borrower_gender
+      collection_mode, duration_periods, borrower_email, borrower_gender, source_intake_id
     } = body;
 
     if (!borrower_name || !borrower_phone || !principal_amount || !interest_rate || !interest_type) {
@@ -414,6 +414,23 @@ export async function POST(request) {
         dailyInstallmentAmount,
         durationPeriods: periods
       }).catch((err) => console.error('Failed to dispatch notification:', err));
+    }
+
+    // If this loan was created from a borrower-intake submission (see
+    // /apply and /api/borrower-intakes), close the loop — mark it
+    // converted and link the loan it became, so it drops out of the
+    // pending review queue and the connection is traceable later.
+    if (source_intake_id) {
+      await db('borrower_intakes')
+        .where({ id: source_intake_id, status: 'pending' })
+        .update({
+          status: 'converted',
+          converted_loan_id: loanResult.id,
+          reviewed_by: authUser.id,
+          reviewed_at: db.fn.now(),
+          updated_at: db.fn.now()
+        })
+        .catch((err) => console.error('Failed to mark borrower intake as converted:', err));
     }
 
     return NextResponse.json({

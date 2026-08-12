@@ -38,7 +38,7 @@ export default function LendApp() {
     'dashboard', 'portal', 'ticket-dashboard',
     'create-loan', 'next-day-tasklist', 'record-payment',
     'loans', 'agents', 'interest-center', 'payment-history',
-    'audit-log', 'admin-tools'
+    'audit-log', 'admin-tools', 'borrower-intakes'
   ];
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -86,6 +86,10 @@ export default function LendApp() {
   const [agentCollectMobileTab, setAgentCollectMobileTab] = useState('form'); // mobile-only: 'form', 'customers'
   const [passbookMobileTab, setPassbookMobileTab] = useState('record'); // mobile-only: 'record', 'activity', 'receipts', 'accruals'
   const [showMoreMenu, setShowMoreMenu] = useState(false); // mobile-only: bottom-sheet for admin destinations that don't have their own bottom-nav slot
+  // Pending Borrower Intake submissions (see /apply) awaiting review — just
+  // the count, for the "Applications" nav badge; the full list is fetched
+  // by the Applications view itself when it's actually open.
+  const [pendingIntakeCount, setPendingIntakeCount] = useState(0);
   // This organization's own branding (name + logo), read from this
   // deployment's own database via GET /api/settings — public/unauthenticated
   // since the login screen needs it before anyone's signed in. Replaces the
@@ -195,7 +199,11 @@ export default function LendApp() {
     nic_photo: '',
     address_proof: '',
     collection_mode: 'open_ended',
-    duration_periods: ''
+    duration_periods: '',
+    // Set when this loan is being created from a Borrower Intake submission
+    // (see /apply and the Applications review queue) — tells the backend
+    // which pending intake to mark converted once the loan's created.
+    source_intake_id: null
   });
   const [includeGuarantor, setIncludeGuarantor] = useState(false);
   const emptyGuarantor = {
@@ -340,6 +348,11 @@ export default function LendApp() {
     fetchDashboardData();
     if (user.ticket_access) {
       fetchTickets();
+    }
+    if (user.role === 'admin' || user.role === 'agent') {
+      api.get('/borrower-intakes?status=pending')
+        .then(res => setPendingIntakeCount(Array.isArray(res) ? res.length : 0))
+        .catch(() => {});
     }
   }, [token, user]);
 
@@ -1413,7 +1426,8 @@ export default function LendApp() {
         nic_photo: '',
         address_proof: '',
         collection_mode: 'open_ended',
-        duration_periods: ''
+        duration_periods: '',
+        source_intake_id: null
       });
       setGiveLoanStep(1);
       setIncludeGuarantor(false);
@@ -1426,6 +1440,35 @@ export default function LendApp() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Pre-fills the Give Loan wizard from a reviewed Borrower Intake
+  // submission (see the Applications view) instead of starting from a
+  // blank form — staff still walk through and confirm every step (adding
+  // NIC/address photos, setting loan terms) before anything's disbursed,
+  // this just saves re-typing what the borrower already provided.
+  const handleConvertIntakeToLoan = (intake) => {
+    setNewLoan(prev => ({
+      ...prev,
+      borrower_name: intake.borrower_name || '',
+      borrower_phone: intake.borrower_phone || '',
+      borrower_address: intake.borrower_address || '',
+      date_of_birth: intake.date_of_birth ? String(intake.date_of_birth).slice(0, 10) : '',
+      nic_number: intake.nic_number || '',
+      source_intake_id: intake.id
+    }));
+    setBorrowerProfileForm({
+      loan_purpose: intake.loan_purpose || '',
+      dependents_count: intake.dependents_count !== null && intake.dependents_count !== undefined ? String(intake.dependents_count) : '',
+      monthly_income: intake.monthly_income !== null && intake.monthly_income !== undefined ? String(intake.monthly_income) : '',
+      spouse_name: intake.spouse_name || '',
+      spouse_nic: intake.spouse_nic || '',
+      spouse_occupation: intake.spouse_occupation || ''
+    });
+    setGiveLoanStep(1);
+    setValidationErrors({});
+    setView('create-loan');
+    showToast(`Pre-filled from ${intake.borrower_name}'s application — please review, attach ID/address photos, and set loan terms before submitting.`);
   };
 
   // Admin: Force accrue interest for testing
@@ -2099,6 +2142,10 @@ export default function LendApp() {
             <div className="desktop-header-nav">
               <button className={`nav-link-btn ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setSelectedLoanId(null); setLoanStatement(null); }}><Home className="icon" /> Home</button>
               <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}><Banknote className="icon" /> Give Loan</button>
+              <button className={`nav-link-btn ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }}>
+                <ClipboardCheck className="icon" /> Applications
+                {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ marginLeft: '6px', padding: '1px 6px', fontSize: '10px' }}>{pendingIntakeCount}</span>}
+              </button>
               <button className={`nav-link-btn ${view === 'next-day-tasklist' ? 'active' : ''}`} onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); }}><Calendar className="icon" /> Next Day Tasklist</button>
               <button className={`nav-link-btn ${view === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); }}><CreditCard className="icon" /> Record Payment</button>
               <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}><ClipboardList className="icon" /> Check Loans</button>
@@ -2117,6 +2164,10 @@ export default function LendApp() {
           {user.role === 'agent' && view !== 'portal' && view !== 'ticket-dashboard' && (
             <div className="desktop-header-nav">
               <button className={`nav-link-btn ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setGiveLoanStep(1); }}><Banknote className="icon" /> Give Loan</button>
+              <button className={`nav-link-btn ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }}>
+                <ClipboardCheck className="icon" /> Applications
+                {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ marginLeft: '6px', padding: '1px 6px', fontSize: '10px' }}>{pendingIntakeCount}</span>}
+              </button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}><CreditCard className="icon" /> Collect Payments</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'next-day-tasklist' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('next-day-tasklist'); }}><Calendar className="icon" /> Next Day Tasklist</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}><CreditCard className="icon" /> Record Payment</button>
@@ -4397,6 +4448,17 @@ export default function LendApp() {
                   </button>
                 </div>
                 <NextDayTasklistTab loans={[]} onSelectLoan={(id) => { setSelectedLoanId(id); setView('loans'); }} onNavigateRecordPayment={() => setView('record-payment')} />
+              </div>
+            )}
+
+            {view === 'borrower-intakes' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                    <ArrowLeft className="icon" /> Back to Main Menu
+                  </button>
+                </div>
+                <BorrowerIntakesLoader onConvert={handleConvertIntakeToLoan} onCountChange={setPendingIntakeCount} showToast={showToast} />
               </div>
             )}
 
@@ -7128,6 +7190,153 @@ function LoansLoader({ onSelect, fetchTrigger }) {
 
 
 // Full, paginated audit trail with multi-criteria filtering
+// Review queue for public /apply form submissions (see BorrowerIntakeForm.jsx
+// and /api/borrower-intakes) — an agent shares the /apply link (WhatsApp,
+// printed flyer, whatever), anyone fills it in, and it lands here for
+// staff to review before "Create Loan from This" pre-fills the real Give
+// Loan wizard with it.
+function BorrowerIntakesLoader({ onConvert, onCountChange, showToast }) {
+  const [intakes, setIntakes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [copied, setCopied] = useState(false);
+
+  const applyUrl = typeof window !== 'undefined' ? `${window.location.origin}/apply` : '/apply';
+
+  const load = () => {
+    setLoading(true);
+    api.get(`/borrower-intakes?status=${statusFilter}`)
+      .then(res => {
+        const list = Array.isArray(res) ? res : [];
+        setIntakes(list);
+        if (statusFilter === 'pending' && onCountChange) onCountChange(list.length);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [statusFilter]);
+
+  const handleDismiss = async (intake) => {
+    try {
+      await api.patch(`/borrower-intakes/${intake.id}`, { status: 'dismissed' });
+      showToast(`Dismissed ${intake.borrower_name}'s application.`);
+      load();
+    } catch (err) {
+      showToast(err.message || 'Could not dismiss this application.', 'error');
+    }
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard?.writeText(applyUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Shareable link — the whole feature is useless if staff don't know
+          where to find this. */}
+      <div className="glass-card" style={{ background: 'var(--accent-blue-light)', border: '1px solid rgba(37,84,232,0.2)' }}>
+        <h3 style={{ fontSize: '16px', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ClipboardCheck className="icon" style={{ color: 'var(--accent-blue)' }} /> Share Application Link
+        </h3>
+        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+          Send this link via WhatsApp (or print it) so a borrower — or a literate family member on their behalf — can submit their own details ahead of your visit, in English or Tamil.
+        </p>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <input readOnly value={applyUrl} className="glass-input" style={{ flex: 1, minWidth: '220px', fontSize: '13px', fontFamily: 'monospace' }} onClick={e => e.target.select()} />
+          <button type="button" className="glass-btn glass-btn-emerald" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={handleCopyLink}>
+            {copied ? <><CircleCheck className="icon" /> Copied</> : 'Copy Link'}
+          </button>
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent(`Please fill in this loan application form: ${applyUrl}`)}`}
+            target="_blank" rel="noopener noreferrer"
+            className="glass-btn btn-whatsapp"
+            style={{ padding: '8px 16px', fontSize: '13px', backgroundColor: '#25D366', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <MessageSquare className="icon" style={{ width: '14px', height: '14px' }} /> Share via WhatsApp
+          </a>
+        </div>
+      </div>
+
+      <div className="glass-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div>
+            <h3 style={{ fontSize: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ClipboardCheck className="icon" style={{ color: 'var(--accent-blue)' }} /> Applications
+            </h3>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Submissions from the public application form, awaiting review.</span>
+          </div>
+          <div style={{ display: 'inline-flex', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '3px' }}>
+            {['pending', 'converted', 'dismissed', 'all'].map(s => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                style={{
+                  padding: '6px 12px', fontSize: '12px', fontWeight: '700', textTransform: 'capitalize', borderRadius: '7px', border: 'none', cursor: 'pointer',
+                  background: statusFilter === s ? 'var(--accent-blue)' : 'transparent',
+                  color: statusFilter === s ? '#fff' : 'var(--text-secondary)'
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading ? (
+          <SkeletonCards count={3} lines={2} />
+        ) : intakes.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon"><ClipboardCheck style={{ width: '28px', height: '28px' }} /></div>
+            <h4 className="empty-state-title">No {statusFilter === 'all' ? '' : statusFilter} applications</h4>
+            <p className="empty-state-text">
+              {statusFilter === 'pending' ? 'Share the link above to start receiving applications.' : 'Nothing here yet.'}
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {intakes.map(intake => (
+              <div key={intake.id} style={{ border: '1px solid var(--border-light)', borderRadius: '12px', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+                  <div>
+                    <strong style={{ fontSize: '16px' }}>{intake.borrower_name}</strong>
+                    <span className={`badge ${intake.status === 'pending' ? 'badge-pending' : intake.status === 'converted' ? 'badge-active' : 'badge-defaulted'}`} style={{ marginLeft: '8px', textTransform: 'capitalize' }}>{intake.status}</span>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      <Phone className="icon" style={{ width: '12px', height: '12px' }} /> {intake.borrower_phone}
+                      {' · '}Submitted {new Date(intake.created_at).toLocaleString()}
+                      {' · '}{intake.submitted_language === 'ta' ? 'Filled in Tamil' : 'Filled in English'}
+                    </div>
+                  </div>
+                  {intake.status === 'pending' && (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleDismiss(intake)}>Dismiss</button>
+                      <button type="button" className="glass-btn glass-btn-emerald" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => onConvert(intake)}>Create Loan from This</button>
+                    </div>
+                  )}
+                </div>
+                <div className="responsive-grid-2-col" style={{ gap: '8px', fontSize: '13px' }}>
+                  {intake.borrower_address && <div><strong style={{ color: 'var(--text-secondary)' }}>Address:</strong> {intake.borrower_address}</div>}
+                  {intake.nic_number && <div><strong style={{ color: 'var(--text-secondary)' }}>NIC:</strong> {intake.nic_number}</div>}
+                  {intake.date_of_birth && <div><strong style={{ color: 'var(--text-secondary)' }}>DOB:</strong> {new Date(intake.date_of_birth).toLocaleDateString()}</div>}
+                  {intake.loan_purpose && <div><strong style={{ color: 'var(--text-secondary)' }}>Purpose:</strong> {intake.loan_purpose}</div>}
+                  {intake.dependents_count !== null && <div><strong style={{ color: 'var(--text-secondary)' }}>Dependents:</strong> {intake.dependents_count}</div>}
+                  {intake.monthly_income !== null && <div><strong style={{ color: 'var(--text-secondary)' }}>Monthly Income:</strong> LKR {parseFloat(intake.monthly_income).toLocaleString()}</div>}
+                  {intake.spouse_name && <div><strong style={{ color: 'var(--text-secondary)' }}>Spouse:</strong> {intake.spouse_name}{intake.spouse_occupation ? ` (${intake.spouse_occupation})` : ''}</div>}
+                </div>
+                {intake.notes && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '10px', fontStyle: 'italic', borderTop: '1px solid var(--border-light)', paddingTop: '10px' }}>"{intake.notes}"</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AuditLogLoader() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
