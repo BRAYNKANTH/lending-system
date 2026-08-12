@@ -141,6 +141,8 @@ export default function LendApp() {
   const [ticketPaymentFilterRound, setTicketPaymentFilterRound] = useState('');
   const [editingMemberCount, setEditingMemberCount] = useState(false);
   const [memberCountInput, setMemberCountInput] = useState('');
+  const [assigningWinnerFor, setAssigningWinnerFor] = useState(null); // auction id currently being edited, or null
+  const [assignWinnerMemberId, setAssignWinnerMemberId] = useState('');
 
   // Agent: cash remittance submission form
   const [remittanceForm, setRemittanceForm] = useState({ amount: '', notes: '' });
@@ -1120,6 +1122,22 @@ export default function LendApp() {
       showToast(`Member count increased to ${newCount}. You can now add more members and run additional rounds.`);
     } catch (err) {
       showToast(err.message || 'Could not update member count.', 'error');
+    }
+  };
+
+  const handleAssignAuctionWinner = async (auctionId) => {
+    if (!assignWinnerMemberId) {
+      showToast('Choose a member first.', 'error');
+      return;
+    }
+    try {
+      await api.patch(`/tickets/${selectedTicket.id}/auctions/${auctionId}`, { winner_member_id: assignWinnerMemberId });
+      showToast('Winner assigned.');
+      setAssigningWinnerFor(null);
+      setAssignWinnerMemberId('');
+      fetchTicketDetails(selectedTicket.id);
+    } catch (err) {
+      showToast(err.message || 'Could not assign winner.', 'error');
     }
   };
 
@@ -3283,7 +3301,27 @@ export default function LendApp() {
                                   <td style={{ fontWeight: 'bold' }}>Round {a.round_number}</td>
                                   <td>{new Date(a.auction_date).toLocaleDateString()}</td>
                                   <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</td>
-                                  <td><strong>{a.winner_name || 'N/A (No Winner)'}</strong></td>
+                                  <td>
+                                    {a.winner_name ? (
+                                      <strong>{a.winner_name}</strong>
+                                    ) : assigningWinnerFor === a.id ? (
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <select className="glass-input" style={{ padding: '4px 6px', fontSize: '12px', width: '130px' }} value={assignWinnerMemberId} onChange={e => setAssignWinnerMemberId(e.target.value)}>
+                                          <option value="">-- Select --</option>
+                                          {ticketMembers.filter(m => !ticketAuctions.some(au => au.winner_member_id === m.id)).map(m => (
+                                            <option key={m.id} value={m.id}>{m.name}</option>
+                                          ))}
+                                        </select>
+                                        <button type="button" className="glass-btn glass-btn-emerald" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAssignAuctionWinner(a.id)}>Save</button>
+                                        <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => { setAssigningWinnerFor(null); setAssignWinnerMemberId(''); }}>✕</button>
+                                      </div>
+                                    ) : (
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <em style={{ color: 'var(--text-muted)' }}>N/A (No Winner)</em>
+                                        <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setAssigningWinnerFor(a.id); setAssignWinnerMemberId(''); }}>Assign</button>
+                                      </span>
+                                    )}
+                                  </td>
                                   <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(a.winner_payout).toLocaleString()}</td>
                                   <td>LKR {parseFloat(a.amount_per_member).toLocaleString()}</td>
                                   <td>LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString()}</td>
@@ -3302,7 +3340,25 @@ export default function LendApp() {
                               </div>
                               <div className="mobile-row-card-grid">
                                 <span className="mobile-row-card-label">Winner</span>
-                                <span className="mobile-row-card-value">{a.winner_name || 'N/A (No Winner)'}</span>
+                                {a.winner_name ? (
+                                  <span className="mobile-row-card-value">{a.winner_name}</span>
+                                ) : assigningWinnerFor === a.id ? (
+                                  <span className="mobile-row-card-value" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                    <select className="glass-input" style={{ padding: '4px 6px', fontSize: '12px', flex: 1, minWidth: '110px' }} value={assignWinnerMemberId} onChange={e => setAssignWinnerMemberId(e.target.value)}>
+                                      <option value="">-- Select --</option>
+                                      {ticketMembers.filter(m => !ticketAuctions.some(au => au.winner_member_id === m.id)).map(m => (
+                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                      ))}
+                                    </select>
+                                    <button type="button" className="glass-btn glass-btn-emerald" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAssignAuctionWinner(a.id)}>Save</button>
+                                    <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => { setAssigningWinnerFor(null); setAssignWinnerMemberId(''); }}>✕</button>
+                                  </span>
+                                ) : (
+                                  <span className="mobile-row-card-value" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <em style={{ color: 'var(--text-muted)' }}>N/A</em>
+                                    <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setAssigningWinnerFor(a.id); setAssignWinnerMemberId(''); }}>Assign</button>
+                                  </span>
+                                )}
 
                                 <span className="mobile-row-card-label">Bid (கழிவு)</span>
                                 <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</span>
