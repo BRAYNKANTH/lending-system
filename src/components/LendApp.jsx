@@ -19,6 +19,20 @@ import {
 // something different ("days before due", not "days since last accrual").
 const MANUAL_OVERDUE_REVIEW_DAYS = 3;
 
+// Display-only: whether a loan's outstanding balance should be shown as
+// one combined "Total Outstanding" figure instead of split Principal/
+// Interest. Originally this was just flat-installment loans (the bundled
+// principal+interest model), but the same complaint came back for plain
+// Daily-collection loans too — the split reads as confusing accounting
+// detail to a daily-collection borrower/agent regardless of which of the
+// two "Daily" models the loan actually is. Deliberately NOT used for
+// functional logic (payment-type routing, interest accrual eligibility,
+// due-amount calculation) — those still key off the real is_flat_installment
+// flag, since plain Daily loans genuinely do accrue interest incrementally
+// and take separate Interest/Principal payments; only the balance DISPLAY
+// changes here.
+const showsUnifiedOutstanding = (loan) => !!loan.is_flat_installment || loan.interest_type === 'daily';
+
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('lend_user')));
@@ -1282,9 +1296,12 @@ export default function LendApp() {
       `📅 *Date:* ${new Date(receipt.payment_date).toLocaleString()}\n` +
       `👤 *Borrower:* ${receipt.borrower_name}\n` +
       `💰 *Amount Collected:* LKR ${parseFloat(receipt.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` +
-      `📝 *Payment Type:* ${receipt.payment_type === 'principal' ? 'Principal Repayment' : 'Interest Payment'}\n` +
-      (receipt.loan_principal_outstanding ? `💳 *Remaining Principal:* LKR ${parseFloat(receipt.loan_principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` : '') +
-      (receipt.loan_interest_balance ? `💸 *Interest Due:* LKR ${parseFloat(receipt.loan_interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` : '') +
+      `📝 *Payment Type:* ${receipt.payment_type === 'principal' ? 'Principal Repayment' : receipt.payment_type === 'flat_installment' ? 'Installment Payment' : 'Interest Payment'}\n` +
+      (receipt.loan_interest_type === 'daily'
+        ? ((receipt.loan_principal_outstanding !== null && receipt.loan_principal_outstanding !== undefined) ? `💳 *Total Outstanding:* LKR ${(parseFloat(receipt.loan_principal_outstanding || 0) + parseFloat(receipt.loan_interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` : '')
+        : (receipt.loan_principal_outstanding ? `💳 *Remaining Principal:* LKR ${parseFloat(receipt.loan_principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` : '') +
+          (receipt.loan_interest_balance ? `💸 *Interest Due:* LKR ${parseFloat(receipt.loan_interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}\n` : '')
+      ) +
       `🤝 *Recorded By:* ${receipt.agent_name || 'Branch Office'}\n\n` +
       `_Thank you for your timely payment!_`;
     const url = `https://wa.me/${intlPhone}?text=${encodeURIComponent(text)}`;
@@ -1920,18 +1937,29 @@ export default function LendApp() {
                   <span className="receipt-row-label">Interest Rate</span>
                   <span className="receipt-row-value" style={{ textTransform: 'capitalize' }}>{selectedReceipt.loan_interest_rate}% ({selectedReceipt.loan_interest_type})</span>
                 </div>
-                <div className="receipt-row">
-                  <span className="receipt-row-label">Principal Outstanding</span>
-                  <span className="receipt-row-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
-                    LKR {parseFloat(selectedReceipt.loan_principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="receipt-row">
-                  <span className="receipt-row-label">Interest Due</span>
-                  <span className="receipt-row-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
-                    LKR {parseFloat(selectedReceipt.loan_interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
+                {selectedReceipt.loan_interest_type === 'daily' ? (
+                  <div className="receipt-row">
+                    <span className="receipt-row-label">Total Outstanding</span>
+                    <span className="receipt-row-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
+                      LKR {(parseFloat(selectedReceipt.loan_principal_outstanding || 0) + parseFloat(selectedReceipt.loan_interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="receipt-row">
+                      <span className="receipt-row-label">Principal Outstanding</span>
+                      <span className="receipt-row-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
+                        LKR {parseFloat(selectedReceipt.loan_principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="receipt-row">
+                      <span className="receipt-row-label">Interest Due</span>
+                      <span className="receipt-row-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
+                        LKR {parseFloat(selectedReceipt.loan_interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </>
+                )}
                 <div style={{ borderTop: '1px dashed #cbd5e1', margin: '16px 0' }} />
               </>
             )}
@@ -2024,14 +2052,23 @@ export default function LendApp() {
                 <span>Interest Accrual:</span>
                 <span style={{ textTransform: 'capitalize' }}>{selectedReceipt.loan_interest_rate}% ({selectedReceipt.loan_interest_type})</span>
               </div>
-              <div className="print-row" style={{ fontWeight: 'bold' }}>
-                <span>Principal Outstanding:</span>
-                <span>LKR {parseFloat(selectedReceipt.loan_principal_outstanding).toLocaleString()}</span>
-              </div>
-              <div className="print-row" style={{ fontWeight: 'bold' }}>
-                <span>Interest Due:</span>
-                <span>LKR {parseFloat(selectedReceipt.loan_interest_balance).toLocaleString()}</span>
-              </div>
+              {selectedReceipt.loan_interest_type === 'daily' ? (
+                <div className="print-row" style={{ fontWeight: 'bold' }}>
+                  <span>Total Outstanding:</span>
+                  <span>LKR {(parseFloat(selectedReceipt.loan_principal_outstanding || 0) + parseFloat(selectedReceipt.loan_interest_balance || 0)).toLocaleString()}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="print-row" style={{ fontWeight: 'bold' }}>
+                    <span>Principal Outstanding:</span>
+                    <span>LKR {parseFloat(selectedReceipt.loan_principal_outstanding).toLocaleString()}</span>
+                  </div>
+                  <div className="print-row" style={{ fontWeight: 'bold' }}>
+                    <span>Interest Due:</span>
+                    <span>LKR {parseFloat(selectedReceipt.loan_interest_balance).toLocaleString()}</span>
+                  </div>
+                </>
+              )}
               <div className="print-divider"></div>
             </>
           )}
@@ -3893,8 +3930,14 @@ export default function LendApp() {
                               <td>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
                               <td>{loan.interest_rate}%</td>
                               <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
-                                <div>Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</div>
-                                <div style={{ fontSize: '12px', fontWeight: 'normal' }}>Interest due: LKR {parseFloat(loan.interest_balance).toLocaleString()}</div>
+                                {loan.interest_type === 'daily' ? (
+                                  <div>Total Outstanding: LKR {(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString()}</div>
+                                ) : (
+                                  <>
+                                    <div>Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</div>
+                                    <div style={{ fontSize: '12px', fontWeight: 'normal' }}>Interest due: LKR {parseFloat(loan.interest_balance).toLocaleString()}</div>
+                                  </>
+                                )}
                               </td>
                               <td style={{ color: 'var(--accent-rose)' }}>
                                 {new Date(loan.next_accrual_date).toLocaleDateString()}
@@ -3950,14 +3993,23 @@ export default function LendApp() {
                               <span className="mobile-row-card-label">Accrual:</span>
                               <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}> {new Date(loan.next_accrual_date).toLocaleDateString()}</span>
                             </div>
-                            <div>
-                              <span className="mobile-row-card-label">Principal Due:</span>
-                              <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</span>
-                            </div>
-                            <div>
-                              <span className="mobile-row-card-label">Interest Due:</span>
-                              <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.interest_balance).toLocaleString()}</span>
-                            </div>
+                            {loan.interest_type === 'daily' ? (
+                              <div style={{ gridColumn: 'span 2' }}>
+                                <span className="mobile-row-card-label">Total Outstanding:</span>
+                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString()}</span>
+                              </div>
+                            ) : (
+                              <>
+                                <div>
+                                  <span className="mobile-row-card-label">Principal Due:</span>
+                                  <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</span>
+                                </div>
+                                <div>
+                                  <span className="mobile-row-card-label">Interest Due:</span>
+                                  <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.interest_balance).toLocaleString()}</span>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -5227,7 +5279,9 @@ export default function LendApp() {
                           <option value="">-- Select Customer --</option>
                           {agentData.assignedLoans.filter(l => l.status === 'active').map(loan => (
                             <option key={loan.id} value={loan.id}>
-                              {loan.borrower_name} (Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString()}, Interest Due: LKR {parseFloat(loan.interest_balance).toLocaleString()})
+                              {loan.interest_type === 'daily'
+                                ? `${loan.borrower_name} (Total Outstanding: LKR ${(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString()})`
+                                : `${loan.borrower_name} (Principal: LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}, Interest Due: LKR ${parseFloat(loan.interest_balance).toLocaleString()})`}
                             </option>
                           ))}
                         </select>
@@ -5750,7 +5804,7 @@ export default function LendApp() {
                     <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
                       Original Principal: <strong style={{ color: 'var(--text-primary)' }}>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>
                     </div>
-                    {loanStatement.loan.is_flat_installment ? (
+                    {showsUnifiedOutstanding(loanStatement.loan) ? (
                       <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
                         Total Outstanding: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
                           LKR {(parseFloat(loanStatement.loan.principal_outstanding || 0) + parseFloat(loanStatement.loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -6042,7 +6096,7 @@ export default function LendApp() {
                               <th>Activity</th>
                               <th>Details</th>
                               <th>Amount (+ / -)</th>
-                              {loanStatement.loan.is_flat_installment ? (
+                              {showsUnifiedOutstanding(loanStatement.loan) ? (
                                 <th>Total Outstanding</th>
                               ) : (
                                 <>
@@ -6068,7 +6122,7 @@ export default function LendApp() {
                                 }}>
                                   {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
                                 </td>
-                                {loanStatement.loan.is_flat_installment ? (
+                                {showsUnifiedOutstanding(loanStatement.loan) ? (
                                   <td style={{ fontWeight: 'bold' }}>
                                     LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}
                                   </td>
@@ -6116,7 +6170,7 @@ export default function LendApp() {
                                 <span className="mobile-row-card-label">Description:</span>
                                 <span className="mobile-row-card-value" style={{ fontSize: '13px' }}>{entry.details}</span>
                               </div>
-                              {loanStatement.loan.is_flat_installment ? (
+                              {showsUnifiedOutstanding(loanStatement.loan) ? (
                                 <div style={{ gridColumn: 'span 2', borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
                                   <span className="mobile-row-card-label">Total Outstanding:</span>
                                   <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}</span>
@@ -6685,7 +6739,7 @@ export default function LendApp() {
                 <div className="desktop-only" style={{ overflowX: 'auto' }}>
                   <table className="glass-table">
                     <thead>
-                      {loanStatement.loan.is_flat_installment ? (
+                      {showsUnifiedOutstanding(loanStatement.loan) ? (
                         <tr>
                           <th style={{ width: '18%' }}>Date/Time</th>
                           <th style={{ width: '18%' }}>Event Type</th>
@@ -6717,7 +6771,7 @@ export default function LendApp() {
                           <td style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
                             {entry.details}
                           </td>
-                          {loanStatement.loan.is_flat_installment ? (
+                          {showsUnifiedOutstanding(loanStatement.loan) ? (
                             <>
                               <td style={{
                                 textAlign: 'right',
@@ -6779,7 +6833,7 @@ export default function LendApp() {
                             <strong>Calc Log:</strong> {entry.details}
                           </div>
                         )}
-                        {loanStatement.loan.is_flat_installment ? (
+                        {showsUnifiedOutstanding(loanStatement.loan) ? (
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px' }}>
                             <div>
                               <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Amount:</span>
