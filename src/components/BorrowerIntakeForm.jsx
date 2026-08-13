@@ -20,8 +20,9 @@ const TEXT = {
     address: 'Address', addressPh: 'e.g. No. 12, Temple Road, Kandy',
     dob: 'Date of Birth',
     nic: 'NIC Number (if you have it)', nicPh: 'e.g. 199012345678 or 123456789V',
-    nicPhotoLabel: 'NIC Photo', nicPhotoHint: 'Optional — up to 4 photos.',
-    photoProofLabel: 'Photo Proof', photoProofHint: 'Optional — e.g. utility bill or other ID evidence. Up to 4 photos.',
+    nicPhotoLabel: 'NIC Photo',
+    photoProofLabel: 'Photo Proof (e.g. utility bill or other ID evidence)',
+    upToPhotosHint: 'Up to 4 photos.', optionalPrefix: 'Optional.',
     addPhotos: 'Add Photos', removePhoto: 'Remove', processingPhotos: 'Processing photo(s)…',
     purpose: 'What is the loan for?', purposePh: 'e.g. Business, home repair, medical',
     dependents: 'Number of Dependents',
@@ -49,6 +50,8 @@ const TEXT = {
     submit: 'Submit Application',
     submitting: 'Submitting...',
     required: 'Name and mobile number are required.',
+    requiredPhotos: 'A NIC photo and a photo proof (at least 1 each) are required.',
+    requiredGuarantorPhoto: 'Please add a NIC photo for each guarantor you have added, or remove that guarantor.',
     successTitle: 'Submitted!',
     successBody: "Thank you — this has been sent to our team. An agent will contact you soon to confirm the details and finish your application.",
     another: 'Submit another application',
@@ -63,8 +66,9 @@ const TEXT = {
     address: 'முகவரி', addressPh: 'எ.கா. இல. 12, கோவில் வீதி, கண்டி',
     dob: 'பிறந்த தேதி',
     nic: 'தே.அ.அ. எண் (இருந்தால்)', nicPh: 'எ.கா. 199012345678 அல்லது 123456789V',
-    nicPhotoLabel: 'தே.அ.அ. புகைப்படம்', nicPhotoHint: 'விருப்பம் — அதிகபட்சம் 4 புகைப்படங்கள்.',
-    photoProofLabel: 'புகைப்பட ஆதாரம்', photoProofHint: 'விருப்பம் — எ.கா. மின்சார பில் அல்லது வேறு அடையாள ஆவணம். அதிகபட்சம் 4 புகைப்படங்கள்.',
+    nicPhotoLabel: 'தே.அ.அ. புகைப்படம்',
+    photoProofLabel: 'புகைப்பட ஆதாரம் (எ.கா. மின்சார பில் அல்லது வேறு அடையாள ஆவணம்)',
+    upToPhotosHint: 'அதிகபட்சம் 4 புகைப்படங்கள்.', optionalPrefix: 'விருப்பம்.',
     addPhotos: 'புகைப்படங்களைச் சேர்க்க', removePhoto: 'நீக்கு', processingPhotos: 'புகைப்படம் தயாராகிறது…',
     purpose: 'கடன் எதற்காக?', purposePh: 'எ.கா. வியாபாரம், வீடு பழுது, மருத்துவம்',
     dependents: 'சார்ந்திருப்பவர்களின் எண்ணிக்கை',
@@ -92,6 +96,8 @@ const TEXT = {
     submit: 'விண்ணப்பத்தை அனுப்பு',
     submitting: 'அனுப்புகிறது...',
     required: 'பெயரும் கைபேசி எண்ணும் அவசியம்.',
+    requiredPhotos: 'தே.அ.அ. புகைப்படமும் புகைப்பட ஆதாரமும் (குறைந்தது ஒவ்வொன்றும்) அவசியம்.',
+    requiredGuarantorPhoto: 'நீங்கள் சேர்த்த ஒவ்வொரு உத்தரவாதிக்கும் தே.அ.அ. புகைப்படத்தைச் சேர்க்கவும், அல்லது அந்த உத்தரவாதியை நீக்கவும்.',
     successTitle: 'அனுப்பப்பட்டது!',
     successBody: 'நன்றி — இது எங்கள் குழுவிற்கு அனுப்பப்பட்டது. விவரங்களை உறுதிப்படுத்த ஒரு முகவர் விரைவில் தொடர்பு கொள்வார்.',
     another: 'மற்றொரு விண்ணப்பத்தை அனுப்பு',
@@ -180,6 +186,15 @@ export default function BorrowerIntakeForm() {
       setError(t.required);
       return;
     }
+    if (form.nic_photos.length === 0 || form.photo_proofs.length === 0) {
+      setError(t.requiredPhotos);
+      return;
+    }
+    const activeGuarantors = guarantors.filter(Boolean);
+    if (activeGuarantors.some(g => !g.nic_photos || g.nic_photos.length === 0)) {
+      setError(t.requiredGuarantorPhoto);
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -210,12 +225,13 @@ export default function BorrowerIntakeForm() {
   const fieldWrap = { marginBottom: '18px' };
 
   // Shared multi-photo field — used for the borrower's own NIC Photo /
-  // Photo Proof, and each guarantor's, so this bit of upload+thumbnail+
-  // remove UI isn't repeated six separate times.
-  const PhotoField = ({ label, hint, photos, onSelect, onRemove }) => (
+  // Photo Proof (both required), and each guarantor's NIC Photo (optional,
+  // since the whole guarantor section is optional), so this bit of
+  // upload+thumbnail+remove UI isn't repeated separately for each.
+  const PhotoField = ({ label, required, photos, onSelect, onRemove }) => (
     <div style={fieldWrap}>
-      <label style={labelStyle}>{label} {photos.length > 0 && `(${photos.length}/${MAX_KYC_PHOTOS})`}</label>
-      {hint && <p style={{ fontSize: '12px', color: '#888', margin: '0 0 8px' }}>{hint}</p>}
+      <label style={labelStyle}>{label} {required && '*'} {photos.length > 0 && `(${photos.length}/${MAX_KYC_PHOTOS})`}</label>
+      <p style={{ fontSize: '12px', color: '#888', margin: '0 0 8px' }}>{required ? t.upToPhotosHint : `${t.optionalPrefix} ${t.upToPhotosHint}`}</p>
       <input type="file" accept="image/*" multiple disabled={photos.length >= MAX_KYC_PHOTOS} onChange={onSelect} style={inputStyle} />
       {photos.length > 0 && (
         <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -306,13 +322,13 @@ export default function BorrowerIntakeForm() {
             </div>
 
             <PhotoField
-              label={t.nicPhotoLabel} hint={t.nicPhotoHint}
+              label={t.nicPhotoLabel} required
               photos={form.nic_photos}
               onSelect={e => handlePhotoSelect(e, fn => setForm(prev => ({ ...prev, nic_photos: fn(prev.nic_photos) })))}
               onRemove={idx => setForm(prev => ({ ...prev, nic_photos: prev.nic_photos.filter((_, i) => i !== idx) }))}
             />
             <PhotoField
-              label={t.photoProofLabel} hint={t.photoProofHint}
+              label={t.photoProofLabel} required
               photos={form.photo_proofs}
               onSelect={e => handlePhotoSelect(e, fn => setForm(prev => ({ ...prev, photo_proofs: fn(prev.photo_proofs) })))}
               onRemove={idx => setForm(prev => ({ ...prev, photo_proofs: prev.photo_proofs.filter((_, i) => i !== idx) }))}
@@ -396,7 +412,7 @@ export default function BorrowerIntakeForm() {
                     </div>
 
                     <PhotoField
-                      label={t.nicPhotoLabel} hint={t.nicPhotoHint}
+                      label={t.nicPhotoLabel} required
                       photos={g.nic_photos}
                       onSelect={e => handlePhotoSelect(e, fn => updateGuarantorField(idx, 'nic_photos', fn(g.nic_photos)))}
                       onRemove={pi => updateGuarantorField(idx, 'nic_photos', g.nic_photos.filter((_, i) => i !== pi))}
