@@ -510,7 +510,15 @@ export async function GET(request) {
               AND transactions.payment_date < ?
           ) as paid_today`,
           [todayStart, todayEnd]
-        )
+        ),
+        // Total actually collected on this loan to date (all payments ever
+        // recorded against it) — backs the Loan Directory's "Total
+        // Collected" summary figure. Deliberately the real cash collected,
+        // not derived from principal_outstanding/interest_balance, since
+        // interest keeps accruing over time independent of what's been paid.
+        db.raw(`COALESCE((
+          SELECT SUM(transactions.amount) FROM transactions WHERE transactions.loan_id = loans.id
+        ), 0) as total_collected`)
       );
 
     if (role === 'agent') {

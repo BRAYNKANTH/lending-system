@@ -7181,10 +7181,41 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const [outstandingView, setOutstandingView] = useState('total');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  // Quick period shortcut — sets fromDate/toDate for you rather than
+  // duplicating the date-range filtering logic. 'custom' means the user
+  // edited From/To Date directly and the preset no longer describes them.
+  const [periodPreset, setPeriodPreset] = useState('all');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const PAGE_SIZE = 20;
+
+  const applyPeriodPreset = (preset) => {
+    setPeriodPreset(preset);
+    const todayStr = todayLocalDateStr();
+    if (preset === 'all') { setFromDate(''); setToDate(''); return; }
+    if (preset === 'today') { setFromDate(todayStr); setToDate(todayStr); return; }
+    if (preset === 'this_month') {
+      const start = new Date();
+      start.setDate(1);
+      setFromDate(start.toISOString().slice(0, 10));
+      setToDate(todayStr);
+      return;
+    }
+    if (preset === 'this_year') {
+      const start = new Date(new Date().getFullYear(), 0, 1);
+      setFromDate(start.toISOString().slice(0, 10));
+      setToDate(todayStr);
+      return;
+    }
+    if (preset.startsWith('last_')) {
+      const n = parseInt(preset.split('_')[1], 10);
+      const start = new Date();
+      start.setMonth(start.getMonth() - n);
+      setFromDate(start.toISOString().slice(0, 10));
+      setToDate(todayStr);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -7204,7 +7235,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
 
   const clearAllFilters = () => {
     setSearchTerm(''); setStatusFilter('all'); setTypeFilter('all');
-    setAgentFilter('all'); setFromDate(''); setToDate('');
+    setAgentFilter('all'); setFromDate(''); setToDate(''); setPeriodPreset('all');
   };
 
   if (loading) return <div className="glass-card" style={{ marginTop: '24px' }}><SkeletonCards count={4} lines={2} /></div>;
@@ -7257,11 +7288,11 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   const handleExportCsv = () => {
     downloadCsv(
       `loans-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Total Outstanding', "Today's Due", 'Agent', 'Status'],
+      ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Total Collected', 'Total Outstanding', "Today's Due", 'Agent', 'Status'],
       filteredLoans.map(loan => [
         new Date(loan.created_at).toLocaleDateString(), loan.borrower_name, loan.borrower_phone,
         loan.nic_number || '', parseFloat(loan.principal_amount).toFixed(2), loan.interest_type,
-        loan.interest_rate, totalOutstandingOf(loan).toFixed(2),
+        loan.interest_rate, (parseFloat(loan.total_collected) || 0).toFixed(2), totalOutstandingOf(loan).toFixed(2),
         periodDueOf(loan).toFixed(2), loan.agent_name || 'Self-Collect', loan.status
       ])
     );
@@ -7269,6 +7300,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
 
   const totalPrincipal = filteredLoans.reduce((s, l) => s + (parseFloat(l.principal_amount) || 0), 0);
   const totalOutstanding = filteredLoans.reduce((s, l) => s + totalOutstandingOf(l), 0);
+  const totalCollected = filteredLoans.reduce((s, l) => s + (parseFloat(l.total_collected) || 0), 0);
   const totalDueToday = filteredLoans.filter(l => l.status === 'active').reduce((s, l) => s + periodDueOf(l), 0);
   const activeCount = filteredLoans.filter(l => l.status === 'active').length;
   const paidCount = filteredLoans.filter(l => l.status === 'fully_paid').length;
@@ -7333,6 +7365,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
       <div className="kpi-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
         {[
           { label: 'Total Disbursed', val: `LKR ${Math.round(totalPrincipal).toLocaleString()}`, color: 'var(--accent-blue)', icon: '💰' },
+          { label: 'Total Collected', val: `LKR ${Math.round(totalCollected).toLocaleString()}`, color: 'var(--accent-emerald)', icon: '🧾' },
           { label: 'Total Outstanding', val: `LKR ${Math.round(totalOutstanding).toLocaleString()}`, color: 'var(--accent-rose)', icon: '📊' },
           { label: "Today's Due (Active)", val: `LKR ${Math.round(totalDueToday).toLocaleString()}`, color: 'var(--accent-amber)', icon: '📅' },
           { label: 'Active / Unpaid', val: activeCount, color: 'var(--accent-emerald)', icon: '🟢' },
@@ -7368,12 +7401,25 @@ function LoansLoader({ onSelect, fetchTrigger }) {
         <div className={`${!showMobileFilters ? 'mobile-hidden' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'flex-end' }}>
             <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>⏱️ Period</label>
+              <select className="glass-input" value={periodPreset} onChange={e => applyPeriodPreset(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="this_month">This Month</option>
+                <option value="this_year">This Year</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
+                  <option key={n} value={`last_${n}`}>Last {n} Month{n > 1 ? 's' : ''}</option>
+                ))}
+                <option value="custom">Custom Range</option>
+              </select>
+            </div>
+            <div>
               <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 From Date</label>
-              <input type="date" className="glass-input" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ fontSize: '13px', width: '100%' }} />
+              <input type="date" className="glass-input" value={fromDate} onChange={e => { setFromDate(e.target.value); setPeriodPreset('custom'); }} style={{ fontSize: '13px', width: '100%' }} />
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 To Date</label>
-              <input type="date" className="glass-input" value={toDate} onChange={e => setToDate(e.target.value)} style={{ fontSize: '13px', width: '100%' }} />
+              <input type="date" className="glass-input" value={toDate} onChange={e => { setToDate(e.target.value); setPeriodPreset('custom'); }} style={{ fontSize: '13px', width: '100%' }} />
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔄 Collection Type</label>
