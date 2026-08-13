@@ -3,6 +3,9 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { isValidSriLankanNIC } from '@/lib/loanSchedule.js';
 
+// Mirrors the same constant in /api/loans/route.js — see the comment there.
+const MAX_ACTIVE_GUARANTEED_LOANS = 3;
+
 // Add or edit the guarantor on an existing loan (Admin only). Previously a
 // guarantor could only be recorded at the moment a loan was created — there
 // was no way to add one afterward (e.g. it was skipped at issuance but is
@@ -23,6 +26,21 @@ export async function PUT(request, { params }) {
     }
     if (!guarantor.nic_number || !isValidSriLankanNIC(guarantor.nic_number)) {
       return NextResponse.json({ message: "Guarantor's NIC number is required and must be a valid Sri Lankan NIC format." }, { status: 400 });
+    }
+    const cleanGuarantorNIC = guarantor.nic_number.trim().toUpperCase();
+
+    // Same cap as at loan-creation time — excludes this loan's own existing
+    // guarantor row (if any) so re-saving an unchanged guarantor, or fixing
+    // a typo in their details, doesn't get blocked by counting itself.
+    const { count: activeGuaranteeCount } = await db('guarantors')
+      .join('loans', 'guarantors.loan_id', 'loans.id')
+      .where('guarantors.nic_number', cleanGuarantorNIC)
+      .whereNot('guarantors.loan_id', loanId)
+      .whereIn('loans.status', ['active', 'pending'])
+      .countDistinct('guarantors.loan_id as count')
+      .first();
+    if (parseInt(activeGuaranteeCount, 10) >= MAX_ACTIVE_GUARANTEED_LOANS) {
+      return NextResponse.json({ message: `Guarantor '${guarantor.full_name}' (NIC ${cleanGuarantorNIC}) is already backing ${activeGuaranteeCount} other active/pending loans — the maximum of ${MAX_ACTIVE_GUARANTEED_LOANS} at a time has been reached.` }, { status: 400 });
     }
     if (!guarantor.address || !guarantor.address.trim()) {
       return NextResponse.json({ message: "Guarantor's address is required." }, { status: 400 });

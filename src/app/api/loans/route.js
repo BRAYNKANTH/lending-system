@@ -9,6 +9,12 @@ import { stripLoanMediaList } from '@/lib/stripMedia.js';
 import bcrypt from 'bcryptjs';
 import { generateTempPassword } from '@/lib/tempPassword.js';
 
+// How many active/pending loans one guarantor (by NIC) can back at the same
+// time — mirrored (same value, not imported — route.js files should only
+// export HTTP method handlers) in /api/loans/[id]/guarantor, which enforces
+// the same rule when a guarantor is added/edited on an already-created loan.
+const MAX_ACTIVE_GUARANTEED_LOANS = 3;
+
 // Create a new loan. Admin-created loans disburse immediately, same as
 // always. Agent-created loans go in as 'pending' instead — no cash moves
 // and no ledger entries post until an admin reviews and approves it (see
@@ -163,6 +169,21 @@ export async function POST(request) {
       if (!g || !g.full_name || !g.full_name.trim()) continue;
       if (!g.nic_number || !isValidSriLankanNIC(g.nic_number)) {
         return NextResponse.json({ message: `Guarantor '${g.full_name}'s NIC number is required and must be a valid Sri Lankan NIC format.` }, { status: 400 });
+      }
+      const cleanGuarantorNIC = g.nic_number.trim().toUpperCase();
+      // A guarantor can only back up to MAX_ACTIVE_GUARANTEED_LOANS loans at
+      // once (active + pending — a pending application is a live commitment
+      // too, since it becomes active the moment an admin approves it), so
+      // one person's promise-to-pay can't be stretched across an unlimited
+      // number of borrowers at the same time.
+      const { count: activeGuaranteeCount } = await db('guarantors')
+        .join('loans', 'guarantors.loan_id', 'loans.id')
+        .where('guarantors.nic_number', cleanGuarantorNIC)
+        .whereIn('loans.status', ['active', 'pending'])
+        .countDistinct('guarantors.loan_id as count')
+        .first();
+      if (parseInt(activeGuaranteeCount, 10) >= MAX_ACTIVE_GUARANTEED_LOANS) {
+        return NextResponse.json({ message: `Guarantor '${g.full_name}' (NIC ${cleanGuarantorNIC}) is already backing ${activeGuaranteeCount} active/pending loans — the maximum of ${MAX_ACTIVE_GUARANTEED_LOANS} at a time has been reached.` }, { status: 400 });
       }
       if (!g.address || !g.address.trim()) {
         return NextResponse.json({ message: `Guarantor '${g.full_name}'s address is required.` }, { status: 400 });

@@ -33,6 +33,12 @@ const MANUAL_OVERDUE_REVIEW_DAYS = 3;
 // changes here.
 const showsUnifiedOutstanding = (loan) => !!loan.is_flat_installment || loan.interest_type === 'daily';
 
+// Mirrors the same constant enforced server-side in /api/loans and
+// /api/loans/[id]/guarantor — see the comment there. Client-side copy is
+// display-only (the live NIC-lookup warning); the server is what actually
+// blocks it.
+const MAX_ACTIVE_GUARANTEED_LOANS = 3;
+
 export default function LendApp() {
   const [token, setToken] = useState(localStorage.getItem('lend_token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('lend_user')));
@@ -1290,6 +1296,63 @@ export default function LendApp() {
     if (!nic) return false;
     const cleaned = nic.trim().toUpperCase();
     return /^[0-9]{9}[VX]$/.test(cleaned) || /^[0-9]{12}$/.test(cleaned);
+  };
+
+  // Live NIC lookup — fired on blur (not every keystroke) once a field
+  // looks like a complete NIC. Keyed so the borrower field and each
+  // guarantor form's field can hold independent results ('borrower',
+  // 'guarantor_0', 'guarantor_1', ...). Surfaces two things ahead of
+  // submit instead of only after: how many active/pending loans this NIC
+  // already guarantees (max 3), and whether it has a defaulted loan on
+  // file as either borrower or guarantor ("bad record").
+  const [nicLookup, setNicLookup] = useState({});
+  const runNicLookup = async (key, nicValue) => {
+    const clean = (nicValue || '').trim().toUpperCase();
+    if (!isValidNIC(clean)) {
+      setNicLookup(prev => ({ ...prev, [key]: null }));
+      return;
+    }
+    setNicLookup(prev => ({ ...prev, [key]: { loading: true } }));
+    try {
+      const data = await api.get(`/nic-lookup?nic=${encodeURIComponent(clean)}`);
+      setNicLookup(prev => ({ ...prev, [key]: { loading: false, data } }));
+    } catch (err) {
+      setNicLookup(prev => ({ ...prev, [key]: { loading: false, error: err.message } }));
+    }
+  };
+
+  // Shared warning banner renderer for a NIC lookup result — used for the
+  // borrower NIC field and every guarantor's NIC field.
+  const renderNicLookupWarning = (key, { forGuarantee } = {}) => {
+    const lookup = nicLookup[key];
+    if (!lookup || lookup.loading || lookup.error || !lookup.data) return null;
+    const { hasDefaultedHistory, defaultedAsBorrower, defaultedAsGuarantor, activeGuaranteedLoansCount } = lookup.data;
+    const warnings = [];
+    if (hasDefaultedHistory) {
+      const parts = [];
+      if (defaultedAsBorrower?.length) parts.push(`${defaultedAsBorrower.length} defaulted loan(s) as borrower`);
+      if (defaultedAsGuarantor?.length) parts.push(`${defaultedAsGuarantor.length} defaulted loan(s) as guarantor`);
+      warnings.push({ level: 'rose', text: `⚠ Bad Record: This NIC has ${parts.join(' and ')} on file.` });
+    }
+    if (forGuarantee && activeGuaranteedLoansCount >= MAX_ACTIVE_GUARANTEED_LOANS) {
+      warnings.push({ level: 'rose', text: `This NIC is already guaranteeing ${activeGuaranteedLoansCount} active/pending loans — the maximum of ${MAX_ACTIVE_GUARANTEED_LOANS} at a time.` });
+    } else if (forGuarantee && activeGuaranteedLoansCount > 0) {
+      warnings.push({ level: 'amber', text: `This NIC is already guaranteeing ${activeGuaranteedLoansCount} active/pending loan(s) (max ${MAX_ACTIVE_GUARANTEED_LOANS}).` });
+    }
+    if (warnings.length === 0) return null;
+    return (
+      <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        {warnings.map((w, idx) => (
+          <span key={idx} style={{
+            fontSize: '12px', fontWeight: '600', padding: '6px 10px', borderRadius: '6px', display: 'block',
+            background: w.level === 'rose' ? 'rgba(244,63,94,0.12)' : 'rgba(245,158,11,0.12)',
+            color: w.level === 'rose' ? 'var(--accent-rose)' : 'var(--accent-amber)'
+          }}>
+            {w.text}
+          </span>
+        ))}
+      </div>
+    );
   };
 
   const handleShareWhatsAppReceipt = (receipt) => {
@@ -4957,8 +5020,10 @@ export default function LendApp() {
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC NUMBER *</label>
-                                  <input id="nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => { setNewLoan(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('nic_number'); }} />
+                                  <input id="nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => { setNewLoan(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('nic_number'); }} onBlur={e => runNicLookup('borrower', e.target.value)} />
                                   {validationErrors.nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.nic_number}</span>}
+                                  {nicLookup.borrower?.loading && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Checking record…</span>}
+                                  {renderNicLookupWarning('borrower')}
                                 </div>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
@@ -5231,8 +5296,10 @@ export default function LendApp() {
                                     </div>
                                     <div>
                                       <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                                      <input id={`guarantor_${i}_nic_number`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_number`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_number`] ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={g.nic_number} onChange={e => { updateGuarantorField(i, 'nic_number', e.target.value); clearFieldError(`guarantor_${i}_nic_number`); }} />
+                                      <input id={`guarantor_${i}_nic_number`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_number`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_number`] ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={g.nic_number} onChange={e => { updateGuarantorField(i, 'nic_number', e.target.value); clearFieldError(`guarantor_${i}_nic_number`); }} onBlur={e => runNicLookup(`guarantor_${i}`, e.target.value)} />
                                       {validationErrors[`guarantor_${i}_nic_number`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_number`]}</span>}
+                                      {nicLookup[`guarantor_${i}`]?.loading && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Checking record…</span>}
+                                      {renderNicLookupWarning(`guarantor_${i}`, { forGuarantee: true })}
                                     </div>
                                   </div>
 
@@ -6606,7 +6673,9 @@ export default function LendApp() {
                           </div>
                           <div>
                             <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                            <input required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} />
+                            <input required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} onBlur={e => runNicLookup('guarantor_edit', e.target.value)} />
+                            {nicLookup.guarantor_edit?.loading && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Checking record…</span>}
+                            {renderNicLookupWarning('guarantor_edit', { forGuarantee: true })}
                           </div>
                         </div>
                         <div>
