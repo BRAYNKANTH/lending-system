@@ -357,6 +357,38 @@ async function runIncrementalMigrations() {
     });
     console.log("Migration: created table 'borrower_intakes'.");
   }
+
+  // Multi-photo NIC + Photo Proof — previously one base64 data URL each for
+  // borrower and guarantor ("Address Proof" renamed to the more general
+  // "Photo Proof" since it's used for any ID/photo evidence, not just a
+  // utility bill). Up to 4 photos per field now, stored as a jsonb array of
+  // data URLs (same base64-in-DB pattern, just plural). The old singular
+  // *_url columns are kept as-is (not dropped) so existing photos already on
+  // disk aren't lost; they're backfilled into the new array columns below
+  // and the app now reads/writes the array columns exclusively going
+  // forward.
+  await addColumnIfMissing('loans', 'nic_photo_urls', (t) => t.jsonb('nic_photo_urls').nullable());
+  await addColumnIfMissing('loans', 'photo_proof_urls', (t) => t.jsonb('photo_proof_urls').nullable());
+  await addColumnIfMissing('guarantors', 'nic_photo_urls', (t) => t.jsonb('nic_photo_urls').nullable());
+  await addColumnIfMissing('guarantors', 'photo_proof_urls', (t) => t.jsonb('photo_proof_urls').nullable());
+
+  await db.raw(`
+    UPDATE loans SET nic_photo_urls = jsonb_build_array(nic_photo_url)
+    WHERE nic_photo_url IS NOT NULL AND (nic_photo_urls IS NULL OR nic_photo_urls = '[]'::jsonb)
+  `);
+  await db.raw(`
+    UPDATE loans SET photo_proof_urls = jsonb_build_array(address_proof_url)
+    WHERE address_proof_url IS NOT NULL AND (photo_proof_urls IS NULL OR photo_proof_urls = '[]'::jsonb)
+  `);
+  await db.raw(`
+    UPDATE guarantors SET nic_photo_urls = jsonb_build_array(nic_photo_url)
+    WHERE nic_photo_url IS NOT NULL AND (nic_photo_urls IS NULL OR nic_photo_urls = '[]'::jsonb)
+  `);
+  await db.raw(`
+    UPDATE guarantors SET photo_proof_urls = jsonb_build_array(address_proof_url)
+    WHERE address_proof_url IS NOT NULL AND (photo_proof_urls IS NULL OR photo_proof_urls = '[]'::jsonb)
+  `);
+  console.log('Migration: backfilled nic_photo_urls/photo_proof_urls arrays from legacy singular columns.');
 }
 
 async function createSchemaAndSeed() {

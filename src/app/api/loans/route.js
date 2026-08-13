@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
-import { validateImageDataUrl } from '@/lib/services/image.js';
+import { validateImageDataUrl, validateImageDataUrlArray } from '@/lib/services/image.js';
 import { notifyLoanCreation, notifyLoanPendingApproval } from '@/lib/services/notification.js';
 import { isValidSriLankanNIC, addInterval, getSriLankaTodayRange } from '@/lib/loanSchedule.js';
 import { normalizePhone } from '@/lib/phone.js';
@@ -21,7 +21,7 @@ export async function POST(request) {
     const body = await request.json();
     const {
       borrower_name, borrower_phone, borrower_address, borrower_date_of_birth, principal_amount, interest_rate, interest_type,
-      assigned_agent_id, nic_number, nic_photo, address_proof, guarantor, guarantors, borrower_profile,
+      assigned_agent_id, nic_number, nic_photos, photo_proofs, guarantor, guarantors, borrower_profile,
       collection_mode, duration_periods, borrower_email, borrower_gender, source_intake_id
     } = body;
 
@@ -34,8 +34,8 @@ export async function POST(request) {
     if (!borrower_address || !borrower_address.trim()) {
       return NextResponse.json({ message: "Borrower's address is required." }, { status: 400 });
     }
-    if (!address_proof) {
-      return NextResponse.json({ message: "Borrower's address proof photo is required." }, { status: 400 });
+    if (!photo_proofs || !Array.isArray(photo_proofs) || photo_proofs.length === 0) {
+      return NextResponse.json({ message: "Borrower's photo proof (at least 1 photo) is required." }, { status: 400 });
     }
     if (!borrower_date_of_birth) {
       return NextResponse.json({ message: "Borrower's date of birth is required." }, { status: 400 });
@@ -148,19 +148,19 @@ export async function POST(request) {
       if (!g.phone || !g.phone.trim()) {
         return NextResponse.json({ message: `Guarantor '${g.full_name}'s phone number is required.` }, { status: 400 });
       }
-      if (!g.nic_photo) {
-        return NextResponse.json({ message: `Guarantor '${g.full_name}'s NIC photo is required.` }, { status: 400 });
+      if (!g.nic_photos || !Array.isArray(g.nic_photos) || g.nic_photos.length === 0) {
+        return NextResponse.json({ message: `A NIC photo (at least 1) is required for guarantor '${g.full_name}'.` }, { status: 400 });
       }
-      const guarantorNicPhotoUrl = validateImageDataUrl(g.nic_photo);
-      if (!guarantorNicPhotoUrl) {
-        return NextResponse.json({ message: `Failed to process the NIC photo for guarantor '${g.full_name}'. Please upload a valid JPEG/PNG/WebP under 4MB.` }, { status: 400 });
+      const guarantorNicPhotoUrls = validateImageDataUrlArray(g.nic_photos);
+      if (!guarantorNicPhotoUrls) {
+        return NextResponse.json({ message: `Failed to process the NIC photo(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
       }
-      if (!g.address_proof) {
-        return NextResponse.json({ message: `Guarantor '${g.full_name}'s address proof photo is required.` }, { status: 400 });
+      if (!g.photo_proofs || !Array.isArray(g.photo_proofs) || g.photo_proofs.length === 0) {
+        return NextResponse.json({ message: `A photo proof (at least 1) is required for guarantor '${g.full_name}'.` }, { status: 400 });
       }
-      const guarantorAddressProofUrl = validateImageDataUrl(g.address_proof);
-      if (!guarantorAddressProofUrl) {
-        return NextResponse.json({ message: `Failed to process the address proof photo for guarantor '${g.full_name}'. Please upload a valid JPEG/PNG/WebP under 4MB.` }, { status: 400 });
+      const guarantorPhotoProofUrls = validateImageDataUrlArray(g.photo_proofs);
+      if (!guarantorPhotoProofUrls) {
+        return NextResponse.json({ message: `Failed to process the photo proof(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
       }
       guarantorRecords.push({
         full_name: g.full_name.trim(),
@@ -171,8 +171,10 @@ export async function POST(request) {
         address: g.address.trim(),
         phone: g.phone.trim().replace(/\s+/g, ''),
         email: null,
-        nic_photo_url: guarantorNicPhotoUrl,
-        address_proof_url: guarantorAddressProofUrl,
+        nic_photo_url: guarantorNicPhotoUrls[0],
+        address_proof_url: guarantorPhotoProofUrls[0],
+        nic_photo_urls: JSON.stringify(guarantorNicPhotoUrls),
+        photo_proof_urls: JSON.stringify(guarantorPhotoProofUrls),
         protected_under_debt_act: !!g.protected_under_debt_act,
         has_pending_court_cases: !!g.has_pending_court_cases,
         monthly_income_business: parseFloat(g.monthly_income_business) || 0,
@@ -201,21 +203,24 @@ export async function POST(request) {
       };
     }
 
-    // NIC photo — stored directly as a base64 data URL in the database
-    // (Vercel's serverless filesystem can't persist uploaded files).
-    let nic_photo_url = null;
-    if (nic_photo) {
-      nic_photo_url = validateImageDataUrl(nic_photo);
-      if (!nic_photo_url) {
-        return NextResponse.json({ message: 'Failed to process the NIC photo image. Please upload a valid JPEG/PNG/WebP under 4MB.' }, { status: 400 });
+    // NIC photo(s) — up to 4, stored directly as base64 data URLs in the
+    // database (Vercel's serverless filesystem can't persist uploaded
+    // files). Optional at the top level (borrower NIC number is required,
+    // but a photo of it isn't strictly enforced here, matching prior
+    // behavior); Photo Proof below IS required.
+    let nic_photo_urls = null;
+    if (nic_photos && Array.isArray(nic_photos) && nic_photos.length > 0) {
+      nic_photo_urls = validateImageDataUrlArray(nic_photos);
+      if (!nic_photo_urls) {
+        return NextResponse.json({ message: 'Failed to process the NIC photo(s). Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.' }, { status: 400 });
       }
     }
 
-    // Address proof photo — required (checked above), same base64-in-DB
-    // storage as the NIC photo.
-    const address_proof_url = validateImageDataUrl(address_proof);
-    if (!address_proof_url) {
-      return NextResponse.json({ message: "Failed to process the borrower's address proof image. Please upload a valid JPEG/PNG/WebP under 4MB." }, { status: 400 });
+    // Photo proof (e.g. a utility bill or any other ID/photo evidence) —
+    // required (checked above), same base64-in-DB storage as the NIC photos.
+    const photo_proof_urls = validateImageDataUrlArray(photo_proofs);
+    if (!photo_proof_urls) {
+      return NextResponse.json({ message: "Failed to process the borrower's photo proof image(s). Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB." }, { status: 400 });
     }
 
     let cleanEmail = null;
@@ -362,8 +367,10 @@ export async function POST(request) {
         status: initialStatus,
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
-        nic_photo_url,
-        address_proof_url,
+        nic_photo_url: nic_photo_urls ? nic_photo_urls[0] : null,
+        address_proof_url: photo_proof_urls[0],
+        nic_photo_urls: nic_photo_urls ? JSON.stringify(nic_photo_urls) : null,
+        photo_proof_urls: JSON.stringify(photo_proof_urls),
         date_of_birth: borrower_date_of_birth,
         borrower_address: borrower_address.trim(),
         collection_mode: colMode,

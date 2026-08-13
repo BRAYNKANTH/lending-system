@@ -218,8 +218,8 @@ export default function LendApp() {
     interest_type: 'daily',
     assigned_agent_id: '',
     nic_number: '',
-    nic_photo: '',
-    address_proof: '',
+    nic_photos: [],
+    photo_proofs: [],
     collection_mode: 'open_ended',
     duration_periods: '',
     // Set when this loan is being created from a Borrower Intake submission
@@ -229,7 +229,7 @@ export default function LendApp() {
   });
   const [includeGuarantor, setIncludeGuarantor] = useState(false);
   const emptyGuarantor = {
-    full_name: '', nic_number: '', nic_photo: '', address_proof: '',
+    full_name: '', nic_number: '', nic_photos: [], photo_proofs: [],
     address: '', phone: '',
     protected_under_debt_act: false, has_pending_court_cases: false,
     monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
@@ -1333,9 +1333,9 @@ export default function LendApp() {
       errors.date_of_birth = "Borrower's date of birth is required.";
       if (!firstErrorField) firstErrorField = "date_of_birth";
     }
-    if (!newLoan.address_proof) {
-      errors.address_proof = "Borrower's address proof photo is required.";
-      if (!firstErrorField) firstErrorField = "address_proof";
+    if (!newLoan.photo_proofs || newLoan.photo_proofs.length === 0) {
+      errors.photo_proofs = "At least 1 photo proof is required for the borrower.";
+      if (!firstErrorField) firstErrorField = "photo_proofs";
     }
 
     setValidationErrors(prev => ({ ...prev, ...errors }));
@@ -1433,12 +1433,12 @@ export default function LendApp() {
         errors[`guarantor_${i}_nic_number`] = "A valid Sri Lankan NIC number is required for the guarantor.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_number`;
       }
-      if (!g.nic_photo) {
-        errors[`guarantor_${i}_nic_photo`] = "A NIC photo is required for the guarantor.";
+      if (!g.nic_photos || g.nic_photos.length === 0) {
+        errors[`guarantor_${i}_nic_photo`] = "At least 1 NIC photo is required for the guarantor.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_photo`;
       }
-      if (!g.address_proof) {
-        errors[`guarantor_${i}_address_proof`] = "An address proof photo is required for the guarantor.";
+      if (!g.photo_proofs || g.photo_proofs.length === 0) {
+        errors[`guarantor_${i}_address_proof`] = "At least 1 photo proof is required for the guarantor.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_address_proof`;
       }
       if (!g.phone || !g.phone.trim()) {
@@ -1546,8 +1546,8 @@ export default function LendApp() {
         interest_type: 'daily',
         assigned_agent_id: '',
         nic_number: '',
-        nic_photo: '',
-        address_proof: '',
+        nic_photos: [],
+        photo_proofs: [],
         collection_mode: 'open_ended',
         duration_periods: '',
         source_intake_id: null
@@ -1787,28 +1787,83 @@ export default function LendApp() {
     }
   };
 
-  // File to base64 converter for borrower NIC photo
-  const handleNICPhotoChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewLoan(prev => ({ ...prev, nic_photo: reader.result }));
+  // Max photos allowed per field (NIC Photo / Photo Proof), borrower and
+  // guarantor alike — mirrors MAX_PHOTOS_PER_FIELD in src/lib/services/image.js.
+  const MAX_KYC_PHOTOS = 4;
+
+  // Downscales + JPEG-compresses a single image file via canvas before it
+  // becomes a base64 data URL. Previously these fields stored the raw file
+  // untouched (already capped at 4MB server-side) — now that up to 4 photos
+  // can be attached per field, compressing keeps typical uploads well under
+  // that limit and keeps the loan record from ballooning in size.
+  const compressImageFile = (file, maxDim = 1600, quality = 0.82) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('That file is not a valid image.'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round((height / width) * maxDim);
+            width = maxDim;
+          } else {
+            width = Math.round((width / height) * maxDim);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
       };
-      reader.readAsDataURL(file);
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Shared multi-file appender for NIC Photo / Photo Proof fields — reads +
+  // compresses every selected file, appends to whatever's already in that
+  // field, and caps the combined total at MAX_KYC_PHOTOS. `updateArrayFn` is
+  // called with (prevArray => nextArray) so each call site can plug it into
+  // its own setState shape (top-level newLoan vs. one guarantorForms entry).
+  const appendKYCPhotos = async (fileList, updateArrayFn) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    try {
+      const compressed = await Promise.all(files.map(f => compressImageFile(f)));
+      let overflowed = false;
+      updateArrayFn(prevArray => {
+        const combined = [...(prevArray || []), ...compressed];
+        if (combined.length > MAX_KYC_PHOTOS) overflowed = true;
+        return combined.slice(0, MAX_KYC_PHOTOS);
+      });
+      if (overflowed && showToast) {
+        showToast(`Only the first ${MAX_KYC_PHOTOS} photos are kept for this field (max ${MAX_KYC_PHOTOS}).`, 'error');
+      }
+    } catch (err) {
+      if (showToast) showToast(err.message || 'Failed to process one of the selected images.', 'error');
     }
   };
 
-  // File to base64 converter for borrower address proof photo
+  // File to base64 converter(s) for borrower NIC photo (up to 4)
+  const handleNICPhotoChange = (e) => {
+    appendKYCPhotos(e.target.files, (fn) => setNewLoan(prev => ({ ...prev, nic_photos: fn(prev.nic_photos) })));
+    e.target.value = '';
+  };
+  const removeNICPhoto = (idx) => {
+    setNewLoan(prev => ({ ...prev, nic_photos: (prev.nic_photos || []).filter((_, i) => i !== idx) }));
+  };
+
+  // File to base64 converter(s) for borrower photo proof (up to 4)
   const handleAddressProofChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewLoan(prev => ({ ...prev, address_proof: reader.result }));
-      };
-      reader.readAsDataURL(file);
-    }
+    appendKYCPhotos(e.target.files, (fn) => setNewLoan(prev => ({ ...prev, photo_proofs: fn(prev.photo_proofs) })));
+    e.target.value = '';
+  };
+  const removePhotoProof = (idx) => {
+    setNewLoan(prev => ({ ...prev, photo_proofs: (prev.photo_proofs || []).filter((_, i) => i !== idx) }));
   };
 
   // Updates one field on one guarantor form in the guarantorForms array.
@@ -1816,29 +1871,23 @@ export default function LendApp() {
     setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, [field]: value } : g)));
   };
 
-  // File to base64 converter for a guarantor's NIC photo (one per guarantor
-  // form, indexed since there can be more than one guarantor).
+  // File to base64 converter(s) for a guarantor's NIC photo (up to 4, per
+  // guarantor form — indexed since there can be more than one guarantor).
   const handleGuarantorPhotoChange = (index, e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        updateGuarantorField(index, 'nic_photo', reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
+    appendKYCPhotos(e.target.files, (fn) => setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, nic_photos: fn(g.nic_photos) } : g))));
+    e.target.value = '';
+  };
+  const removeGuarantorNICPhoto = (index, idx) => {
+    setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, nic_photos: (g.nic_photos || []).filter((_, pi) => pi !== idx) } : g)));
   };
 
-  // File to base64 converter for a guarantor's address proof photo
+  // File to base64 converter(s) for a guarantor's photo proof (up to 4)
   const handleGuarantorAddressProofChange = (index, e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        updateGuarantorField(index, 'address_proof', reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
+    appendKYCPhotos(e.target.files, (fn) => setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, photo_proofs: fn(g.photo_proofs) } : g))));
+    e.target.value = '';
+  };
+  const removeGuarantorPhotoProof = (index, idx) => {
+    setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, photo_proofs: (g.photo_proofs || []).filter((_, pi) => pi !== idx) } : g)));
   };
 
   // File to base64 converter for borrower proof of payment
@@ -4907,27 +4956,37 @@ export default function LendApp() {
                                   {validationErrors.nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.nic_number}</span>}
                                 </div>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO</label>
-                                  <input type="file" accept="image/*" className="glass-input" onChange={handleNICPhotoChange} />
-                                  {newLoan.nic_photo && (
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                      <img src={newLoan.nic_photo} alt="NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                      <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
+                                  <input type="file" accept="image/*" multiple className="glass-input" onChange={handleNICPhotoChange} disabled={(newLoan.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
+                                  <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
+                                  {(newLoan.nic_photos?.length || 0) > 0 && (
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                      {newLoan.nic_photos.map((photo, idx) => (
+                                        <div key={idx} style={{ position: 'relative' }}>
+                                          <img src={photo} alt={`NIC preview ${idx + 1}`} style={{ width: '52px', height: '38px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                          <button type="button" onClick={() => removeNICPhoto(idx)} title="Remove" style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent-rose)', color: '#fff', border: 'none', fontSize: '11px', lineHeight: 1, cursor: 'pointer' }}>×</button>
+                                        </div>
+                                      ))}
                                     </div>
                                   )}
                                 </div>
                               </div>
 
                               <div>
-                                <label id="address_proof" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ADDRESS PROOF (e.g. utility bill) *</label>
-                                <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors.address_proof ? 'var(--accent-rose)' : '', borderWidth: validationErrors.address_proof ? '2px' : '' }} onChange={e => { handleAddressProofChange(e); clearFieldError('address_proof'); }} />
-                                {newLoan.address_proof && (
-                                  <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <img src={newLoan.address_proof} alt="Address proof preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                    <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                <label id="photo_proofs" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHOTO PROOF (e.g. utility bill or other ID evidence) * {(newLoan.photo_proofs?.length || 0) > 0 && `(${newLoan.photo_proofs.length}/${MAX_KYC_PHOTOS})`}</label>
+                                <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.photo_proofs ? 'var(--accent-rose)' : '', borderWidth: validationErrors.photo_proofs ? '2px' : '' }} onChange={e => { handleAddressProofChange(e); clearFieldError('photo_proofs'); }} disabled={(newLoan.photo_proofs?.length || 0) >= MAX_KYC_PHOTOS} />
+                                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
+                                {(newLoan.photo_proofs?.length || 0) > 0 && (
+                                  <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    {newLoan.photo_proofs.map((photo, idx) => (
+                                      <div key={idx} style={{ position: 'relative' }}>
+                                        <img src={photo} alt={`Photo proof preview ${idx + 1}`} style={{ width: '52px', height: '38px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                        <button type="button" onClick={() => removePhotoProof(idx)} title="Remove" style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent-rose)', color: '#fff', border: 'none', fontSize: '11px', lineHeight: 1, cursor: 'pointer' }}>×</button>
+                                      </div>
+                                    ))}
                                   </div>
                                 )}
-                                {validationErrors.address_proof && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.address_proof}</span>}
+                                {validationErrors.photo_proofs && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.photo_proofs}</span>}
                               </div>
                             </div>
 
@@ -5157,24 +5216,34 @@ export default function LendApp() {
                                   </div>
 
                                   <div>
-                                    <label id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo *</label>
-                                    <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} />
-                                    {g.nic_photo && (
-                                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <img src={g.nic_photo} alt="Guarantor NIC preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                        <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                    <label id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo * {(g.nic_photos?.length || 0) > 0 && `(${g.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
+                                    <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} disabled={(g.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
+                                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
+                                    {(g.nic_photos?.length || 0) > 0 && (
+                                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        {g.nic_photos.map((photo, idx) => (
+                                          <div key={idx} style={{ position: 'relative' }}>
+                                            <img src={photo} alt={`Guarantor NIC preview ${idx + 1}`} style={{ width: '52px', height: '38px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                            <button type="button" onClick={() => removeGuarantorNICPhoto(i, idx)} title="Remove" style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent-rose)', color: '#fff', border: 'none', fontSize: '11px', lineHeight: 1, cursor: 'pointer' }}>×</button>
+                                          </div>
+                                        ))}
                                       </div>
                                     )}
                                     {validationErrors[`guarantor_${i}_nic_photo`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_photo`]}</span>}
                                   </div>
 
                                   <div>
-                                    <label id={`guarantor_${i}_address_proof`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address Proof (e.g. utility bill) *</label>
-                                    <input type="file" accept="image/*" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address_proof`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address_proof`] ? '2px' : '' }} onChange={e => { handleGuarantorAddressProofChange(i, e); clearFieldError(`guarantor_${i}_address_proof`); }} />
-                                    {g.address_proof && (
-                                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <img src={g.address_proof} alt="Guarantor address proof preview" style={{ width: '45px', height: '30px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                        <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo Attached</span>
+                                    <label id={`guarantor_${i}_address_proof`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Photo Proof (e.g. utility bill or other ID evidence) * {(g.photo_proofs?.length || 0) > 0 && `(${g.photo_proofs.length}/${MAX_KYC_PHOTOS})`}</label>
+                                    <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address_proof`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address_proof`] ? '2px' : '' }} onChange={e => { handleGuarantorAddressProofChange(i, e); clearFieldError(`guarantor_${i}_address_proof`); }} disabled={(g.photo_proofs?.length || 0) >= MAX_KYC_PHOTOS} />
+                                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
+                                    {(g.photo_proofs?.length || 0) > 0 && (
+                                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        {g.photo_proofs.map((photo, idx) => (
+                                          <div key={idx} style={{ position: 'relative' }}>
+                                            <img src={photo} alt={`Guarantor photo proof preview ${idx + 1}`} style={{ width: '52px', height: '38px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
+                                            <button type="button" onClick={() => removeGuarantorPhotoProof(i, idx)} title="Remove" style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent-rose)', color: '#fff', border: 'none', fontSize: '11px', lineHeight: 1, cursor: 'pointer' }}>×</button>
+                                          </div>
+                                        ))}
                                       </div>
                                     )}
                                     {validationErrors[`guarantor_${i}_address_proof`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address_proof`]}</span>}
@@ -5858,7 +5927,7 @@ export default function LendApp() {
 
                   <p style={{ color: 'var(--text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 6px', flexWrap: 'wrap' }}>
                     <span><IdCard className="icon" /> NIC Number: <strong>{loanStatement.loan.nic_number || 'N/A'}</strong></span>
-                    {loanStatement.loan.nic_photo_url && (
+                    {(loanStatement.loan.nic_photo_urls?.length > 0 || loanStatement.loan.nic_photo_url) && (
                       <>
                         <span>•</span>
                         <a
@@ -5866,11 +5935,12 @@ export default function LendApp() {
                           style={{ color: 'var(--accent-blue)', textDecoration: 'underline', fontWeight: '500', display: 'inline-block', padding: '10px 4px', margin: '-10px -4px' }}
                           onClick={(e) => {
                             e.preventDefault();
+                            const photos = loanStatement.loan.nic_photo_urls?.length > 0 ? loanStatement.loan.nic_photo_urls : [loanStatement.loan.nic_photo_url];
                             const win = window.open();
-                            win.document.write(`<img src="${loanStatement.loan.nic_photo_url}" style="max-width:100%; height:auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 8px;" />`);
+                            win.document.write(photos.map(url => `<img src="${url}" style="max-width:100%; height:auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 8px; display:block; margin-bottom: 16px;" />`).join(''));
                           }}
                         >
-                          View NIC Photo
+                          View NIC Photo{loanStatement.loan.nic_photo_urls?.length > 1 ? `s (${loanStatement.loan.nic_photo_urls.length})` : ''}
                         </a>
                       </>
                     )}
@@ -6396,10 +6466,14 @@ export default function LendApp() {
                         <div><strong>Spouse NIC:</strong> {loanStatement.loan.spouse_nic || '-'}</div>
                         <div style={{ gridColumn: '1 / -1' }}><strong>Spouse Occupation:</strong> {loanStatement.loan.spouse_occupation || '-'}</div>
                       </div>
-                      {loanStatement.loan.address_proof_url && (
+                      {(loanStatement.loan.photo_proof_urls?.length > 0 || loanStatement.loan.address_proof_url) && (
                         <div style={{ marginTop: '14px' }}>
-                          <strong style={{ display: 'block', marginBottom: '6px', fontSize: '13px' }}>Address Proof:</strong>
-                          <img src={loanStatement.loan.address_proof_url} alt="Borrower address proof" style={{ width: '160px', height: '105px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-glass)' }} />
+                          <strong style={{ display: 'block', marginBottom: '6px', fontSize: '13px' }}>Photo Proof:</strong>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {(loanStatement.loan.photo_proof_urls?.length > 0 ? loanStatement.loan.photo_proof_urls : [loanStatement.loan.address_proof_url]).map((url, idx) => (
+                              <img key={idx} src={url} alt={`Borrower photo proof ${idx + 1}`} style={{ width: '160px', height: '105px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-glass)' }} />
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -6434,18 +6508,18 @@ export default function LendApp() {
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                        {gtor.nic_photo_url && (
-                          <div>
-                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>NIC Photo</span>
-                            <img src={gtor.nic_photo_url} alt={`${gtor.full_name} NIC`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
+                        {(gtor.nic_photo_urls?.length > 0 ? gtor.nic_photo_urls : (gtor.nic_photo_url ? [gtor.nic_photo_url] : [])).map((url, idx) => (
+                          <div key={`nic-${idx}`}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>NIC Photo{idx > 0 ? ` ${idx + 1}` : ''}</span>
+                            <img src={url} alt={`${gtor.full_name} NIC ${idx + 1}`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
                           </div>
-                        )}
-                        {gtor.address_proof_url && (
-                          <div>
-                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>Address Proof</span>
-                            <img src={gtor.address_proof_url} alt={`${gtor.full_name} address proof`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
+                        ))}
+                        {(gtor.photo_proof_urls?.length > 0 ? gtor.photo_proof_urls : (gtor.address_proof_url ? [gtor.address_proof_url] : [])).map((url, idx) => (
+                          <div key={`proof-${idx}`}>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>Photo Proof{idx > 0 ? ` ${idx + 1}` : ''}</span>
+                            <img src={url} alt={`${gtor.full_name} photo proof ${idx + 1}`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
                           </div>
-                        )}
+                        ))}
                       </div>
                       <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
                         <div><strong>Name:</strong> {gtor.full_name}</div>

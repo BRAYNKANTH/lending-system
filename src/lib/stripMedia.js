@@ -9,7 +9,7 @@
 // leaves the server.
 export function stripLoanMedia(loan) {
   if (!loan) return loan;
-  const { nic_photo_url, address_proof_url, ...rest } = loan;
+  const { nic_photo_url, address_proof_url, nic_photo_urls, photo_proof_urls, ...rest } = loan;
   return rest;
 }
 

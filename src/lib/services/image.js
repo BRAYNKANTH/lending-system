@@ -23,3 +23,24 @@ export function validateImageDataUrl(base64Data) {
 
   return base64Data;
 }
+
+export const MAX_PHOTOS_PER_FIELD = 4;
+
+/**
+ * Validates an array of up to MAX_PHOTOS_PER_FIELD base64 image data URLs
+ * (e.g. NIC photo or Photo Proof, now multi-file). Returns the validated
+ * array, or null if the input isn't a non-empty array, has too many items,
+ * or any single item fails validateImageDataUrl.
+ */
+export function validateImageDataUrlArray(items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  if (items.length > MAX_PHOTOS_PER_FIELD) return null;
+
+  const validated = [];
+  for (const item of items) {
+    const url = validateImageDataUrl(item);
+    if (!url) return null;
+    validated.push(url);
+  }
+  return validated;
+}
