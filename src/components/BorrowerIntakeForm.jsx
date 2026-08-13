@@ -106,9 +106,13 @@ const EMPTY_FORM = {
   spouse_name: '', spouse_nic: '', spouse_occupation: '', notes: ''
 };
 
+// No photo_proofs here (unlike the borrower's own fields, and unlike the
+// staff Give Loan wizard's guarantor form) — a guarantor's NIC Photo is
+// enough for this public intake step; an agent collects photo proof from
+// the guarantor in person if the loan actually goes ahead.
 const EMPTY_GUARANTOR = {
   full_name: '', nic_number: '', address: '', phone: '',
-  nic_photos: [], photo_proofs: [],
+  nic_photos: [],
   protected_under_debt_act: false, has_pending_court_cases: false,
   monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
   monthly_expense_food: '', monthly_expense_rent: '', monthly_expense_other: ''
@@ -142,7 +146,15 @@ export default function BorrowerIntakeForm() {
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const handlePhotoSelect = async (e, updateArrayFn) => {
-    const files = e.target.files;
+    // input.files is a LIVE FileList tied to the input element — resetting
+    // e.target.value on the next line (done so the same file can be
+    // re-selected later) clears that FileList in place too, so it must be
+    // copied into a plain array first. Grabbing the live reference and
+    // clearing the input right after (as this used to) left
+    // appendCompressedPhotos reading an already-emptied FileList, silently
+    // uploading nothing while the input visibly reverted to "No file
+    // chosen" — this is what looked like "choosing a file does nothing".
+    const files = Array.from(e.target.files || []);
     e.target.value = '';
     setProcessingCount(c => c + 1);
     try {
@@ -388,12 +400,6 @@ export default function BorrowerIntakeForm() {
                       photos={g.nic_photos}
                       onSelect={e => handlePhotoSelect(e, fn => updateGuarantorField(idx, 'nic_photos', fn(g.nic_photos)))}
                       onRemove={pi => updateGuarantorField(idx, 'nic_photos', g.nic_photos.filter((_, i) => i !== pi))}
-                    />
-                    <PhotoField
-                      label={t.photoProofLabel} hint={t.photoProofHint}
-                      photos={g.photo_proofs}
-                      onSelect={e => handlePhotoSelect(e, fn => updateGuarantorField(idx, 'photo_proofs', fn(g.photo_proofs)))}
-                      onRemove={pi => updateGuarantorField(idx, 'photo_proofs', g.photo_proofs.filter((_, i) => i !== pi))}
                     />
 
                     <p style={{ fontSize: '12px', fontWeight: '700', color: '#444', margin: '16px 0 10px' }}>{t.gFinanceHeading}</p>
