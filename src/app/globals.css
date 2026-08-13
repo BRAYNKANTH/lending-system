@@ -471,6 +471,18 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   align-items: center;
   z-index: 999;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.05);
+  /* As more roles pick up more bottom-nav items (e.g. Applications), a row
+     can outgrow a narrow phone width. flex:1 on every item would just
+     squash them all unreadably thin instead — min-width + horizontal
+     scroll keeps each icon/label usable and lets the row scroll on the
+     narrowest devices rather than break. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.bottom-nav-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .bottom-nav-item {
@@ -480,11 +492,12 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: 1;
+  flex: 1 0 auto;
+  min-width: 64px;
   height: 100%;
   cursor: pointer;
   color: var(--text-secondary);
-  padding: 6px 0;
+  padding: 6px 10px;
   transition: all 0.15s ease;
   text-decoration: none;
 }

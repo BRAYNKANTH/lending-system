@@ -7158,6 +7158,11 @@ export default function LendApp() {
                 <span className="bottom-nav-icon"><Banknote /></span>
                 <span className="bottom-nav-label">Give Loan</span>
               </button>
+              <button className={`bottom-nav-item ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
+                <span className="bottom-nav-icon"><ClipboardCheck /></span>
+                <span className="bottom-nav-label">Applications</span>
+                {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{pendingIntakeCount}</span>}
+              </button>
               <button className={`bottom-nav-item ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}>
                 <span className="bottom-nav-icon"><ClipboardList /></span>
                 <span className="bottom-nav-label">Check Loans</span>
@@ -7188,6 +7193,11 @@ export default function LendApp() {
               <button className={`bottom-nav-item ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setGiveLoanStep(1); }}>
                 <span className="bottom-nav-icon"><Plus /></span>
                 <span className="bottom-nav-label">Give Loan</span>
+              </button>
+              <button className={`bottom-nav-item ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
+                <span className="bottom-nav-icon"><ClipboardCheck /></span>
+                <span className="bottom-nav-label">Applications</span>
+                {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{pendingIntakeCount}</span>}
               </button>
               <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}>
                 <span className="bottom-nav-icon"><Banknote /></span>
