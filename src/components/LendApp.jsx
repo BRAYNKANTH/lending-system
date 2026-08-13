@@ -222,6 +222,10 @@ export default function LendApp() {
     photo_proofs: [],
     collection_mode: 'open_ended',
     duration_periods: '',
+    // Admin-only backdating — defaults to today; ignored server-side for
+    // agent submissions (those go through approval, which always uses the
+    // actual approval moment). See LOAN SCHEDULING DETAILS in step 3.
+    disbursement_date: todayLocalDateStr(),
     // Set when this loan is being created from a Borrower Intake submission
     // (see /apply and the Applications review queue) — tells the backend
     // which pending intake to mark converted once the loan's created.
@@ -1550,6 +1554,7 @@ export default function LendApp() {
         photo_proofs: [],
         collection_mode: 'open_ended',
         duration_periods: '',
+        disbursement_date: todayLocalDateStr(),
         source_intake_id: null
       });
       setGiveLoanStep(1);
@@ -5085,6 +5090,22 @@ export default function LendApp() {
                                   </select>
                                 </div>
                               </div>
+
+                              {user.role !== 'agent' && (
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>DISBURSEMENT DATE</label>
+                                  <input
+                                    type="date"
+                                    max={todayLocalDateStr()}
+                                    className="glass-input"
+                                    value={newLoan.disbursement_date || todayLocalDateStr()}
+                                    onChange={e => setNewLoan(prev => ({ ...prev, disbursement_date: e.target.value }))}
+                                  />
+                                  <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                    Defaults to today. Set an earlier date to register a loan that was actually handed out in the past — interest/collections will be backdated to match.
+                                  </p>
+                                </div>
+                              )}
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>

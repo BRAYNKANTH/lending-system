@@ -22,7 +22,7 @@ export async function POST(request) {
     const {
       borrower_name, borrower_phone, borrower_address, borrower_date_of_birth, principal_amount, interest_rate, interest_type,
       assigned_agent_id, nic_number, nic_photos, photo_proofs, guarantor, guarantors, borrower_profile,
-      collection_mode, duration_periods, borrower_email, borrower_gender, source_intake_id
+      collection_mode, duration_periods, borrower_email, borrower_gender, source_intake_id, disbursement_date
     } = body;
 
     if (!borrower_name || !borrower_phone || !principal_amount || !interest_rate || !interest_type) {
@@ -43,6 +43,28 @@ export async function POST(request) {
     const dob = new Date(borrower_date_of_birth);
     if (isNaN(dob.getTime()) || dob > new Date()) {
       return NextResponse.json({ message: "Borrower's date of birth is invalid." }, { status: 400 });
+    }
+
+    // Backdated disbursement — lets an admin register a loan that was
+    // actually handed out on an earlier date (e.g. catching up on paper
+    // records) instead of every loan being forced to start "today". Admin
+    // only: an agent's submission goes into 'pending' and its accrual
+    // schedule is recomputed from the actual approval moment anyway (see
+    // /api/loans/[id]/approve), so a backdated date here would just be
+    // discarded — better to ignore it outright than let an agent set a
+    // date that silently does nothing.
+    let disbursementDateOverride = null;
+    if (!isAgentSubmission && disbursement_date) {
+      const parsedDisbursement = new Date(disbursement_date);
+      if (isNaN(parsedDisbursement.getTime())) {
+        return NextResponse.json({ message: 'Invalid disbursement date.' }, { status: 400 });
+      }
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+      if (parsedDisbursement > endOfToday) {
+        return NextResponse.json({ message: 'Disbursement date cannot be in the future.' }, { status: 400 });
+      }
+      disbursementDateOverride = parsedDisbursement;
     }
     if (!borrower_profile) {
       return NextResponse.json({ message: 'Borrower profile details (loan purpose, dependents, monthly income) are required.' }, { status: 400 });
@@ -325,7 +347,7 @@ export async function POST(request) {
 
     const borrower_id = borrower.id;
 
-    const creationDate = new Date();
+    const creationDate = disbursementDateOverride || new Date();
     // For a pending application this is a placeholder — approval recomputes
     // it from the actual approval moment, since interest shouldn't accrue
     // while the loan is just sitting in the review queue.
@@ -365,6 +387,8 @@ export async function POST(request) {
         principal_per_day: principalPerDay,
         interest_per_day: interestPerDay,
         status: initialStatus,
+        created_at: creationDate,
+        last_accrual_date: creationDate,
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
         nic_photo_url: nic_photo_urls ? nic_photo_urls[0] : null,
@@ -386,9 +410,13 @@ export async function POST(request) {
       // cash has moved, so no ledger entries post until an admin approves
       // it (see /api/loans/[id]/approve).
       if (initialStatus === 'active') {
+        // Backdated (disbursementDateOverride) alongside the loan itself,
+        // so ledger/trial-balance reports for the actual disbursement date
+        // reflect this cash outflow instead of it showing up under today's
+        // date in the report a backdated registration is trying to avoid.
         await trx('ledger_entries').insert([
-          { loan_id: loanId, account: 'loan_receivable_principal', type: 'debit', amount: principal },
-          { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal }
+          { loan_id: loanId, account: 'loan_receivable_principal', type: 'debit', amount: principal, created_at: creationDate },
+          { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal, created_at: creationDate }
         ]);
       }
 
