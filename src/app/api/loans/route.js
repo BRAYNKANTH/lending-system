@@ -198,12 +198,18 @@ export async function POST(request) {
       if (!guarantorNicPhotoUrls) {
         return NextResponse.json({ message: `Failed to process the NIC photo(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
       }
-      if (!g.photo_proofs || !Array.isArray(g.photo_proofs) || g.photo_proofs.length === 0) {
-        return NextResponse.json({ message: `A photo proof (at least 1) is required for guarantor '${g.full_name}'.` }, { status: 400 });
-      }
-      const guarantorPhotoProofUrls = validateImageDataUrlArray(g.photo_proofs);
-      if (!guarantorPhotoProofUrls) {
-        return NextResponse.json({ message: `Failed to process the photo proof(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
+      // Photo proof is NOT required for a guarantor (unlike the borrower,
+      // and unlike NIC photo above) — NIC photo alone is enough to identify
+      // them. Optional rather than removed outright: a submission from the
+      // internal wizard can still include one if staff have it on hand
+      // (e.g. an existing loan's guarantor being copied forward), and the
+      // public /apply form's guarantor section never collects it at all.
+      let guarantorPhotoProofUrls = null;
+      if (g.photo_proofs && Array.isArray(g.photo_proofs) && g.photo_proofs.length > 0) {
+        guarantorPhotoProofUrls = validateImageDataUrlArray(g.photo_proofs);
+        if (!guarantorPhotoProofUrls) {
+          return NextResponse.json({ message: `Failed to process the photo proof(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
+        }
       }
       guarantorRecords.push({
         full_name: g.full_name.trim(),
@@ -215,9 +221,9 @@ export async function POST(request) {
         phone: g.phone.trim().replace(/\s+/g, ''),
         email: null,
         nic_photo_url: guarantorNicPhotoUrls[0],
-        address_proof_url: guarantorPhotoProofUrls[0],
+        address_proof_url: guarantorPhotoProofUrls ? guarantorPhotoProofUrls[0] : null,
         nic_photo_urls: JSON.stringify(guarantorNicPhotoUrls),
-        photo_proof_urls: JSON.stringify(guarantorPhotoProofUrls),
+        photo_proof_urls: guarantorPhotoProofUrls ? JSON.stringify(guarantorPhotoProofUrls) : null,
         protected_under_debt_act: !!g.protected_under_debt_act,
         has_pending_court_cases: !!g.has_pending_court_cases,
         monthly_income_business: parseFloat(g.monthly_income_business) || 0,

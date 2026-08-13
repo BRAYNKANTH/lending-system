@@ -238,8 +238,11 @@ export default function LendApp() {
     source_intake_id: null
   });
   const [includeGuarantor, setIncludeGuarantor] = useState(false);
+  // No photo_proofs field — guarantors only need a NIC Photo, not Photo
+  // Proof (removed from both the internal wizard and the public /apply
+  // form's guarantor section; see runGuarantorValidation).
   const emptyGuarantor = {
-    full_name: '', nic_number: '', nic_photos: [], photo_proofs: [],
+    full_name: '', nic_number: '', nic_photos: [],
     address: '', phone: '',
     protected_under_debt_act: false, has_pending_court_cases: false,
     monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
@@ -1504,10 +1507,10 @@ export default function LendApp() {
         errors[`guarantor_${i}_nic_photo`] = "At least 1 NIC photo is required for the guarantor.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_photo`;
       }
-      if (!g.photo_proofs || g.photo_proofs.length === 0) {
-        errors[`guarantor_${i}_address_proof`] = "At least 1 photo proof is required for the guarantor.";
-        if (!firstErrorField) firstErrorField = `guarantor_${i}_address_proof`;
-      }
+      // No Photo Proof requirement for a guarantor — NIC photo alone is
+      // enough to identify them, and the public /apply form's guarantor
+      // section doesn't collect one at all, so requiring it here would
+      // block converting an application that never had it to collect.
       if (!g.phone || !g.phone.trim()) {
         errors[`guarantor_${i}_phone`] = "Guarantor phone number is required.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_phone`;
@@ -1658,7 +1661,6 @@ export default function LendApp() {
       address: g.address || '',
       phone: g.phone || '',
       nic_photos: Array.isArray(g.nic_photo_urls) ? g.nic_photo_urls : [],
-      photo_proofs: Array.isArray(g.photo_proof_urls) ? g.photo_proof_urls : [],
       protected_under_debt_act: !!g.protected_under_debt_act,
       has_pending_court_cases: !!g.has_pending_court_cases,
       monthly_income_business: g.monthly_income_business ?? '',
@@ -1994,15 +1996,9 @@ export default function LendApp() {
   const removeGuarantorNICPhoto = (index, idx) => {
     setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, nic_photos: (g.nic_photos || []).filter((_, pi) => pi !== idx) } : g)));
   };
-
-  // File to base64 converter(s) for a guarantor's photo proof (up to 4)
-  const handleGuarantorAddressProofChange = (index, e) => {
-    appendKYCPhotos(e.target.files, (fn) => setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, photo_proofs: fn(g.photo_proofs) } : g))));
-    e.target.value = '';
-  };
-  const removeGuarantorPhotoProof = (index, idx) => {
-    setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, photo_proofs: (g.photo_proofs || []).filter((_, pi) => pi !== idx) } : g)));
-  };
+  // No handler for a guarantor's photo proof — that field was removed from
+  // the guarantor form (see runGuarantorValidation and the guarantor JSX
+  // below); NIC Photo alone is collected for guarantors now.
 
   // File to base64 converter for borrower proof of payment
   const handleBorrowerFileChange = (e) => {
@@ -5366,22 +5362,8 @@ export default function LendApp() {
                                     {validationErrors[`guarantor_${i}_nic_photo`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_photo`]}</span>}
                                   </div>
 
-                                  <div>
-                                    <label id={`guarantor_${i}_address_proof`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Photo Proof (e.g. utility bill or other ID evidence) * {(g.photo_proofs?.length || 0) > 0 && `(${g.photo_proofs.length}/${MAX_KYC_PHOTOS})`}</label>
-                                    <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address_proof`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address_proof`] ? '2px' : '' }} onChange={e => { handleGuarantorAddressProofChange(i, e); clearFieldError(`guarantor_${i}_address_proof`); }} disabled={(g.photo_proofs?.length || 0) >= MAX_KYC_PHOTOS} />
-                                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
-                                    {(g.photo_proofs?.length || 0) > 0 && (
-                                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        {g.photo_proofs.map((photo, idx) => (
-                                          <div key={idx} style={{ position: 'relative' }}>
-                                            <img src={photo} alt={`Guarantor photo proof preview ${idx + 1}`} style={{ width: '52px', height: '38px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-glass)' }} />
-                                            <button type="button" onClick={() => removeGuarantorPhotoProof(i, idx)} title="Remove" style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent-rose)', color: '#fff', border: 'none', fontSize: '11px', lineHeight: 1, cursor: 'pointer' }}>×</button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                    {validationErrors[`guarantor_${i}_address_proof`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address_proof`]}</span>}
-                                  </div>
+                                  {/* No Photo Proof field for guarantors — NIC Photo above is enough
+                                      to identify them; see the comment on runGuarantorValidation. */}
 
                                   <div>
                                     <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
