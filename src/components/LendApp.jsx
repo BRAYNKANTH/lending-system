@@ -1403,6 +1403,10 @@ export default function LendApp() {
       errors.date_of_birth = "Borrower's date of birth is required.";
       if (!firstErrorField) firstErrorField = "date_of_birth";
     }
+    if (!newLoan.nic_photos || newLoan.nic_photos.length === 0) {
+      errors.nic_photos = "At least 1 NIC photo is required for the borrower.";
+      if (!firstErrorField) firstErrorField = "nic_photos";
+    }
     if (!newLoan.photo_proofs || newLoan.photo_proofs.length === 0) {
       errors.photo_proofs = "At least 1 photo proof is required for the borrower.";
       if (!firstErrorField) firstErrorField = "photo_proofs";
@@ -5068,8 +5072,8 @@ export default function LendApp() {
                                   {renderNicLookupWarning('borrower')}
                                 </div>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
-                                  <input type="file" accept="image/*" multiple className="glass-input" onChange={handleNICPhotoChange} disabled={(newLoan.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
+                                  <label id="nic_photos" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO * {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
+                                  <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.nic_photos ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_photos ? '2px' : '' }} onChange={e => { handleNICPhotoChange(e); clearFieldError('nic_photos'); }} disabled={(newLoan.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
                                   <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
                                   {(newLoan.nic_photos?.length || 0) > 0 && (
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -5081,6 +5085,7 @@ export default function LendApp() {
                                       ))}
                                     </div>
                                   )}
+                                  {validationErrors.nic_photos && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.nic_photos}</span>}
                                 </div>
                               </div>
 
@@ -6630,12 +6635,8 @@ export default function LendApp() {
                             <img src={url} alt={`${gtor.full_name} NIC ${idx + 1}`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
                           </div>
                         ))}
-                        {(gtor.photo_proof_urls?.length > 0 ? gtor.photo_proof_urls : (gtor.address_proof_url ? [gtor.address_proof_url] : [])).map((url, idx) => (
-                          <div key={`proof-${idx}`}>
-                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>Photo Proof{idx > 0 ? ` ${idx + 1}` : ''}</span>
-                            <img src={url} alt={`${gtor.full_name} photo proof ${idx + 1}`} style={{ width: '110px', height: '72px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-glass)' }} />
-                          </div>
-                        ))}
+                        {/* No Photo Proof for guarantors — NIC Photo above is the only
+                            photo collected/shown for a guarantor now. */}
                       </div>
                       <div className="responsive-grid-2-col" style={{ rowGap: '10px' }}>
                         <div><strong>Name:</strong> {gtor.full_name}</div>

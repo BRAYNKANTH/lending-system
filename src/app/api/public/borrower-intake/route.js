@@ -9,9 +9,12 @@ const MAX_GUARANTORS = 2;
 
 // Validates one optional guarantor block from the public form. Lenient by
 // design (same philosophy as the rest of this endpoint) — a guarantor
-// section only needs a name to be "in use"; everything else, including
-// photos, is accepted as-is if present and simply left out if not. NIC
-// format IS checked when a NIC is given, same as the borrower's own.
+// section only needs a name to be "in use"; everything else is accepted
+// as-is if present and simply left out if not. NIC format IS checked when
+// a NIC is given, same as the borrower's own. Photo proof is not a concept
+// for guarantors at all (NIC photo alone identifies them) — not even
+// accepted as an optional input, so photo_proof_urls is always null here
+// regardless of what a caller sends.
 function cleanOptionalGuarantor(g) {
   if (!g || typeof g !== 'object' || !g.full_name || !g.full_name.trim()) return null;
 
@@ -44,11 +47,6 @@ function cleanOptionalGuarantor(g) {
     const urls = validateImageDataUrlArray(g.nic_photos);
     if (!urls) throw new Error(`One of guarantor '${g.full_name}'s NIC photos couldn't be processed. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.`);
     cleaned.nic_photo_urls = urls;
-  }
-  if (Array.isArray(g.photo_proofs) && g.photo_proofs.length > 0) {
-    const urls = validateImageDataUrlArray(g.photo_proofs);
-    if (!urls) throw new Error(`One of guarantor '${g.full_name}'s photo proof images couldn't be processed. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.`);
-    cleaned.photo_proof_urls = urls;
   }
 
   return cleaned;

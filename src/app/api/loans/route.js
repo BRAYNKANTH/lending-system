@@ -40,6 +40,9 @@ export async function POST(request) {
     if (!borrower_address || !borrower_address.trim()) {
       return NextResponse.json({ message: "Borrower's address is required." }, { status: 400 });
     }
+    if (!nic_photos || !Array.isArray(nic_photos) || nic_photos.length === 0) {
+      return NextResponse.json({ message: "Borrower's NIC photo (at least 1 photo) is required." }, { status: 400 });
+    }
     if (!photo_proofs || !Array.isArray(photo_proofs) || photo_proofs.length === 0) {
       return NextResponse.json({ message: "Borrower's photo proof (at least 1 photo) is required." }, { status: 400 });
     }
@@ -198,19 +201,13 @@ export async function POST(request) {
       if (!guarantorNicPhotoUrls) {
         return NextResponse.json({ message: `Failed to process the NIC photo(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
       }
-      // Photo proof is NOT required for a guarantor (unlike the borrower,
-      // and unlike NIC photo above) — NIC photo alone is enough to identify
-      // them. Optional rather than removed outright: a submission from the
-      // internal wizard can still include one if staff have it on hand
-      // (e.g. an existing loan's guarantor being copied forward), and the
-      // public /apply form's guarantor section never collects it at all.
-      let guarantorPhotoProofUrls = null;
-      if (g.photo_proofs && Array.isArray(g.photo_proofs) && g.photo_proofs.length > 0) {
-        guarantorPhotoProofUrls = validateImageDataUrlArray(g.photo_proofs);
-        if (!guarantorPhotoProofUrls) {
-          return NextResponse.json({ message: `Failed to process the photo proof(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
-        }
-      }
+      // Photo proof is not a concept for guarantors at all — NIC photo
+      // alone identifies them. Not even accepted as an optional input:
+      // address_proof_url/photo_proof_urls are always null for a
+      // newly-created guarantor (the columns themselves stay on the
+      // guarantors table, unused going forward, so any pre-existing
+      // guarantor's old photo proof isn't deleted — it just never displays
+      // anywhere in the app anymore and nothing new is ever stored there).
       guarantorRecords.push({
         full_name: g.full_name.trim(),
         nic_number: g.nic_number.trim().toUpperCase(),
@@ -221,9 +218,9 @@ export async function POST(request) {
         phone: g.phone.trim().replace(/\s+/g, ''),
         email: null,
         nic_photo_url: guarantorNicPhotoUrls[0],
-        address_proof_url: guarantorPhotoProofUrls ? guarantorPhotoProofUrls[0] : null,
+        address_proof_url: null,
         nic_photo_urls: JSON.stringify(guarantorNicPhotoUrls),
-        photo_proof_urls: guarantorPhotoProofUrls ? JSON.stringify(guarantorPhotoProofUrls) : null,
+        photo_proof_urls: null,
         protected_under_debt_act: !!g.protected_under_debt_act,
         has_pending_court_cases: !!g.has_pending_court_cases,
         monthly_income_business: parseFloat(g.monthly_income_business) || 0,
@@ -254,15 +251,11 @@ export async function POST(request) {
 
     // NIC photo(s) — up to 4, stored directly as base64 data URLs in the
     // database (Vercel's serverless filesystem can't persist uploaded
-    // files). Optional at the top level (borrower NIC number is required,
-    // but a photo of it isn't strictly enforced here, matching prior
-    // behavior); Photo Proof below IS required.
-    let nic_photo_urls = null;
-    if (nic_photos && Array.isArray(nic_photos) && nic_photos.length > 0) {
-      nic_photo_urls = validateImageDataUrlArray(nic_photos);
-      if (!nic_photo_urls) {
-        return NextResponse.json({ message: 'Failed to process the NIC photo(s). Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.' }, { status: 400 });
-      }
+    // files). Required for the borrower now (checked above), same as
+    // Photo Proof below — both are must-have KYC before a loan disburses.
+    const nic_photo_urls = validateImageDataUrlArray(nic_photos);
+    if (!nic_photo_urls) {
+      return NextResponse.json({ message: 'Failed to process the NIC photo(s). Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.' }, { status: 400 });
     }
 
     // Photo proof (e.g. a utility bill or any other ID/photo evidence) —
@@ -418,9 +411,9 @@ export async function POST(request) {
         last_accrual_date: creationDate,
         next_accrual_date: nextAccrualDate,
         nic_number: cleanNIC,
-        nic_photo_url: nic_photo_urls ? nic_photo_urls[0] : null,
+        nic_photo_url: nic_photo_urls[0],
         address_proof_url: photo_proof_urls[0],
-        nic_photo_urls: nic_photo_urls ? JSON.stringify(nic_photo_urls) : null,
+        nic_photo_urls: JSON.stringify(nic_photo_urls),
         photo_proof_urls: JSON.stringify(photo_proof_urls),
         date_of_birth: borrower_date_of_birth,
         borrower_address: borrower_address.trim(),
