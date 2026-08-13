@@ -33,6 +33,7 @@ const TEXT = {
     guarantorsHeading: 'Guarantors (optional, up to 2)',
     guarantorsSubtitle: "If you already know who will guarantee this loan, add their details now — otherwise an agent can add this later.",
     addGuarantor: (n) => `+ Add Guarantor ${n}`,
+    guarantorLabel: 'Guarantor',
     removeGuarantor: 'Remove this guarantor',
     gName: 'Full Name', gNic: 'NIC Number', gPhone: 'Mobile Number', gAddress: 'Address',
     gFinanceHeading: 'Financial Details (optional)',
@@ -75,6 +76,7 @@ const TEXT = {
     guarantorsHeading: 'உத்தரவாதிகள் (விருப்பம், அதிகபட்சம் 2)',
     guarantorsSubtitle: 'இந்தக் கடனுக்கு உத்தரவாதம் அளிப்பவர் யார் என்று ஏற்கனவே தெரிந்தால், அவர்களின் விவரங்களை இப்போது சேர்க்கவும் — இல்லையெனில் ஒரு முகவர் பின்னர் இதைச் சேர்க்கலாம்.',
     addGuarantor: (n) => `+ உத்தரவாதி ${n} சேர்க்க`,
+    guarantorLabel: 'உத்தரவாதி',
     removeGuarantor: 'இந்த உத்தரவாதியை நீக்கு',
     gName: 'முழுப் பெயர்', gNic: 'தே.அ.அ. எண்', gPhone: 'கைபேசி எண்', gAddress: 'முகவரி',
     gFinanceHeading: 'நிதி விவரங்கள் (விருப்பம்)',
@@ -356,7 +358,7 @@ export default function BorrowerIntakeForm() {
                 return (
                   <div key={idx} style={{ border: '1px solid #e8ecf3', borderRadius: '12px', padding: '16px', marginBottom: '16px', background: '#fbfcfe' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                      <strong style={{ fontSize: '13px', color: '#444' }}>{`${t.guarantorsHeading.split(' (')[0]} ${idx + 1}`}</strong>
+                      <strong style={{ fontSize: '13px', color: '#444' }}>{`${t.guarantorLabel} ${idx + 1}`}</strong>
                       <button type="button" onClick={() => removeGuarantorSlot(idx)} style={{ background: 'none', border: 'none', color: '#f43f5e', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
                         {t.removeGuarantor}
                       </button>
