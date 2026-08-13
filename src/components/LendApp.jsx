@@ -137,6 +137,9 @@ export default function LendApp() {
   const [showCreateTicket, setShowCreateTicket] = useState(false);
   const [newTicketForm, setNewTicketForm] = useState({ name: '', total_value: '', member_count: '', start_date: '', host_fee_type: 'percentage', host_fee_value: '', starting_round: '' });
   const [newMemberForm, setNewMemberForm] = useState({ name: '', phone: '' });
+  const [memberAddMode, setMemberAddMode] = useState('single'); // 'single' or 'bulk'
+  const [bulkMemberText, setBulkMemberText] = useState('');
+  const [bulkAddingMembers, setBulkAddingMembers] = useState(false);
   const [auctionForm, setAuctionForm] = useState({ bid_amount: '', winner_member_id: '', auction_date: new Date().toISOString().slice(0, 10), next_round_date: '' });
   const [ticketPaymentFilterRound, setTicketPaymentFilterRound] = useState('');
   const [editingMemberCount, setEditingMemberCount] = useState(false);
@@ -1181,6 +1184,50 @@ export default function LendApp() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Parses pasted lines like "Name, Phone" (or just "Name" — phone is
+  // optional) and adds them one at a time through the same validated
+  // single-add endpoint above, rather than a separate bulk API — reuses
+  // its member-limit check as-is instead of duplicating that logic, and
+  // means a mid-list failure (limit reached) still leaves everything
+  // before it correctly saved instead of an all-or-nothing transaction.
+  const handleBulkAddMembers = async () => {
+    if (!selectedTicketIdState) return;
+    const lines = bulkMemberText.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      showToast('Paste at least one member first.', 'error');
+      return;
+    }
+
+    setBulkAddingMembers(true);
+    setError('');
+    let added = 0;
+    const failures = [];
+    for (const line of lines) {
+      const [namePart, ...rest] = line.split(/,|\t/);
+      const name = (namePart || '').trim();
+      const phone = rest.join(',').trim();
+      if (!name) continue;
+      try {
+        await api.post(`/tickets/${selectedTicketIdState}/members`, { name, phone: phone || undefined });
+        added += 1;
+      } catch (err) {
+        failures.push(`${name}: ${err.message}`);
+        // Stop early once the group's member limit is hit — every
+        // subsequent line would fail the same way.
+        if (err.message?.includes('member limit')) break;
+      }
+    }
+
+    setBulkAddingMembers(false);
+    fetchTicketDetails(selectedTicketIdState);
+
+    if (added > 0) showToast(`Added ${added} member${added === 1 ? '' : 's'}.`);
+    if (failures.length > 0) {
+      showToast(`${failures.length} skipped: ${failures.slice(0, 3).join('; ')}${failures.length > 3 ? '…' : ''}`, 'error');
+    }
+    if (added > 0) setBulkMemberText('');
   };
 
   const handleRunTicketAuction = async (e) => {
@@ -3125,8 +3172,31 @@ export default function LendApp() {
 
                     {/* Add member form */}
                     <div className="glass-card" style={{ padding: '24px', alignSelf: 'flex-start' }}>
-                      <h3 style={{ fontSize: '18px', marginBottom: '14px', fontWeight: 'bold' }}><UserPlus className="icon" /> Add Member to Group</h3>
-                      {user.role === 'admin' ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                        <h3 style={{ fontSize: '18px', margin: 0, fontWeight: 'bold' }}><UserPlus className="icon" /> Add Member{memberAddMode === 'bulk' ? 's' : ''} to Group</h3>
+                        {user.role === 'admin' && (
+                          <div style={{ display: 'inline-flex', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '9px', padding: '3px' }}>
+                            {['single', 'bulk'].map(m => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => setMemberAddMode(m)}
+                                style={{
+                                  padding: '5px 12px', fontSize: '12px', fontWeight: '700', textTransform: 'capitalize', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                                  background: memberAddMode === m ? 'var(--accent-blue)' : 'transparent',
+                                  color: memberAddMode === m ? '#fff' : 'var(--text-secondary)'
+                                }}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {user.role !== 'admin' ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Only Admin hosts can add members to a group roster.</p>
+                      ) : memberAddMode === 'single' ? (
                         <form onSubmit={handleAddTicketMember} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                           <div>
                             <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>FULL NAME *</label>
@@ -3141,7 +3211,21 @@ export default function LendApp() {
                           </button>
                         </form>
                       ) : (
-                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Only Admin hosts can add members to a group roster.</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                            One member per line — <code>Name, Phone</code> (phone is optional). Paste straight from a list or WhatsApp group export.
+                          </p>
+                          <textarea
+                            className="glass-input"
+                            style={{ minHeight: '160px', resize: 'vertical', fontFamily: 'monospace', fontSize: '13px' }}
+                            placeholder={'S. Arulpragasam, 0771234567\nK. Thevi, 0779876543\nR. Kumar'}
+                            value={bulkMemberText}
+                            onChange={e => setBulkMemberText(e.target.value)}
+                          />
+                          <button type="button" className="glass-btn glass-btn-emerald" disabled={bulkAddingMembers || !bulkMemberText.trim()} style={{ width: '100%', padding: '12px' }} onClick={handleBulkAddMembers}>
+                            {bulkAddingMembers ? 'Adding...' : `Add ${bulkMemberText.split('\n').map(l => l.trim()).filter(Boolean).length || ''} Member(s)`}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
