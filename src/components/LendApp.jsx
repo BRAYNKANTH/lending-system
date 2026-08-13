@@ -132,6 +132,7 @@ export default function LendApp() {
   // Admin: Cash & Tools view data (users, remittances, ledger report)
   const [adminToolsTab, setAdminToolsTab] = useState('cash'); // 'cash', 'ledger', 'users'
   const [adminUsers, setAdminUsers] = useState([]);
+  const [userRoleFilter, setUserRoleFilter] = useState('all'); // 'all', 'admin', 'agent', 'borrower'
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', email: '', role: 'agent', password: '', finance_access: true, ticket_access: true });
   const [remittances, setRemittances] = useState([]);
@@ -4377,6 +4378,29 @@ export default function LendApp() {
                     </form>
                   )}
 
+                  {/* Role filter — the list fetches admin/agent/borrower all
+                      mixed together, which gets hard to scan once there are
+                      more than a handful of users across all three roles. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Show:</span>
+                    <div style={{ display: 'inline-flex', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '3px' }}>
+                      {['all', 'admin', 'agent', 'borrower'].map(r => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setUserRoleFilter(r)}
+                          style={{
+                            padding: '7px 14px', fontSize: '12px', fontWeight: '700', textTransform: 'capitalize', borderRadius: '7px', border: 'none', cursor: 'pointer',
+                            background: userRoleFilter === r ? 'var(--accent-blue)' : 'transparent',
+                            color: userRoleFilter === r ? '#fff' : 'var(--text-secondary)'
+                          }}
+                        >
+                          {r === 'all' ? 'All' : `${r}s`} {r !== 'all' && `(${adminUsers.filter(u => u.role === r).length})`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="desktop-only" style={{ overflowX: 'auto' }}>
                     <table className="glass-table">
                       <thead>
@@ -4390,7 +4414,7 @@ export default function LendApp() {
                         </tr>
                       </thead>
                       <tbody>
-                        {adminUsers.map(u => (
+                        {adminUsers.filter(u => userRoleFilter === 'all' || u.role === userRoleFilter).map(u => (
                           <tr key={u.id}>
                             <td style={{ fontWeight: 'bold' }}>{u.name}</td>
                             <td style={{ textTransform: 'capitalize' }}>{u.role}</td>
@@ -4427,7 +4451,7 @@ export default function LendApp() {
                   </div>
 
                   <div className="mobile-only mobile-card-list">
-                    {adminUsers.map(u => (
+                    {adminUsers.filter(u => userRoleFilter === 'all' || u.role === userRoleFilter).map(u => (
                       <div key={u.id} className="mobile-row-card">
                         <div className="mobile-row-card-header">
                           <span className="mobile-row-card-title">{u.name}</span>
