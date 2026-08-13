@@ -389,6 +389,22 @@ async function runIncrementalMigrations() {
     WHERE address_proof_url IS NOT NULL AND (photo_proof_urls IS NULL OR photo_proof_urls = '[]'::jsonb)
   `);
   console.log('Migration: backfilled nic_photo_urls/photo_proof_urls arrays from legacy singular columns.');
+
+  // Extends the public /apply intake form to collect nearly everything the
+  // staff Give Loan wizard does (KYC photos + up to 2 guarantors), so an
+  // agent converting a submission has less left to re-collect in person.
+  // Deliberately still optional at the DB/API level, matching this table's
+  // existing lenient-validation philosophy — the review queue is where gaps
+  // get caught, not this form.
+  await addColumnIfMissing('borrower_intakes', 'nic_photo_urls', (t) => t.jsonb('nic_photo_urls').nullable());
+  await addColumnIfMissing('borrower_intakes', 'photo_proof_urls', (t) => t.jsonb('photo_proof_urls').nullable());
+  // Up to 2 guarantors, each shaped like a loan guarantor form (full_name,
+  // nic_number, address, phone, nic_photo_urls, photo_proof_urls, and the
+  // same income/expense/legal-status fields the wizard collects) but stored
+  // as one jsonb array here rather than real `guarantors` table rows, since
+  // nothing is a real loan yet — handleConvertIntakeToLoan reshapes this
+  // into the wizard's guarantorForms state when a submission is converted.
+  await addColumnIfMissing('borrower_intakes', 'guarantors', (t) => t.jsonb('guarantors').nullable());
 }
 
 async function createSchemaAndSeed() {

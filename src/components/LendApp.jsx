@@ -9,7 +9,7 @@ import {
   Briefcase, Truck, BookOpen, ArrowDown, User, Settings, Ban, Receipt,
   Search, CreditCard, Smartphone, PiggyBank, MessageSquare, UserPlus, Trash2, ClipboardCheck,
   CircleCheck, CircleAlert, RefreshCcw, Download, ChevronRight, Calendar,
-  Plus, ThumbsUp, ThumbsDown, Clock, Filter, LayoutGrid
+  Plus, ThumbsUp, ThumbsDown, Clock, Filter, LayoutGrid, Camera
 } from 'lucide-react';
 
 // Threshold for the manual "Active Loans Overdue" review table in Reminder
@@ -1638,28 +1638,74 @@ export default function LendApp() {
   // blank form — staff still walk through and confirm every step (adding
   // NIC/address photos, setting loan terms) before anything's disbursed,
   // this just saves re-typing what the borrower already provided.
-  const handleConvertIntakeToLoan = (intake) => {
+  const handleConvertIntakeToLoan = async (intake) => {
+    // The list this is called from (BorrowerIntakesLoader) fetches intakes
+    // with photos stripped (stripIntakeMediaList — same reasoning as the
+    // loan list), so pull the full record, photos and guarantors included,
+    // before pre-filling. Falls back to the stripped list item on failure
+    // so the rest of the pre-fill still works even if photos don't load.
+    let full = intake;
+    try {
+      full = await api.get(`/borrower-intakes/${intake.id}`);
+    } catch (err) {
+      showToast('Could not load full application details — pre-filling what is available.', 'error');
+    }
+
+    const intakeGuarantors = Array.isArray(full.guarantors) ? full.guarantors : [];
+    const mappedGuarantors = intakeGuarantors.map(g => ({
+      full_name: g.full_name || '',
+      nic_number: g.nic_number || '',
+      address: g.address || '',
+      phone: g.phone || '',
+      nic_photos: Array.isArray(g.nic_photo_urls) ? g.nic_photo_urls : [],
+      photo_proofs: Array.isArray(g.photo_proof_urls) ? g.photo_proof_urls : [],
+      protected_under_debt_act: !!g.protected_under_debt_act,
+      has_pending_court_cases: !!g.has_pending_court_cases,
+      monthly_income_business: g.monthly_income_business ?? '',
+      monthly_income_agriculture: g.monthly_income_agriculture ?? '',
+      monthly_income_other: g.monthly_income_other ?? '',
+      monthly_expense_food: g.monthly_expense_food ?? '',
+      monthly_expense_rent: g.monthly_expense_rent ?? '',
+      monthly_expense_other: g.monthly_expense_other ?? ''
+    }));
+
     setNewLoan(prev => ({
       ...prev,
-      borrower_name: intake.borrower_name || '',
-      borrower_phone: intake.borrower_phone || '',
-      borrower_address: intake.borrower_address || '',
-      date_of_birth: intake.date_of_birth ? String(intake.date_of_birth).slice(0, 10) : '',
-      nic_number: intake.nic_number || '',
-      source_intake_id: intake.id
+      borrower_name: full.borrower_name || '',
+      borrower_phone: full.borrower_phone || '',
+      borrower_address: full.borrower_address || '',
+      date_of_birth: full.date_of_birth ? String(full.date_of_birth).slice(0, 10) : '',
+      nic_number: full.nic_number || '',
+      nic_photos: Array.isArray(full.nic_photo_urls) ? full.nic_photo_urls : [],
+      photo_proofs: Array.isArray(full.photo_proof_urls) ? full.photo_proof_urls : [],
+      source_intake_id: full.id
     }));
     setBorrowerProfileForm({
-      loan_purpose: intake.loan_purpose || '',
-      dependents_count: intake.dependents_count !== null && intake.dependents_count !== undefined ? String(intake.dependents_count) : '',
-      monthly_income: intake.monthly_income !== null && intake.monthly_income !== undefined ? String(intake.monthly_income) : '',
-      spouse_name: intake.spouse_name || '',
-      spouse_nic: intake.spouse_nic || '',
-      spouse_occupation: intake.spouse_occupation || ''
+      loan_purpose: full.loan_purpose || '',
+      // Bumped up to at least the number of guarantors actually submitted —
+      // the guarantor-forms-count effect above resizes guarantorForms to
+      // match this value whenever includeGuarantor is on, and would
+      // otherwise truncate away real guarantor data the moment this screen
+      // mounts if the borrower reported fewer dependents than guarantors.
+      dependents_count: full.dependents_count !== null && full.dependents_count !== undefined
+        ? String(Math.max(parseInt(full.dependents_count, 10) || 0, mappedGuarantors.length))
+        : (mappedGuarantors.length > 0 ? String(mappedGuarantors.length) : ''),
+      monthly_income: full.monthly_income !== null && full.monthly_income !== undefined ? String(full.monthly_income) : '',
+      spouse_name: full.spouse_name || '',
+      spouse_nic: full.spouse_nic || '',
+      spouse_occupation: full.spouse_occupation || ''
     });
+    if (mappedGuarantors.length > 0) {
+      setIncludeGuarantor(true);
+      setGuarantorForms(mappedGuarantors);
+    } else {
+      setIncludeGuarantor(false);
+      setGuarantorForms([emptyGuarantor]);
+    }
     setGiveLoanStep(1);
     setValidationErrors({});
     setView('create-loan');
-    showToast(`Pre-filled from ${intake.borrower_name}'s application — please review, attach ID/address photos, and set loan terms before submitting.`);
+    showToast(`Pre-filled from ${full.borrower_name}'s application — please review before submitting.`);
   };
 
   // Admin: Force accrue interest for testing
@@ -7850,6 +7896,17 @@ function BorrowerIntakesLoader({ onConvert, onCountChange, showToast }) {
                   {intake.monthly_income !== null && <div><strong style={{ color: 'var(--text-secondary)' }}>Monthly Income:</strong> LKR {parseFloat(intake.monthly_income).toLocaleString()}</div>}
                   {intake.spouse_name && <div><strong style={{ color: 'var(--text-secondary)' }}>Spouse:</strong> {intake.spouse_name}{intake.spouse_occupation ? ` (${intake.spouse_occupation})` : ''}</div>}
                 </div>
+                {(intake.nic_photo_count > 0 || intake.photo_proof_count > 0 || intake.guarantors?.length > 0) && (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+                    {intake.nic_photo_count > 0 && <span style={{ background: 'rgba(37,84,232,0.1)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}><Camera className="icon" style={{ width: '11px', height: '11px' }} /> NIC photo ×{intake.nic_photo_count}</span>}
+                    {intake.photo_proof_count > 0 && <span style={{ background: 'rgba(37,84,232,0.1)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}><Camera className="icon" style={{ width: '11px', height: '11px' }} /> Photo proof ×{intake.photo_proof_count}</span>}
+                    {intake.guarantors?.length > 0 && (
+                      <span style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--accent-emerald)', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}>
+                        <ShieldCheck className="icon" style={{ width: '11px', height: '11px' }} /> {intake.guarantors.length} guarantor{intake.guarantors.length > 1 ? 's' : ''} submitted
+                      </span>
+                    )}
+                  </div>
+                )}
                 {intake.notes && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '10px', fontStyle: 'italic', borderTop: '1px solid var(--border-light)', paddingTop: '10px' }}>"{intake.notes}"</p>}
               </div>
             ))}

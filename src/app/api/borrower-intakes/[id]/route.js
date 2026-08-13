@@ -2,6 +2,27 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 
+// Full detail for a single intake, photos included — the list endpoint
+// (GET /api/borrower-intakes) strips NIC/photo-proof photos to keep the
+// review queue light, same reasoning as stripLoanMedia; this is what
+// "Create Loan from This" calls to fetch everything back before
+// pre-filling the Give Loan wizard.
+export async function GET(request, { params }) {
+  try {
+    await requireAuth(request, ['admin', 'agent']);
+    const { id } = params;
+    const intake = await db('borrower_intakes').where({ id }).first();
+    if (!intake) {
+      return NextResponse.json({ message: 'Borrower intake submission not found.' }, { status: 404 });
+    }
+    return NextResponse.json(intake);
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    console.error('Fetch borrower intake error:', error);
+    return NextResponse.json({ message: 'Failed to fetch borrower intake submission.' }, { status: 500 });
+  }
+}
+
 // Mark a borrower-intake submission as dismissed (not going anywhere — a
 // duplicate, a mistake, someone who changed their mind) or converted
 // (linked to the real loan it became, via converted_loan_id — set by the
