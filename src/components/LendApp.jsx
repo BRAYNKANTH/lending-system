@@ -8114,13 +8114,26 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   // collected instead of the day it was typed in.
   const [collectionDate, setCollectionDate] = useState(todayLocalDateStr());
 
+  // Self-fetch mode (admin usage always passes loans={[]}, a fresh empty
+  // array every render — its .length is permanently 0, so this effect's
+  // dependency never actually changes after mount). Extracted into a
+  // named function so a successful payment can force a refetch too, not
+  // just the initial mount — without this, an admin's Due figures here
+  // went stale for the rest of the session after the very first payment,
+  // which is exactly what let the same loan's stale "Full Due" amount get
+  // submitted a second time as a genuine duplicate (see the Tharsika
+  // double-payment this was built to fix).
+  const fetchOwnLoans = () => {
+    setLoadingLoans(true);
+    return api.get('/loans?status=active')
+      .then(res => setFetchedLoans(Array.isArray(res) ? res : []))
+      .catch(err => console.error('Fetch loans error:', err))
+      .finally(() => setLoadingLoans(false));
+  };
+
   useEffect(() => {
     if (!loans || loans.length === 0) {
-      setLoadingLoans(true);
-      api.get('/loans?status=active')
-        .then(res => setFetchedLoans(Array.isArray(res) ? res : []))
-        .catch(err => console.error('Fetch loans error:', err))
-        .finally(() => setLoadingLoans(false));
+      fetchOwnLoans();
     }
   }, [loans?.length]);
 
@@ -8230,6 +8243,12 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
       });
 
       if (onRefresh) onRefresh();
+      // onRefresh() only updates the PARENT's data (adminData/agentData) —
+      // in self-fetch mode this screen's own loan list (fetchedLoans) is a
+      // separate copy that onRefresh never touches, so it has to be
+      // explicitly refreshed here too or this loan's Due figure stays
+      // stale for the rest of the session.
+      if (!loans || loans.length === 0) fetchOwnLoans();
     } catch (err) {
       if (showToast) showToast(err.message || 'Payment recording failed.', 'error');
     } finally {
