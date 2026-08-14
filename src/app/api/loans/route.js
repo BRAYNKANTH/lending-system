@@ -76,13 +76,10 @@ export async function POST(request) {
       disbursementDateOverride = parsedDisbursement;
     }
     if (!borrower_profile) {
-      return NextResponse.json({ message: 'Borrower profile details (loan purpose, dependents, monthly income) are required.' }, { status: 400 });
+      return NextResponse.json({ message: 'Borrower profile details (loan purpose, monthly income) are required.' }, { status: 400 });
     }
     if (!borrower_profile.loan_purpose || !borrower_profile.loan_purpose.trim()) {
       return NextResponse.json({ message: 'Purpose of loan is required.' }, { status: 400 });
-    }
-    if (borrower_profile.dependents_count === undefined || borrower_profile.dependents_count === '' || borrower_profile.dependents_count === null) {
-      return NextResponse.json({ message: 'Number of dependents is required.' }, { status: 400 });
     }
     if (borrower_profile.monthly_income === undefined || borrower_profile.monthly_income === '' || borrower_profile.monthly_income === null) {
       return NextResponse.json({ message: 'Monthly income is required.' }, { status: 400 });

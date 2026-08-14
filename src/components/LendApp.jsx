@@ -248,9 +248,8 @@ export default function LendApp() {
     monthly_income_business: '', monthly_income_agriculture: '', monthly_income_other: '',
     monthly_expense_food: '', monthly_expense_rent: '', monthly_expense_other: ''
   };
-  // One guarantor form per borrower dependent — the count is kept in sync
-  // with borrowerProfileForm.dependents_count by an effect below (e.g.
-  // dependents_count = 2 means two guarantor forms are collected).
+  // Starts with one guarantor form; more can be added manually up to
+  // MAX_GUARANTORS_PER_LOAN (see handleAddGuarantorForm below).
   const [guarantorForms, setGuarantorForms] = useState([emptyGuarantor]);
   const [giveLoanStep, setGiveLoanStep] = useState(1);
   const [validationErrors, setValidationErrors] = useState({});
@@ -275,30 +274,20 @@ export default function LendApp() {
   const [editUserForm, setEditUserForm] = useState({ name: '', phone: '', role: '', email: '', finance_access: true, ticket_access: true });
 
   // Borrower profile details are collected for every loan now (not
-  // optional) — loan purpose, dependents, and monthly income are required;
-  // spouse details stay optional since not every borrower has a spouse.
+  // optional) — loan purpose and monthly income are required; spouse
+  // details stay optional since not every borrower has a spouse.
   const emptyBorrowerProfile = {
-    loan_purpose: '', dependents_count: '', monthly_income: '',
+    loan_purpose: '', monthly_income: '',
     spouse_name: '', spouse_nic: '', spouse_occupation: ''
   };
   const [borrowerProfileForm, setBorrowerProfileForm] = useState(emptyBorrowerProfile);
 
-  // Keeps the number of guarantor forms in sync with the borrower's
-  // dependents count while the guarantor step is active — e.g. entering "2"
-  // dependents means two guarantor forms need to be filled in. Preserves
-  // whatever's already been typed into existing slots; only adds/removes
-  // blank forms at the end when the count changes.
-  useEffect(() => {
-    if (!includeGuarantor) return;
-    const desiredCount = Math.max(1, parseInt(borrowerProfileForm.dependents_count, 10) || 1);
-    setGuarantorForms(prev => {
-      if (prev.length === desiredCount) return prev;
-      if (prev.length < desiredCount) {
-        return [...prev, ...Array.from({ length: desiredCount - prev.length }, () => ({ ...emptyGuarantor }))];
-      }
-      return prev.slice(0, desiredCount);
-    });
-  }, [includeGuarantor, borrowerProfileForm.dependents_count]);
+  // Up to this many guarantor forms per loan — previously the count was
+  // inferred from "Number of Dependents" (one guarantor form per
+  // dependent), but that field was dropped, so it's now just a manual
+  // add/remove via the buttons in the guarantor step (see handleAddGuarantorForm
+  // / handleRemoveGuarantorForm below).
+  const MAX_GUARANTORS_PER_LOAN = 3;
 
   // Collection payment form
   const [paymentForm, setPaymentForm] = useState({
@@ -1435,10 +1424,6 @@ export default function LendApp() {
       errors.loan_purpose = "Purpose of loan is required.";
       if (!firstErrorField) firstErrorField = "loan_purpose";
     }
-    if (borrowerProfileForm.dependents_count === undefined || borrowerProfileForm.dependents_count === '' || borrowerProfileForm.dependents_count === null) {
-      errors.dependents_count = "Number of dependents is required.";
-      if (!firstErrorField) firstErrorField = "dependents_count";
-    }
     if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '' || borrowerProfileForm.monthly_income === null) {
       errors.monthly_income = "Monthly income is required.";
       if (!firstErrorField) firstErrorField = "monthly_income";
@@ -1688,14 +1673,6 @@ export default function LendApp() {
     }));
     setBorrowerProfileForm({
       loan_purpose: full.loan_purpose || '',
-      // Bumped up to at least the number of guarantors actually submitted —
-      // the guarantor-forms-count effect above resizes guarantorForms to
-      // match this value whenever includeGuarantor is on, and would
-      // otherwise truncate away real guarantor data the moment this screen
-      // mounts if the borrower reported fewer dependents than guarantors.
-      dependents_count: full.dependents_count !== null && full.dependents_count !== undefined
-        ? String(Math.max(parseInt(full.dependents_count, 10) || 0, mappedGuarantors.length))
-        : (mappedGuarantors.length > 0 ? String(mappedGuarantors.length) : ''),
       monthly_income: full.monthly_income !== null && full.monthly_income !== undefined ? String(full.monthly_income) : '',
       spouse_name: full.spouse_name || '',
       spouse_nic: full.spouse_nic || '',
@@ -1989,6 +1966,16 @@ export default function LendApp() {
   // Updates one field on one guarantor form in the guarantorForms array.
   const updateGuarantorField = (index, field, value) => {
     setGuarantorForms(prev => prev.map((g, i) => (i === index ? { ...g, [field]: value } : g)));
+  };
+
+  // Manual add/remove for guarantor forms, up to MAX_GUARANTORS_PER_LOAN —
+  // replaces the old "one guarantor per dependent" auto-sizing now that
+  // Number of Dependents has been dropped from the borrower profile.
+  const handleAddGuarantorForm = () => {
+    setGuarantorForms(prev => (prev.length >= MAX_GUARANTORS_PER_LOAN ? prev : [...prev, { ...emptyGuarantor }]));
+  };
+  const handleRemoveGuarantorForm = (index) => {
+    setGuarantorForms(prev => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   };
 
   // File to base64 converter(s) for a guarantor's NIC photo (up to 4, per
@@ -5133,17 +5120,10 @@ export default function LendApp() {
                                   {validationErrors.loan_purpose && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.loan_purpose}</span>}
                                 </div>
 
-                                <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Number of Dependents *</label>
-                                    <input id="dependents_count" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.dependents_count ? 'var(--accent-rose)' : '', borderWidth: validationErrors.dependents_count ? '2px' : '' }} value={borrowerProfileForm.dependents_count} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, dependents_count: e.target.value })); clearFieldError('dependents_count'); }} />
-                                    {validationErrors.dependents_count && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.dependents_count}</span>}
-                                  </div>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
-                                    <input id="monthly_income" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.monthly_income ? 'var(--accent-rose)' : '', borderWidth: validationErrors.monthly_income ? '2px' : '' }} value={borrowerProfileForm.monthly_income} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value })); clearFieldError('monthly_income'); }} />
-                                    {validationErrors.monthly_income && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.monthly_income}</span>}
-                                  </div>
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
+                                  <input id="monthly_income" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.monthly_income ? 'var(--accent-rose)' : '', borderWidth: validationErrors.monthly_income ? '2px' : '' }} value={borrowerProfileForm.monthly_income} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value })); clearFieldError('monthly_income'); }} />
+                                  {validationErrors.monthly_income && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.monthly_income}</span>}
                                 </div>
 
                                 <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Spouse Details (if applicable)</p>
@@ -5323,16 +5303,18 @@ export default function LendApp() {
 
                         {giveLoanStep === 4 && includeGuarantor && (
                           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            {guarantorForms.length > 1 && (
-                              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <ClipboardCheck className="icon" /> {guarantorForms.length} guarantor forms required (matches Number of Dependents entered in Step 1).
-                              </p>
-                            )}
                             {guarantorForms.map((g, i) => (
                               <div key={i} style={{ border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                                <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
-                                  <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS {guarantorForms.length > 1 ? `(${i + 1} of ${guarantorForms.length})` : ''}
-                                </p>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', margin: '0', fontSize: '15px' }}>
+                                    <ShieldCheck className="icon" /> 4. GUARANTOR DETAILS {guarantorForms.length > 1 ? `(${i + 1} of ${guarantorForms.length})` : ''}
+                                  </p>
+                                  {guarantorForms.length > 1 && (
+                                    <button type="button" className="glass-btn glass-btn-rose" style={{ padding: '5px 10px', fontSize: '12px' }} onClick={() => handleRemoveGuarantorForm(i)}>
+                                      <Trash2 className="icon" style={{ width: '14px', height: '14px' }} /> Remove
+                                    </button>
+                                  )}
+                                </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                   <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -5413,6 +5395,12 @@ export default function LendApp() {
                                 </div>
                               </div>
                             ))}
+
+                            {guarantorForms.length < MAX_GUARANTORS_PER_LOAN && (
+                              <button type="button" className="glass-btn glass-btn-secondary" onClick={handleAddGuarantorForm} style={{ padding: '10px 16px', fontSize: '13px', alignSelf: 'flex-start' }}>
+                                <ShieldCheck className="icon" /> + Add Another Guarantor
+                              </button>
+                            )}
 
                             <div style={{ display: 'flex', gap: '12px' }}>
                               <button type="button" className="glass-btn glass-btn-secondary" onClick={() => handleWizardBack(4)} style={{ flex: 1, padding: '16px' }}>Back</button>

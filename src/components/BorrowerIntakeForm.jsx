@@ -25,7 +25,6 @@ const TEXT = {
     upToPhotosHint: 'Up to 4 photos.', optionalPrefix: 'Optional.',
     addPhotos: 'Add Photos', removePhoto: 'Remove', processingPhotos: 'Processing photo(s)…',
     purpose: 'What is the loan for?', purposePh: 'e.g. Business, home repair, medical',
-    dependents: 'Number of Dependents',
     income: 'Monthly Income (LKR)',
     spouseHeading: 'Spouse Details (optional, if married)',
     spouseName: "Spouse's Name",
@@ -71,7 +70,6 @@ const TEXT = {
     upToPhotosHint: 'அதிகபட்சம் 4 புகைப்படங்கள்.', optionalPrefix: 'விருப்பம்.',
     addPhotos: 'புகைப்படங்களைச் சேர்க்க', removePhoto: 'நீக்கு', processingPhotos: 'புகைப்படம் தயாராகிறது…',
     purpose: 'கடன் எதற்காக?', purposePh: 'எ.கா. வியாபாரம், வீடு பழுது, மருத்துவம்',
-    dependents: 'சார்ந்திருப்பவர்களின் எண்ணிக்கை',
     income: 'மாத வருமானம் (ரூபா)',
     spouseHeading: 'மனைவி/கணவர் விவரங்கள் (விருப்பம், திருமணமானால்)',
     spouseName: 'பெயர்',
@@ -108,7 +106,7 @@ const TEXT = {
 const EMPTY_FORM = {
   borrower_name: '', borrower_phone: '', borrower_address: '', date_of_birth: '', nic_number: '',
   nic_photos: [], photo_proofs: [],
-  loan_purpose: '', dependents_count: '', monthly_income: '',
+  loan_purpose: '', monthly_income: '',
   spouse_name: '', spouse_nic: '', spouse_occupation: '', notes: ''
 };
 
@@ -338,15 +336,9 @@ export default function BorrowerIntakeForm() {
               <label style={labelStyle}>{t.purpose}</label>
               <input style={inputStyle} value={form.loan_purpose} onChange={e => update('loan_purpose', e.target.value)} placeholder={t.purposePh} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '18px' }}>
-              <div>
-                <label style={labelStyle}>{t.dependents}</label>
-                <input style={inputStyle} type="number" min="0" value={form.dependents_count} onChange={e => update('dependents_count', e.target.value)} />
-              </div>
-              <div>
-                <label style={labelStyle}>{t.income}</label>
-                <input style={inputStyle} type="number" min="0" value={form.monthly_income} onChange={e => update('monthly_income', e.target.value)} />
-              </div>
+            <div style={fieldWrap}>
+              <label style={labelStyle}>{t.income}</label>
+              <input style={inputStyle} type="number" min="0" value={form.monthly_income} onChange={e => update('monthly_income', e.target.value)} />
             </div>
 
             <p style={{ fontSize: '13px', fontWeight: '700', color: '#444', margin: '20px 0 12px' }}>{t.spouseHeading}</p>
