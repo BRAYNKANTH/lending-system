@@ -386,73 +386,108 @@ export async function POST(request) {
 
     const initialStatus = isAgentSubmission ? 'pending' : 'active';
 
-    const loanResult = await db.transaction(async (trx) => {
-      const [{ count }] = await trx('loans').count('id as count');
-      const nextSequence = parseInt(count, 10) + 1;
-      const orgSettings = await trx('org_settings').first();
-      const refPrefix = orgSettings?.reference_prefix || 'LN';
-      const refNumber = `${refPrefix}-${String(nextSequence).padStart(3, '0')}`;
+    const orgSettings = await db('org_settings').first();
+    const refPrefix = orgSettings?.reference_prefix || 'LN';
 
-      const [newLoan] = await trx('loans').insert({
-        borrower_id,
-        lender_id: authUser.id,
-        assigned_agent_id: effectiveAssignedAgentId,
-        principal_amount: principal,
-        interest_rate: rate,
-        interest_type,
-        principal_outstanding: principal,
-        interest_balance: isFlatInstallment ? initialInterestBalance : 0,
-        is_flat_installment: isFlatInstallment,
-        daily_installment_amount: dailyInstallmentAmount,
-        principal_per_day: principalPerDay,
-        interest_per_day: interestPerDay,
-        status: initialStatus,
-        created_at: creationDate,
-        last_accrual_date: creationDate,
-        next_accrual_date: nextAccrualDate,
-        nic_number: cleanNIC,
-        nic_photo_url: nic_photo_urls[0],
-        address_proof_url: photo_proof_urls[0],
-        nic_photo_urls: JSON.stringify(nic_photo_urls),
-        photo_proof_urls: JSON.stringify(photo_proof_urls),
-        date_of_birth: borrower_date_of_birth,
-        borrower_address: borrower_address.trim(),
-        collection_mode: colMode,
-        duration_periods: periods,
-        maturity_date: calculatedMaturityDate,
-        reference_number: refNumber,
-        ...(borrowerProfileRecord || {})
-      }).returning('*');
+    // Reference numbers are generated from MAX(existing numeric suffix) + 1,
+    // not COUNT(*) + 1 — a plain row count silently desyncs from the actual
+    // highest number ever issued the moment any single reference number
+    // goes missing anywhere in history (this is exactly what caused a real
+    // production 500: the earliest loan's number was gone — deleted or
+    // never issued — so COUNT(*)+1 kept generating a number that already
+    // belonged to a later loan, hitting the unique constraint on every
+    // single new loan). MAX-based generation is correct regardless of any
+    // such gap. The retry loop below is a second line of defense against a
+    // genuine concurrent-request race (two requests computing the same MAX
+    // in the same instant) — on a reference_number collision specifically,
+    // it just recomputes and tries again, a few times before giving up.
+    const generateNextReferenceNumber = async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT MAX(CAST(SUBSTRING(reference_number FROM '[0-9]+$') AS INTEGER)) as max_num
+         FROM loans WHERE reference_number LIKE ?`,
+        [`${refPrefix}-%`]
+      );
+      const nextSequence = (parseInt(rows[0]?.max_num, 10) || 0) + 1;
+      return `${refPrefix}-${String(nextSequence).padStart(3, '0')}`;
+    };
 
-      const loanId = newLoan.id || newLoan;
+    const MAX_REFERENCE_NUMBER_ATTEMPTS = 5;
+    let loanResult = null;
+    for (let attempt = 1; attempt <= MAX_REFERENCE_NUMBER_ATTEMPTS; attempt++) {
+      try {
+        loanResult = await db.transaction(async (trx) => {
+          const refNumber = await generateNextReferenceNumber(trx);
 
-      // A pending application hasn't actually disbursed anything yet — no
-      // cash has moved, so no ledger entries post until an admin approves
-      // it (see /api/loans/[id]/approve).
-      if (initialStatus === 'active') {
-        // Backdated (disbursementDateOverride) alongside the loan itself,
-        // so ledger/trial-balance reports for the actual disbursement date
-        // reflect this cash outflow instead of it showing up under today's
-        // date in the report a backdated registration is trying to avoid.
-        await trx('ledger_entries').insert([
-          { loan_id: loanId, account: 'loan_receivable_principal', type: 'debit', amount: principal, created_at: creationDate },
-          { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal, created_at: creationDate }
-        ]);
+          const [newLoan] = await trx('loans').insert({
+            borrower_id,
+            lender_id: authUser.id,
+            assigned_agent_id: effectiveAssignedAgentId,
+            principal_amount: principal,
+            interest_rate: rate,
+            interest_type,
+            principal_outstanding: principal,
+            interest_balance: isFlatInstallment ? initialInterestBalance : 0,
+            is_flat_installment: isFlatInstallment,
+            daily_installment_amount: dailyInstallmentAmount,
+            principal_per_day: principalPerDay,
+            interest_per_day: interestPerDay,
+            status: initialStatus,
+            created_at: creationDate,
+            last_accrual_date: creationDate,
+            next_accrual_date: nextAccrualDate,
+            nic_number: cleanNIC,
+            nic_photo_url: nic_photo_urls[0],
+            address_proof_url: photo_proof_urls[0],
+            nic_photo_urls: JSON.stringify(nic_photo_urls),
+            photo_proof_urls: JSON.stringify(photo_proof_urls),
+            date_of_birth: borrower_date_of_birth,
+            borrower_address: borrower_address.trim(),
+            collection_mode: colMode,
+            duration_periods: periods,
+            maturity_date: calculatedMaturityDate,
+            reference_number: refNumber,
+            ...(borrowerProfileRecord || {})
+          }).returning('*');
+
+          const loanId = newLoan.id || newLoan;
+
+          // A pending application hasn't actually disbursed anything yet —
+          // no cash has moved, so no ledger entries post until an admin
+          // approves it (see /api/loans/[id]/approve).
+          if (initialStatus === 'active') {
+            // Backdated (disbursementDateOverride) alongside the loan
+            // itself, so ledger/trial-balance reports for the actual
+            // disbursement date reflect this cash outflow instead of it
+            // showing up under today's date in the report a backdated
+            // registration is trying to avoid.
+            await trx('ledger_entries').insert([
+              { loan_id: loanId, account: 'loan_receivable_principal', type: 'debit', amount: principal, created_at: creationDate },
+              { loan_id: loanId, account: 'cash_office', type: 'credit', amount: principal, created_at: creationDate }
+            ]);
+          }
+
+          if (guarantorRecords.length > 0) {
+            await trx('guarantors').insert(guarantorRecords.map((g) => ({ loan_id: loanId, ...g })));
+          }
+
+          const guarantorNames = guarantorRecords.map((g) => g.full_name);
+          await trx('audit_logs').insert({
+            actor_id: authUser.id,
+            action_type: isAgentSubmission ? 'SUBMIT_LOAN_APPLICATION' : 'CREATE_LOAN',
+            description: `${isAgentSubmission ? 'Submitted for approval: a' : 'Created'} new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${guarantorNames.length > 0 ? ` with guarantor(s) '${guarantorNames.join("', '")}'` : ''} for Borrower ID ${borrower_id}.`
+          });
+
+          return newLoan;
+        });
+        break;
+      } catch (err) {
+        const isRefCollision = err.code === '23505' && err.constraint === 'loans_reference_number_unique';
+        if (!isRefCollision || attempt === MAX_REFERENCE_NUMBER_ATTEMPTS) {
+          throw err;
+        }
+        // Reference number collided — loop again with a freshly computed one.
       }
-
-      if (guarantorRecords.length > 0) {
-        await trx('guarantors').insert(guarantorRecords.map((g) => ({ loan_id: loanId, ...g })));
-      }
-
-      const guarantorNames = guarantorRecords.map((g) => g.full_name);
-      await trx('audit_logs').insert({
-        actor_id: authUser.id,
-        action_type: isAgentSubmission ? 'SUBMIT_LOAN_APPLICATION' : 'CREATE_LOAN',
-        description: `${isAgentSubmission ? 'Submitted for approval: a' : 'Created'} new loan of LKR ${principal.toLocaleString()} (NIC: ${cleanNIC}, Rate: ${rate}%, Frequency: ${interest_type})${guarantorNames.length > 0 ? ` with guarantor(s) '${guarantorNames.join("', '")}'` : ''} for Borrower ID ${borrower_id}.`
-      });
-
-      return newLoan;
-    });
+    }
 
     if (isAgentSubmission) {
       const admins = await db('users').where({ role: 'admin', is_active: true });
