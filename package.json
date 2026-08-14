@@ -10,7 +10,11 @@
     "start": "next start",
     "lint": "next lint",
     "db:migrate": "node scripts/migrate.js",
-    "db:migrate:platform": "node scripts/migrate-platform.js"
+    "db:migrate:platform": "node scripts/migrate-platform.js",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
@@ -25,5 +29,9 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "vitest": "^4.1.10"
   }
 }
