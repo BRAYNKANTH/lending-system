@@ -537,7 +537,7 @@ export default function LendApp() {
     setError('');
     try {
       const result = await api.post(`/users/${targetUser.id}/reset-password`, {});
-      showToast(`Password reset for ${targetUser.name}. Temporary password: ${result.temporaryPassword}`);
+      showToast(result.message || `Verification code sent to ${targetUser.name}.`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -4698,8 +4698,8 @@ export default function LendApp() {
                                 Edit Details
                               </button>
                               {u.role !== 'borrower' && (
-                                <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleResetUserPassword(u)} disabled={loading}>
-                                  Reset Password
+                                <button className="glass-btn glass-btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleResetUserPassword(u)} disabled={loading} title="Sends a verification code to this user's phone — they set their own new password with it.">
+                                  Send Reset Code
                                 </button>
                               )}
                               <button className="glass-btn glass-btn-rose" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => handleDeleteUser(u)} disabled={loading || u.id === user.id}>
@@ -4734,8 +4734,8 @@ export default function LendApp() {
                             Edit Details
                           </button>
                           {u.role !== 'borrower' && (
-                            <button className="glass-btn glass-btn-secondary" onClick={() => handleResetUserPassword(u)} disabled={loading}>
-                              Reset Password
+                            <button className="glass-btn glass-btn-secondary" onClick={() => handleResetUserPassword(u)} disabled={loading} title="Sends a verification code to this user's phone — they set their own new password with it.">
+                              Send Reset Code
                             </button>
                           )}
                           <button className="glass-btn glass-btn-rose" onClick={() => handleDeleteUser(u)} disabled={loading || u.id === user.id}>
