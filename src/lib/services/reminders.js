@@ -1,5 +1,6 @@
 import db from '../db.js';
 import { notifyPaymentReminder, notifyMissedDailyCollection } from './notification.js';
+import { logError } from '../logger.js';
 
 /**
  * Sends a proactive reminder to borrowers on weekly/monthly (non-daily,
@@ -71,7 +72,7 @@ export async function runPaymentReminders() {
       });
       results.push({ loanId: loan.id, status: 'sent', daysUntilDue });
     } catch (err) {
-      console.error(`Error sending reminder for loan ID ${loan.id}:`, err);
+      logError('Error sending payment reminder', err, { loanId: loan.id });
       results.push({ loanId: loan.id, status: 'error', error: err.message });
     }
   }
@@ -162,7 +163,7 @@ export async function runMissedDailyCollectionAlerts() {
 
       results.push({ loanId: loan.id, status: 'sent', missedDays, missedAmount });
     } catch (err) {
-      console.error(`Error sending missed-collection alert for loan ID ${loan.id}:`, err);
+      logError('Error sending missed-collection alert', err, { loanId: loan.id });
       results.push({ loanId: loan.id, status: 'error', error: err.message });
     }
   }

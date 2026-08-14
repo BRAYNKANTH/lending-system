@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Admin disputes a remittance claim (e.g. the cash never actually arrived).
 // Reverses the cash_in_transit entry back onto the agent's outstanding
@@ -53,7 +54,7 @@ export async function PATCH(request, { params }) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     if (error.message === 'Remittance not found.') return NextResponse.json({ message: error.message }, { status: 404 });
     if (error.message?.includes('can be rejected')) return NextResponse.json({ message: error.message }, { status: 400 });
-    console.error('Reject remittance error:', error);
+    logError('Reject remittance error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to reject remittance.' }, { status: 500 });
   }
 }

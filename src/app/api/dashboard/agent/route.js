@@ -4,6 +4,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 import { getAgentCashInHand } from '@/lib/services/remittance.js';
 import { stripLoanMediaList, stripTransactionMediaList } from '@/lib/stripMedia.js';
 import { getSriLankaTodayRange } from '@/lib/loanSchedule.js';
+import { logError } from '@/lib/logger.js';
 
 export async function GET(request) {
   try {
@@ -84,7 +85,7 @@ export async function GET(request) {
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Agent dashboard error:', error);
+    logError('Agent dashboard error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to build agent dashboard statistics.' }, { status: 500 });
   }
 }

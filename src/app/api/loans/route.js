@@ -8,6 +8,8 @@ import { normalizePhone } from '@/lib/phone.js';
 import { stripLoanMediaList } from '@/lib/stripMedia.js';
 import bcrypt from 'bcryptjs';
 import { generateTempPassword } from '@/lib/tempPassword.js';
+import { nextReferenceNumber } from '@/lib/services/loanMath.js';
+import { logError } from '@/lib/logger.js';
 
 // How many active/pending loans one guarantor (by NIC) can back at the same
 // time — mirrored (same value, not imported — route.js files should only
@@ -404,8 +406,10 @@ export async function POST(request) {
          FROM loans WHERE reference_number LIKE ?`,
         [`${refPrefix}-%`]
       );
-      const nextSequence = (parseInt(rows[0]?.max_num, 10) || 0) + 1;
-      return `${refPrefix}-${String(nextSequence).padStart(3, '0')}`;
+      // Formatting logic lives in loanMath.js and is unit tested there —
+      // this is the exact site of the 2026-08-14 production incident
+      // (COUNT(*)+1 colliding with a gap in reference-number history).
+      return nextReferenceNumber(refPrefix, rows[0]?.max_num);
     };
 
     const MAX_REFERENCE_NUMBER_ATTEMPTS = 5;
@@ -490,7 +494,7 @@ export async function POST(request) {
       const admins = await db('users').where({ role: 'admin', is_active: true });
       Promise.all(admins.map((admin) =>
         notifyLoanPendingApproval({ admin, borrower, principal, submittedByName: authUser.name })
-      )).catch((err) => console.error('Failed to dispatch notification:', err));
+      )).catch((err) => logError('Failed to dispatch notification', err, { method: request.method, url: request.url }));
     } else {
       notifyLoanCreation({
         borrower,
@@ -500,7 +504,7 @@ export async function POST(request) {
         isFlatInstallment,
         dailyInstallmentAmount,
         durationPeriods: periods
-      }).catch((err) => console.error('Failed to dispatch notification:', err));
+      }).catch((err) => logError('Failed to dispatch notification', err, { method: request.method, url: request.url }));
     }
 
     // If this loan was created from a borrower-intake submission (see
@@ -517,7 +521,7 @@ export async function POST(request) {
           reviewed_at: db.fn.now(),
           updated_at: db.fn.now()
         })
-        .catch((err) => console.error('Failed to mark borrower intake as converted:', err));
+        .catch((err) => logError('Failed to mark borrower intake as converted', err, { method: request.method, url: request.url }));
     }
 
     return NextResponse.json({
@@ -526,7 +530,7 @@ export async function POST(request) {
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Loan creation error:', error);
+    logError('Loan creation error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while creating loan.' }, { status: 500 });
   }
 }
@@ -570,7 +574,15 @@ export async function GET(request) {
         // interest keeps accruing over time independent of what's been paid.
         db.raw(`COALESCE((
           SELECT SUM(transactions.amount) FROM transactions WHERE transactions.loan_id = loans.id
-        ), 0) as total_collected`)
+        ), 0) as total_collected`),
+        // Most recent payment date on this loan (any type — interest,
+        // principal, or flat installment) — null for a loan that's never
+        // had a payment collected. Backs the "Last Paid" detail in the
+        // Loan Directory so an agent/admin can spot a stalled account at a
+        // glance without opening the full statement.
+        db.raw(`(
+          SELECT MAX(transactions.payment_date) FROM transactions WHERE transactions.loan_id = loans.id
+        ) as last_payment_date`)
       );
 
     if (role === 'agent') {
@@ -583,10 +595,57 @@ export async function GET(request) {
     if (borrowerId && role === 'admin') query = query.where('loans.borrower_id', borrowerId);
 
     const loans = await query.orderBy('loans.created_at', 'desc');
+
+    // Last-5-days paid/not-paid streak (Sri Lanka calendar days, oldest
+    // first) — only meaningful for loans actually expected to pay daily
+    // (open-ended daily interest, or the flat daily-installment product);
+    // a weekly/monthly loan showing 4 red days out of 5 would be alarming
+    // and just wrong, since it was never due most of those days. Derived
+    // from real transactions (any payment method — the passbook Daily
+    // Collection Tracker, the bulk Record Payment sheet, or a single-loan
+    // payment), not from the separate daily_collections attendance log,
+    // so it reflects money actually collected regardless of which screen
+    // it was recorded from.
+    const dailyCadenceLoanIds = loans
+      .filter((l) => l.interest_type === 'daily' || l.is_flat_installment)
+      .map((l) => l.id);
+
+    if (dailyCadenceLoanIds.length > 0) {
+      const dayRanges = Array.from({ length: 5 }, (_, i) =>
+        getSriLankaTodayRange(new Date(Date.now() - (4 - i) * 24 * 60 * 60 * 1000))
+      ); // oldest -> newest, index 4 is today
+
+      const recentTx = await db('transactions')
+        .whereIn('loan_id', dailyCadenceLoanIds)
+        .andWhere('payment_date', '>=', dayRanges[0].start)
+        .select('loan_id', 'payment_date');
+
+      const paidDayIndexesByLoan = new Map();
+      for (const tx of recentTx) {
+        const txTime = new Date(tx.payment_date).getTime();
+        const dayIndex = dayRanges.findIndex((r) => txTime >= r.start.getTime() && txTime < r.end.getTime());
+        if (dayIndex === -1) continue;
+        if (!paidDayIndexesByLoan.has(tx.loan_id)) paidDayIndexesByLoan.set(tx.loan_id, new Set());
+        paidDayIndexesByLoan.get(tx.loan_id).add(dayIndex);
+      }
+
+      for (const loan of loans) {
+        if (!(loan.interest_type === 'daily' || loan.is_flat_installment)) continue;
+        const paidDays = paidDayIndexesByLoan.get(loan.id) || new Set();
+        const loanCreatedAt = new Date(loan.created_at).getTime();
+        loan.last5Days = dayRanges.map((r) => ({
+          date: r.start.toISOString().slice(0, 10),
+          // 'before_loan': the loan didn't exist yet on this day — shown
+          // as a neutral marker, not counted as a miss.
+          status: r.start.getTime() < loanCreatedAt ? 'before_loan' : paidDays.has(dayRanges.indexOf(r)) ? 'paid' : 'not_paid',
+        }));
+      }
+    }
+
     return NextResponse.json(stripLoanMediaList(loans));
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Fetch loans error:', error);
+    logError('Fetch loans error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch loans.' }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { stripIntakeMediaList } from '@/lib/stripMedia.js';
+import { logError } from '@/lib/logger.js';
 
 // List borrower-intake submissions (Admin/Agent) — the review queue for
 // /apply submissions. Defaults to pending only; ?status=all returns
@@ -18,7 +19,7 @@ export async function GET(request) {
     return NextResponse.json(stripIntakeMediaList(intakes));
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Fetch borrower intakes error:', error);
+    logError('Fetch borrower intakes error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch borrower intake submissions.' }, { status: 500 });
   }
 }

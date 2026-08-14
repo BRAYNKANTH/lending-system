@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import db from '@/lib/db.js';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit.js';
 import { normalizePhone } from '@/lib/phone.js';
+import { logError } from '@/lib/logger.js';
 
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -79,7 +80,7 @@ export async function POST(request) {
 
     return NextResponse.json({ message: 'Password updated. You can now log in with your new password.' });
   } catch (error) {
-    console.error('Reset password error:', error);
+    logError('Reset password error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while resetting your password.' }, { status: 500 });
   }
 }

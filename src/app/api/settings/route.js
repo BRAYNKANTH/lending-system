@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
+import { logError } from '@/lib/logger.js';
 
 // Org branding (name + logo) — deliberately public/unauthenticated on GET,
 // since the login screen itself needs to show the org's name and logo
 // before anyone has signed in. There's only ever one row (one organization
 // per database, per the database-per-tenant architecture), so this always
 // returns/updates that single row rather than taking an id.
-export async function GET() {
+export async function GET(request) {
   try {
     let settings = await db('org_settings').first();
     if (!settings) {
@@ -22,7 +23,7 @@ export async function GET() {
       overdue_reminder_threshold_days: settings.overdue_reminder_threshold_days
     });
   } catch (error) {
-    console.error('Get settings error:', error);
+    logError('Get settings error', error, { method: request.method, url: request.url });
     return NextResponse.json({ org_name: 'My Organization', logo_url: null, overdue_reminder_threshold_days: 3 });
   }
 }
@@ -78,7 +79,7 @@ export async function PATCH(request) {
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Update settings error:', error);
+    logError('Update settings error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while updating organization settings.' }, { status: 500 });
   }
 }

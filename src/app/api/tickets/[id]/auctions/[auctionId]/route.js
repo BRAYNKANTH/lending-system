@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Assign a winner to an already-run round — for when the round's bid was
 // recorded before the winner was actually decided (e.g. logging the
@@ -55,7 +56,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ ...updated, winner_name: member.name });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Assign auction winner error:', error);
+    logError('Assign auction winner error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to assign winner.' }, { status: 500 });
   }
 }

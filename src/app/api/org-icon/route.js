@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import db from '@/lib/db.js';
+import { logError } from '@/lib/logger.js';
 
 // Explicit, matching layout.js and manifest.js — this must read the
 // database fresh on every request, not get baked into a static response
@@ -114,7 +115,7 @@ export async function GET(request) {
       }
     });
   } catch (error) {
-    console.error('org-icon generation error:', error);
+    logError('org-icon generation error', error, { method: request.method, url: request.url });
     // Last-resort fallback: the neutral placeholder, never a 500 — a
     // broken favicon request shouldn't be able to break page rendering.
     const fallback = await sharp(Buffer.from(neutralPlaceholderSvg(size))).png().toBuffer();

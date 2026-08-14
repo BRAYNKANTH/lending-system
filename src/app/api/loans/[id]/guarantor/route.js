@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { isValidSriLankanNIC } from '@/lib/loanSchedule.js';
+import { logError } from '@/lib/logger.js';
 
 // Mirrors the same constant in /api/loans/route.js — see the comment there.
 const MAX_ACTIVE_GUARANTEED_LOANS = 3;
@@ -86,7 +87,7 @@ export async function PUT(request, { params }) {
     return NextResponse.json({ message: `Guarantor ${existing ? 'updated' : 'added'} successfully.`, guarantor: saved });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Upsert guarantor error:', error);
+    logError('Upsert guarantor error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while saving guarantor.' }, { status: 500 });
   }
 }
@@ -113,7 +114,7 @@ export async function DELETE(request, { params }) {
     return NextResponse.json({ message: 'Guarantor removed.' });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Delete guarantor error:', error);
+    logError('Delete guarantor error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while removing guarantor.' }, { status: 500 });
   }
 }

@@ -5,6 +5,7 @@ import db from '@/lib/db.js';
 import { JWT_SECRET } from '@/lib/jwt.js';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit.js';
 import { normalizePhone } from '@/lib/phone.js';
+import { logError } from '@/lib/logger.js';
 
 export async function POST(request) {
   try {
@@ -76,7 +77,7 @@ export async function POST(request) {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
+    logError('Login error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error during login.' }, { status: 500 });
   }
 }

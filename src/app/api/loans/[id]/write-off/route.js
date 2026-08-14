@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Writes off a loan's remaining principal + interest as unrecoverable bad
 // debt (Admin only). Previously, a defaulted loan's principal_outstanding
@@ -67,7 +68,7 @@ export async function POST(request, { params }) {
     return NextResponse.json({ message: 'Loan written off and posted to ledger.', totalWriteOff: result.totalWriteOff });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Write off loan error:', error);
+    logError('Write off loan error', error, { method: request.method, url: request.url });
     if (error.message?.includes('not found') || error.message?.includes('can be written off') || error.message?.includes('no outstanding balance')) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }

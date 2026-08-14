@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 export async function GET(request, { params }) {
   try {
@@ -33,7 +34,7 @@ export async function GET(request, { params }) {
     return NextResponse.json(payments);
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('List ticket payments error:', error);
+    logError('List ticket payments error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch payments.' }, { status: 500 });
   }
 }
@@ -79,7 +80,7 @@ export async function PUT(request, { params }) {
     return NextResponse.json({ message: 'Payment updated successfully.', payment });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Update payment error:', error);
+    logError('Update payment error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to update payment.' }, { status: 500 });
   }
 }

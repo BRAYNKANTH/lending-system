@@ -1,4 +1,5 @@
 import db from '../db.js';
+import { assertLoanIsPayable, computeStandardPayment, computeFlatInstallmentSplit } from './loanMath.js';
 
 /**
  * Records a cash payment collection from a borrower — either an interest
@@ -21,41 +22,15 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
       throw new Error('Loan not found.');
     }
 
-    if (loan.status === 'fully_paid') {
-      throw new Error('This loan has already been fully paid.');
-    }
-
-    if (loan.status === 'written_off') {
-      throw new Error('This loan has been written off as bad debt and no longer accepts payments.');
-    }
-
-    if (loan.status === 'defaulted') {
-      throw new Error("This loan is defaulted. Reinstate it first (Admin > Reinstate Loan) before recording a payment.");
-    }
-
-    if (loan.status === 'pending') {
-      throw new Error('This loan application is still awaiting admin approval and has not been disbursed yet.');
-    }
-
-    if (loan.status === 'rejected') {
-      throw new Error('This loan application was rejected and was never disbursed.');
-    }
+    assertLoanIsPayable(loan.status);
 
     const payAmount = parseFloat(amount);
     const principalOutstanding = parseFloat(loan.principal_outstanding);
     const interestBalance = parseFloat(loan.interest_balance);
 
-    if (paymentType === 'interest') {
-      if (payAmount > interestBalance) {
-        throw new Error(`Interest payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding interest due (LKR ${interestBalance.toLocaleString()}).`);
-      }
-    } else if (paymentType === 'principal') {
-      if (payAmount > principalOutstanding) {
-        throw new Error(`Principal payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding principal (LKR ${principalOutstanding.toLocaleString()}).`);
-      }
-    } else {
-      throw new Error("Payment type must be 'interest' or 'principal'.");
-    }
+    // Validation + the resulting balances are computed by a pure, unit
+    // tested function in loanMath.js — this just persists what it returns.
+    const computed = computeStandardPayment({ paymentType, payAmount, principalOutstanding, interestBalance });
 
     // 2. Insert transaction entry
     const [transaction] = await trx('transactions')
@@ -98,18 +73,9 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
     ]);
 
     // 4. Update the loan's principal/interest bookkeeping
-    let newPrincipalOutstanding = principalOutstanding;
-    let newInterestBalance = interestBalance;
-    let newStatus = loan.status;
-
-    if (paymentType === 'interest') {
-      newInterestBalance = interestBalance - payAmount;
-    } else {
-      newPrincipalOutstanding = principalOutstanding - payAmount;
-      if (newPrincipalOutstanding <= 0) {
-        newStatus = 'fully_paid';
-      }
-    }
+    const newPrincipalOutstanding = computed.newPrincipalOutstanding;
+    const newInterestBalance = computed.newInterestBalance;
+    const newStatus = computed.newStatus ?? loan.status;
 
     await trx('loans')
       .where({ id: loanId })
@@ -177,21 +143,7 @@ export async function recordFlatInstallmentCollection({ loanId, agentId, amount,
       throw new Error('This loan is not a flat installment loan — use the regular interest/principal payment instead.');
     }
 
-    if (loan.status === 'fully_paid') {
-      throw new Error('This loan has already been fully paid.');
-    }
-    if (loan.status === 'written_off') {
-      throw new Error('This loan has been written off as bad debt and no longer accepts payments.');
-    }
-    if (loan.status === 'defaulted') {
-      throw new Error("This loan is defaulted. Reinstate it first (Admin > Reinstate Loan) before recording a payment.");
-    }
-    if (loan.status === 'pending') {
-      throw new Error('This loan application is still awaiting admin approval and has not been disbursed yet.');
-    }
-    if (loan.status === 'rejected') {
-      throw new Error('This loan application was rejected and was never disbursed.');
-    }
+    assertLoanIsPayable(loan.status);
 
     const payAmount = parseFloat(amount);
     const principalOutstanding = parseFloat(loan.principal_outstanding);
@@ -203,27 +155,12 @@ export async function recordFlatInstallmentCollection({ loanId, agentId, amount,
     }
 
     // Split proportionally using the fixed per-day ratio set at creation.
+    // Capping/rounding-safety logic lives in loanMath.js, unit tested there.
     const principalPerDay = parseFloat(loan.principal_per_day) || 0;
-    const dailyInstallment = parseFloat(loan.daily_installment_amount) || (principalPerDay + (parseFloat(loan.interest_per_day) || 0));
-    const principalRatio = dailyInstallment > 0 ? principalPerDay / dailyInstallment : 0;
-
-    let principalPortion = payAmount * principalRatio;
-    let interestPortion = payAmount - principalPortion;
-
-    // Cap each side at what's actually still owed on it — the last
-    // collection of the term (or an odd partial amount) can otherwise push
-    // one side slightly negative from rounding or from one side already
-    // being paid down faster than the other.
-    if (principalPortion > principalOutstanding) {
-      interestPortion += principalPortion - principalOutstanding;
-      principalPortion = principalOutstanding;
-    }
-    if (interestPortion > interestBalance) {
-      principalPortion += interestPortion - interestBalance;
-      interestPortion = interestBalance;
-    }
-    principalPortion = Math.min(principalPortion, principalOutstanding);
-    interestPortion = Math.min(interestPortion, interestBalance);
+    const dailyInstallmentAmount = parseFloat(loan.daily_installment_amount) || (principalPerDay + (parseFloat(loan.interest_per_day) || 0));
+    const { principalPortion, interestPortion } = computeFlatInstallmentSplit({
+      payAmount, principalOutstanding, interestBalance, principalPerDay, dailyInstallmentAmount,
+    });
 
     const [transaction] = await trx('transactions')
       .insert({

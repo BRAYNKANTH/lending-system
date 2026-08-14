@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { notifyLoanDefaulted } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 // Mark a loan as defaulted (Admin only) — blocks further payment collection
 export async function POST(request, { params }) {
@@ -42,12 +43,12 @@ export async function POST(request, { params }) {
       admin,
       reason: reason.trim(),
       principalOutstanding: loan.principal_outstanding
-    }).catch((err) => console.error('Notification failed:', err));
+    }).catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
 
     return NextResponse.json({ message: 'Loan marked as defaulted.' });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Mark loan defaulted error:', error);
+    logError('Mark loan defaulted error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while marking loan defaulted.' }, { status: 500 });
   }
 }

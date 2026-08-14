@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Full, paginated audit trail (Admin only). Every mutating action in the
 // app already writes to audit_logs — this is the first way to actually
@@ -49,7 +50,7 @@ export async function GET(request) {
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Fetch audit logs error:', error);
+    logError('Fetch audit logs error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch audit logs.' }, { status: 500 });
   }
 }

@@ -4,6 +4,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { normalizePhone } from '@/lib/phone.js';
 import { generateTempPassword } from '@/lib/tempPassword.js';
+import { logError } from '@/lib/logger.js';
 
 export async function POST(request) {
   try {
@@ -85,7 +86,7 @@ export async function POST(request) {
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Registration error:', error);
+    logError('Registration error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error during registration.' }, { status: 500 });
   }
 }

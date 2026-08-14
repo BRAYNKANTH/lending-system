@@ -3,6 +3,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { normalizePhone } from '@/lib/phone.js';
 import bcrypt from 'bcryptjs';
+import { logError } from '@/lib/logger.js';
 
 // Permanently delete a user (Admin only). Blocked if the user has any
 // loan/transaction/remittance history — that history is part of the audit
@@ -60,7 +61,7 @@ export async function DELETE(request, { params }) {
     return NextResponse.json({ message: `${targetUser.name} deleted.` });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Delete user error:', error);
+    logError('Delete user error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to delete user.' }, { status: 500 });
   }
 }
@@ -178,7 +179,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ message: 'User updated successfully.', user: updatedUser });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Update user error:', error);
+    logError('Update user error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to update user details.' }, { status: 500 });
   }
 }

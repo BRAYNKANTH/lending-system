@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Admin confirms a remittance was physically received/reconciled
 export async function PATCH(request, { params }) {
@@ -44,7 +45,7 @@ export async function PATCH(request, { params }) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     if (error.message === 'Remittance not found.') return NextResponse.json({ message: error.message }, { status: 404 });
     if (error.message?.includes('can be verified')) return NextResponse.json({ message: error.message }, { status: 400 });
-    console.error('Verify remittance error:', error);
+    logError('Verify remittance error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to verify remittance.' }, { status: 500 });
   }
 }

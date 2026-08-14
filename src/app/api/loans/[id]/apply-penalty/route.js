@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { notifyPenaltyApplied } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 // Apply a manual penalty / late fee to an active loan (Admin only)
 export async function POST(request, { params }) {
@@ -49,12 +50,12 @@ export async function POST(request, { params }) {
     const borrower = await db('users').where({ id: result.loan.borrower_id }).first();
     const admin = await db('users').where({ id: result.loan.lender_id }).first();
     notifyPenaltyApplied({ borrower, admin, amount: penaltyAmount, reason: reason?.trim(), newInterestBalance: result.newInterestBalance })
-      .catch((err) => console.error('Notification failed:', err));
+      .catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
 
     return NextResponse.json({ message: 'Penalty applied and posted to ledger.', newInterestBalance: result.newInterestBalance });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Apply penalty error:', error);
+    logError('Apply penalty error', error, { method: request.method, url: request.url });
     if (error.message?.includes('not found') || error.message?.includes('active loans')) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }

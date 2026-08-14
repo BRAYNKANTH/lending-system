@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { runInterestAccruals } from '@/lib/services/interest.js';
+import { logError } from '@/lib/logger.js';
 
 // Get detailed loan statement
 export async function GET(request, { params }) {
@@ -55,7 +56,7 @@ export async function GET(request, { params }) {
     return NextResponse.json({ loan, payments, accruals, ledger, guarantors, guarantor: guarantors[0] || null, dailyCollections });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Fetch loan details error:', error);
+    logError('Fetch loan details error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to retrieve loan details.' }, { status: 500 });
   }
 }
@@ -121,7 +122,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ message: 'Loan updated successfully.', loan: updatedLoan });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Update loan error:', error);
+    logError('Update loan error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while updating loan.' }, { status: 500 });
   }
 }

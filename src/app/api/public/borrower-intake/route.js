@@ -4,6 +4,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit.js';
 import { normalizePhone } from '@/lib/phone.js';
 import { isValidSriLankanNIC } from '@/lib/loanSchedule.js';
 import { validateImageDataUrlArray } from '@/lib/services/image.js';
+import { logError } from '@/lib/logger.js';
 
 const MAX_GUARANTORS = 2;
 
@@ -153,7 +154,7 @@ export async function POST(request) {
 
     return NextResponse.json({ message: 'Submitted. Thank you — an agent will follow up soon.', id: intake.id }, { status: 201 });
   } catch (error) {
-    console.error('Borrower intake submission error:', error);
+    logError('Borrower intake submission error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Something went wrong submitting this form. Please try again.' }, { status: 500 });
   }
 }

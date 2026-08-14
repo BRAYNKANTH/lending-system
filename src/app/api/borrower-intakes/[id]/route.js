@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Full detail for a single intake, photos included — the list endpoint
 // (GET /api/borrower-intakes) strips NIC/photo-proof photos to keep the
@@ -18,7 +19,7 @@ export async function GET(request, { params }) {
     return NextResponse.json(intake);
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Fetch borrower intake error:', error);
+    logError('Fetch borrower intake error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch borrower intake submission.' }, { status: 500 });
   }
 }
@@ -58,7 +59,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ message: 'Updated.', intake: updated });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Update borrower intake error:', error);
+    logError('Update borrower intake error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to update borrower intake submission.' }, { status: 500 });
   }
 }

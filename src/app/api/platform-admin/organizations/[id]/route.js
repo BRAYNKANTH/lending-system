@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import platformDb from '@/lib/platformDb.js';
 import { requirePlatformAuth, PlatformAuthError } from '@/lib/platformAuth.js';
+import { logError } from '@/lib/logger.js';
 
 const EDITABLE_FIELDS = [
   'name', 'logo_url', 'primary_color', 'contact_name', 'contact_email',
@@ -15,7 +16,7 @@ export async function GET(request, { params }) {
     return NextResponse.json({ organization: org });
   } catch (error) {
     if (error instanceof PlatformAuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Get organization error:', error);
+    logError('Get organization error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while fetching the organization.' }, { status: 500 });
   }
 }
@@ -50,7 +51,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ message: 'Organization updated.', organization: org });
   } catch (error) {
     if (error instanceof PlatformAuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Update organization error:', error);
+    logError('Update organization error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while updating the organization.' }, { status: 500 });
   }
 }

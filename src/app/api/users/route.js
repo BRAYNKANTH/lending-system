@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // List all users (Admin only), optionally filtered by role (comma-separated
 // for multiple, e.g. ?role=admin,agent). Staff-management screens should
@@ -20,7 +21,7 @@ export async function GET(request) {
     return NextResponse.json(users);
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('List users error:', error);
+    logError('List users error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch users.' }, { status: 500 });
   }
 }

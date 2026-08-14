@@ -4,6 +4,7 @@ import { requireAuth, AuthError } from '@/lib/auth.js';
 import { recordPaymentCollection, recordFlatInstallmentCollection } from '@/lib/services/ledger.js';
 import { notifyPaymentReceived } from '@/lib/services/notification.js';
 import { validateImageDataUrl } from '@/lib/services/image.js';
+import { logError } from '@/lib/logger.js';
 
 // Record payment collection (Agent or Admin — borrowers have no login access)
 export async function POST(request) {
@@ -92,7 +93,7 @@ export async function POST(request) {
       interestType: result.interestType,
       principalOutstanding: result.newPrincipalOutstanding,
       interestBalance: result.newInterestBalance
-    }).catch((err) => console.error('Notification failed:', err));
+    }).catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
 
     const detailedTx = await db('transactions')
       .join('loans', 'transactions.loan_id', 'loans.id')
@@ -124,7 +125,7 @@ export async function POST(request) {
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Payment collection error:', error);
+    logError('Payment collection error', error, { method: request.method, url: request.url });
     if (error.message?.includes('exceeds outstanding') || error.message?.includes('exceeds the total outstanding') || error.message?.includes('already been fully paid') || error.message?.includes('defaulted') || error.message?.includes('written off') || error.message?.includes('awaiting admin approval') || error.message?.includes('was rejected') || error.message?.includes("must be 'interest' or 'principal'") || error.message?.includes('not a flat installment loan')) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 export async function GET(request) {
   try {
@@ -13,7 +14,7 @@ export async function GET(request) {
     return NextResponse.json(tickets);
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('List tickets error:', error);
+    logError('List tickets error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch tickets.' }, { status: 500 });
   }
 }
@@ -67,7 +68,7 @@ export async function POST(request) {
     return NextResponse.json(ticket, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Create ticket error:', error);
+    logError('Create ticket error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to create ticket.' }, { status: 500 });
   }
 }

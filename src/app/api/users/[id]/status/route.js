@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Toggle a user's active status (Admin only)
 export async function PATCH(request, { params }) {
@@ -51,7 +52,7 @@ export async function PATCH(request, { params }) {
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Set user status error:', error);
+    logError('Set user status error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to update user status.' }, { status: 500 });
   }
 }

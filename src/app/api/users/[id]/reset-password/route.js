@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { notifyPasswordResetOtp } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes — mirrors /api/auth/forgot-password
 
@@ -52,14 +53,14 @@ export async function POST(request, { params }) {
       description: `Admin sent a password reset verification code to user '${targetUser.name}' (${targetUser.role}).`
     });
 
-    notifyPasswordResetOtp({ user: targetUser, otp }).catch((err) => console.error('Failed to dispatch OTP notification:', err));
+    notifyPasswordResetOtp({ user: targetUser, otp }).catch((err) => logError('Failed to dispatch OTP notification', err, { method: request.method, url: request.url }));
 
     return NextResponse.json({
       message: `A verification code has been sent to ${targetUser.name}'s phone (${targetUser.phone}). They'll need to enter it via "Forgot password?" on the login screen to set a new password.`
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Reset password error:', error);
+    logError('Reset password error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while resetting password.' }, { status: 500 });
   }
 }

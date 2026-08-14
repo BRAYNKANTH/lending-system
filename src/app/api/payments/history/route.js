@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { stripTransactionMediaList } from '@/lib/stripMedia.js';
+import { logError } from '@/lib/logger.js';
 
 export async function GET(request) {
   try {
@@ -76,7 +77,7 @@ export async function GET(request) {
     return NextResponse.json({ data: history, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Fetch payment history error:', error);
+    logError('Fetch payment history error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to retrieve payment history.' }, { status: 500 });
   }
 }

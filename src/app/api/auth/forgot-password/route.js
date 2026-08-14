@@ -5,6 +5,7 @@ import db from '@/lib/db.js';
 import { notifyPasswordResetOtp } from '@/lib/services/notification.js';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit.js';
 import { normalizePhone } from '@/lib/phone.js';
+import { logError } from '@/lib/logger.js';
 
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds between sends, same account
@@ -79,11 +80,11 @@ export async function POST(request) {
       description: `User '${user.name}' requested a password reset OTP.`
     });
 
-    notifyPasswordResetOtp({ user, otp }).catch((err) => console.error('Failed to dispatch OTP notification:', err));
+    notifyPasswordResetOtp({ user, otp }).catch((err) => logError('Failed to dispatch OTP notification', err, { method: request.method, url: request.url }));
 
     return NextResponse.json({ message: genericMessage, cooldownMs: OTP_RESEND_COOLDOWN_MS });
   } catch (error) {
-    console.error('Forgot password error:', error);
+    logError('Forgot password error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while processing your request.' }, { status: 500 });
   }
 }

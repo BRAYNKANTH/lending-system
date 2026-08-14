@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { getAgentCashInHand } from '@/lib/services/remittance.js';
+import { logError } from '@/lib/logger.js';
 
 // Agent submits cash collected in the field to the office (Agent only)
 export async function POST(request) {
@@ -53,7 +54,7 @@ export async function POST(request) {
     return NextResponse.json({ message: 'Remittance recorded and posted to ledger.', remittance }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Submit remittance error:', error);
+    logError('Submit remittance error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while submitting remittance.' }, { status: 500 });
   }
 }
@@ -76,7 +77,7 @@ export async function GET(request) {
     return NextResponse.json(remittances);
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Fetch remittances error:', error);
+    logError('Fetch remittances error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch remittances.' }, { status: 500 });
   }
 }

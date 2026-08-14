@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { notifyPaymentReminder } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 // Manual "Send Alert" button on the Overdue Loans table (Admin only). Used
 // to genuinely be fake — the frontend just showed a toast claiming an SMS
@@ -58,7 +59,7 @@ export async function POST(request, { params }) {
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Send reminder error:', error);
+    logError('Send reminder error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while sending reminder.' }, { status: 500 });
   }
 }

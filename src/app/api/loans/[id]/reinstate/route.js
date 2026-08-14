@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { notifyLoanReinstated } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 // Reverses a defaulted loan back to active, so payments can be collected on
 // it again. Covers the real-world case where a defaulted borrower comes
@@ -36,12 +37,12 @@ export async function POST(request, { params }) {
 
     const borrower = await db('users').where({ id: loan.borrower_id }).first();
     const admin = await db('users').where({ id: loan.lender_id }).first();
-    notifyLoanReinstated({ borrower, admin }).catch((err) => console.error('Notification failed:', err));
+    notifyLoanReinstated({ borrower, admin }).catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
 
     return NextResponse.json({ message: 'Loan reinstated to active — payments can be collected on it again.' });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Reinstate loan error:', error);
+    logError('Reinstate loan error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while reinstating loan.' }, { status: 500 });
   }
 }

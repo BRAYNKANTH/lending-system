@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { notifyLoanApplicationRejected } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 // Rejects an agent-submitted loan application (Admin only). No ledger
 // movement — nothing was ever posted for a pending application, so there's
@@ -48,12 +49,12 @@ export async function POST(request, { params }) {
       borrowerName: borrower?.name || 'the borrower',
       principal: loan.principal_amount,
       reason: reason.trim()
-    }).catch((err) => console.error('Notification failed:', err));
+    }).catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
 
     return NextResponse.json({ message: 'Loan application rejected.' });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Reject loan error:', error);
+    logError('Reject loan error', error, { method: request.method, url: request.url });
     if (error.message?.includes('not found') || error.message?.includes('can be rejected')) {
       return NextResponse.json({ message: error.message }, { status: error.message.includes('not found') ? 404 : 400 });
     }

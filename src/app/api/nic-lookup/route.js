@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 // Live NIC lookup, called while an admin/agent is typing a borrower's or
 // guarantor's NIC into the Give Loan wizard. Answers two questions the
@@ -48,7 +49,7 @@ export async function GET(request) {
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('NIC lookup error:', error);
+    logError('NIC lookup error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to look up NIC.' }, { status: 500 });
   }
 }

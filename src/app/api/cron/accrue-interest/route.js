@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runInterestAccruals } from '@/lib/services/interest.js';
+import { logError } from '@/lib/logger.js';
 
 // This loops through every active loan sequentially, each one doing a
 // handful of DB writes inside its own transaction — with no maxDuration
@@ -28,7 +29,7 @@ export async function GET(request) {
     const results = await runInterestAccruals();
     return NextResponse.json({ message: 'Scheduled interest accrual completed.', results });
   } catch (error) {
-    console.error('Cron interest accrual error:', error);
+    logError('Cron interest accrual error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Interest accrual engine execution failed.' }, { status: 500 });
   }
 }

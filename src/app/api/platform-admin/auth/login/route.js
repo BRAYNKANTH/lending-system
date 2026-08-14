@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import platformDb from '@/lib/platformDb.js';
 import { PLATFORM_JWT_SECRET } from '@/lib/platformJwt.js';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit.js';
+import { logError } from '@/lib/logger.js';
 
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
@@ -71,7 +72,7 @@ export async function POST(request) {
       admin: { id: admin.id, name: admin.name, email: admin.email, mustChangePassword: !!admin.must_change_password }
     });
   } catch (error) {
-    console.error('Platform login error:', error);
+    logError('Platform login error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error during login.' }, { status: 500 });
   }
 }

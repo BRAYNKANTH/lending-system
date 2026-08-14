@@ -4,6 +4,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { recordPaymentCollection } from '@/lib/services/ledger.js';
 import { notifyPaymentReceived, notifyMissedPayment } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 // Mark a single day's collection status for a loan — mirrors the physical
 // passbook (did the borrower pay today or not). 'paid'/'partial' actually
@@ -70,14 +71,14 @@ export async function POST(request, { params }) {
         interestType: loan.interest_type,
         principalOutstanding: paymentResult.newPrincipalOutstanding,
         interestBalance: paymentResult.newInterestBalance
-      }).catch((err) => console.error('Notification failed:', err));
+      }).catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
     }
 
     if (status === 'not_paid') {
       const borrower = await db('users').where({ id: loan.borrower_id }).first();
       const admin = await db('users').where({ id: loan.lender_id }).first();
       notifyMissedPayment({ borrower, admin, collectionDate: dateStr })
-        .catch((err) => console.error('Notification failed:', err));
+        .catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
     }
 
     const existing = await db('daily_collections').where({ loan_id: loanId, collection_date: dateStr }).first();
@@ -116,7 +117,7 @@ export async function POST(request, { params }) {
     return NextResponse.json({ message: 'Daily collection status saved.', dailyCollection: row, payment: paymentResult });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Daily collection mark error:', error);
+    logError('Daily collection mark error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while marking daily collection.' }, { status: 500 });
   }
 }

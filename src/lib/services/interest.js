@@ -1,4 +1,6 @@
 import db from '../db.js';
+import { calculateInterestPerPeriod, computeAccrualBatch } from './loanMath.js';
+import { logError } from '../logger.js';
 
 /**
  * Accrues interest for all active loans whose next_accrual_date is in the past.
@@ -47,54 +49,42 @@ export async function runInterestAccruals(loanId) {
         // that many additional daily cron runs to fully catch up, silently
         // under-accruing interest in the meantime. Capped at 500 periods as
         // a sanity ceiling against a corrupted next_accrual_date.
+        //
+        // The actual math (interestPerPeriod, the period-stepping loop) is
+        // extracted into loanMath.js as pure functions — unit tested there
+        // without needing a database. This block just persists the result.
         const principal = parseFloat(dbLoan.principal_amount);
         const rate = parseFloat(dbLoan.interest_rate);
-        const monthlyInterest = principal * (rate / 100);
-        let interestPerPeriod = monthlyInterest;
-        if (dbLoan.interest_type === 'daily') {
-          interestPerPeriod = monthlyInterest / 30;
-        } else if (dbLoan.interest_type === 'weekly') {
-          interestPerPeriod = monthlyInterest / 4;
-        }
+        const interestPerPeriod = calculateInterestPerPeriod(principal, rate, dbLoan.interest_type);
 
-        let periodsAccrued = 0;
-        let totalAccrued = 0;
-        let runningInterestBalance = parseFloat(dbLoan.interest_balance);
-        let nextDate = new Date(dbLoan.next_accrual_date);
-        const now = new Date();
+        const batch = computeAccrualBatch({
+          interestType: dbLoan.interest_type,
+          interestPerPeriod,
+          startingInterestBalance: parseFloat(dbLoan.interest_balance),
+          nextAccrualDate: dbLoan.next_accrual_date,
+          now: new Date(),
+          maturityDate: dbLoan.maturity_date,
+        });
 
-        while (nextDate <= now && periodsAccrued < 500) {
-          if (dbLoan.maturity_date && nextDate > new Date(dbLoan.maturity_date)) {
-            break;
-          }
-          runningInterestBalance += interestPerPeriod;
-          totalAccrued += interestPerPeriod;
-          periodsAccrued += 1;
-
-          const logText = dbLoan.interest_type === 'daily'
-            ? `Principal: ${principal} | Monthly Rate: ${rate}% | Daily Accrual (Monthly/30): LKR ${interestPerPeriod.toFixed(2)} | Date: ${nextDate.toISOString().slice(0, 10)}`
-            : `Principal: ${principal} | Rate: ${rate}% | Type: ${dbLoan.interest_type} | Accrual period for ${nextDate.toISOString().slice(0, 10)}`;
-          await trx('interest_accruals').insert({
-            loan_id: dbLoan.id,
-            amount_accrued: interestPerPeriod,
-            calculation_log: logText
-          });
-
-          if (dbLoan.interest_type === 'daily') {
-            nextDate.setDate(nextDate.getDate() + 1);
-          } else if (dbLoan.interest_type === 'weekly') {
-            nextDate.setDate(nextDate.getDate() + 7);
-          } else if (dbLoan.interest_type === 'monthly') {
-            nextDate.setMonth(nextDate.getMonth() + 1);
-          } else {
-            break; // unknown interest_type — avoid an infinite loop
-          }
-          nextDate.setHours(0, 0, 0, 0); // Keep nextDate aligned to midnight
-        }
-
-        if (periodsAccrued === 0) {
+        if (batch.periods.length === 0) {
           return { loanId: loan.id, status: 'skipped' };
         }
+
+        for (const period of batch.periods) {
+          const logText = dbLoan.interest_type === 'daily'
+            ? `Principal: ${principal} | Monthly Rate: ${rate}% | Daily Accrual (Monthly/30): LKR ${period.amount.toFixed(2)} | Date: ${period.date.toISOString().slice(0, 10)}`
+            : `Principal: ${principal} | Rate: ${rate}% | Type: ${dbLoan.interest_type} | Accrual period for ${period.date.toISOString().slice(0, 10)}`;
+          await trx('interest_accruals').insert({
+            loan_id: dbLoan.id,
+            amount_accrued: period.amount,
+            calculation_log: logText
+          });
+        }
+
+        const periodsAccrued = batch.periods.length;
+        const totalAccrued = batch.totalAccrued;
+        const runningInterestBalance = batch.runningInterestBalance;
+        const nextDate = batch.nextAccrualDate;
 
         // Post Ledger Entries (Double-Entry Ledger) — one combined posting
         // for the whole catch-up batch.
@@ -138,7 +128,7 @@ export async function runInterestAccruals(loanId) {
       });
       results.push(result);
     } catch (err) {
-      console.error(`Error accruing interest for loan ID ${loan.id}:`, err);
+      logError('Error accruing interest', err, { loanId: loan.id });
       results.push({ loanId: loan.id, error: err.message, status: 'error' });
     }
   }

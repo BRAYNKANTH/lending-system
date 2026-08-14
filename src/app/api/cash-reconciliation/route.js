@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { getAgentCashInHand } from '@/lib/services/remittance.js';
+import { logError } from '@/lib/logger.js';
 
 // Cash-in-hand summary for the logged-in agent, or (Admin) for all agents
 export async function GET(request) {
@@ -24,7 +25,7 @@ export async function GET(request) {
     return NextResponse.json({ agents: agentsSummary });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Cash reconciliation error:', error);
+    logError('Cash reconciliation error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to build cash reconciliation summary.' }, { status: 500 });
   }
 }

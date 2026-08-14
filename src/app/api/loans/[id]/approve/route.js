@@ -3,6 +3,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { addInterval } from '@/lib/loanSchedule.js';
 import { notifyLoanApplicationApproved } from '@/lib/services/notification.js';
+import { logError } from '@/lib/logger.js';
 
 // Approves an agent-submitted loan application (Admin only) — this is the
 // moment the loan actually disburses: ledger entries post here, not at
@@ -73,12 +74,12 @@ export async function POST(request, { params }) {
       isFlatInstallment: result.is_flat_installment,
       dailyInstallmentAmount: result.daily_installment_amount,
       durationPeriods: result.duration_periods
-    }).catch((err) => console.error('Notification failed:', err));
+    }).catch((err) => logError('Notification failed', err, { method: request.method, url: request.url }));
 
     return NextResponse.json({ message: 'Loan application approved and disbursed.' });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Approve loan error:', error);
+    logError('Approve loan error', error, { method: request.method, url: request.url });
     if (error.message?.includes('not found') || error.message?.includes('can be approved')) {
       return NextResponse.json({ message: error.message }, { status: error.message.includes('not found') ? 404 : 400 });
     }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { stripLoanMediaList } from '@/lib/stripMedia.js';
+import { logError } from '@/lib/logger.js';
 
 export async function GET(request) {
   try {
@@ -150,7 +151,7 @@ export async function GET(request) {
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Admin dashboard error:', error);
+    logError('Admin dashboard error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to build admin dashboard statistics.' }, { status: 500 });
   }
 }

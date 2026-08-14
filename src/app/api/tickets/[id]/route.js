@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
+import { logError } from '@/lib/logger.js';
 
 export async function GET(request, { params }) {
   try {
@@ -19,7 +20,7 @@ export async function GET(request, { params }) {
     return NextResponse.json(ticket);
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Get ticket error:', error);
+    logError('Get ticket error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to fetch ticket details.' }, { status: 500 });
   }
 }
@@ -59,7 +60,7 @@ export async function DELETE(request, { params }) {
     return NextResponse.json({ message: `'${ticket.name}' deleted.` });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Delete ticket error:', error);
+    logError('Delete ticket error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to delete ticket group.' }, { status: 500 });
   }
 }
@@ -126,7 +127,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Update ticket error:', error);
+    logError('Update ticket error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Failed to update ticket group.' }, { status: 500 });
   }
 }

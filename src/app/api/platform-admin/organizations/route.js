@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import platformDb from '@/lib/platformDb.js';
 import { requirePlatformAuth, PlatformAuthError } from '@/lib/platformAuth.js';
+import { logError } from '@/lib/logger.js';
 
 function slugify(name) {
   return name
@@ -23,7 +24,7 @@ export async function GET(request) {
     return NextResponse.json({ organizations: orgs });
   } catch (error) {
     if (error instanceof PlatformAuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('List organizations error:', error);
+    logError('List organizations error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while listing organizations.' }, { status: 500 });
   }
 }
@@ -79,7 +80,7 @@ export async function POST(request) {
     return NextResponse.json({ message: 'Organization created.', organization: org }, { status: 201 });
   } catch (error) {
     if (error instanceof PlatformAuthError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error('Create organization error:', error);
+    logError('Create organization error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while creating the organization.' }, { status: 500 });
   }
 }
