@@ -211,8 +211,22 @@ export default function LendApp() {
   const [loginPhone, setLoginPhone] = useState(() => (typeof window !== 'undefined' && sessionStorage.getItem('lend_login_phone_draft')) || '');
   const [loginPassword, setLoginPassword] = useState('');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  // 'phone' (enter phone, request OTP) -> 'otp' (enter code + new password).
+  const [forgotStep, setForgotStep] = useState('phone');
   const [forgotIdentifier, setForgotIdentifier] = useState('');
   const [forgotMessage, setForgotMessage] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPasswordOtp, setNewPasswordOtp] = useState('');
+  const [confirmPasswordOtp, setConfirmPasswordOtp] = useState('');
+  // Seconds remaining before "Resend OTP" is clickable again — mirrors the
+  // server-side per-account cooldown in /api/auth/forgot-password so the
+  // button can't be spammed into re-sending SMS.
+  const [resendCooldown, setResendCooldown] = useState(0);
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown(s => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
   const [newLoan, setNewLoan] = useState({
     borrower_name: '',
     borrower_phone: '',
@@ -1009,7 +1023,8 @@ export default function LendApp() {
     }
   };
 
-  const handleForgotPassword = async (e) => {
+  // Step 1: request an OTP for the entered phone number.
+  const handleSendOtp = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -1017,11 +1032,74 @@ export default function LendApp() {
     try {
       const data = await api.post('/auth/forgot-password', { identifier: forgotIdentifier });
       setForgotMessage(data.message);
+      setForgotStep('otp');
+      setResendCooldown(Math.ceil((data.cooldownMs || 60000) / 1000));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  // "Resend OTP" — same endpoint as the initial send, just re-triggered;
+  // disabled client-side while resendCooldown > 0 (the button itself is
+  // also disabled in the JSX, this guards direct calls too).
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0) return;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.post('/auth/forgot-password', { identifier: forgotIdentifier });
+      setForgotMessage('A new code has been sent.');
+      setResendCooldown(Math.ceil((data.cooldownMs || 60000) / 1000));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 2: verify the OTP and set a new password, in one request.
+  const handleResetPasswordWithOtp = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (newPasswordOtp !== confirmPasswordOtp) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (newPasswordOtp.length < 6) {
+      setError('New password must be at least 6 characters long.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await api.post('/auth/reset-password', { identifier: forgotIdentifier, otp: otpCode, new_password: newPasswordOtp });
+      setLoginPhone(forgotIdentifier);
+      setLoginPassword('');
+      setShowForgotPassword(false);
+      setForgotStep('phone');
+      setForgotIdentifier('');
+      setForgotMessage('');
+      setOtpCode('');
+      setNewPasswordOtp('');
+      setConfirmPasswordOtp('');
+      setResendCooldown(0);
+      showToast(data.message || 'Password updated. You can now log in.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackToPhoneStep = () => {
+    setForgotStep('phone');
+    setError('');
+    setForgotMessage('');
+    setOtpCode('');
+    setNewPasswordOtp('');
+    setConfirmPasswordOtp('');
+    setResendCooldown(0);
   };
 
   const handleLogout = () => {
@@ -2806,27 +2884,61 @@ export default function LendApp() {
                   <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%', marginTop: '8px' }}>
                     {loading ? 'Loading...' : 'Login'}
                   </button>
-                  <button type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }} onClick={() => { setShowForgotPassword(true); setError(''); setForgotMessage(''); }}>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }} onClick={() => { setShowForgotPassword(true); setForgotStep('phone'); setError(''); setForgotMessage(''); }}>
                     Forgot password?
                   </button>
                 </form>
-              ) : (
-                <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              ) : forgotStep === 'phone' ? (
+                <form onSubmit={handleSendOtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
-                    Enter your registered phone number. A temporary password will be sent via SMS.
+                    Enter your registered phone number. A 6-digit verification code will be sent via SMS.
                   </p>
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
                     <input type="tel" required className="glass-input" placeholder="e.g. 0771234567" value={forgotIdentifier} onChange={e => setForgotIdentifier(e.target.value)} />
                   </div>
-                  {forgotMessage && (
-                    <p style={{ fontSize: '13px', color: 'var(--accent-emerald)', margin: 0 }}>{forgotMessage}</p>
-                  )}
                   <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%' }}>
-                    {loading ? 'Sending...' : 'Send Temporary Password'}
+                    {loading ? 'Sending...' : 'Send Verification Code'}
                   </button>
                   <button type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }} onClick={() => { setShowForgotPassword(false); setError(''); setForgotMessage(''); setForgotIdentifier(''); }}>
                     <ArrowLeft className="icon" /> Back to Login
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleResetPasswordWithOtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+                    Enter the 6-digit code sent to <strong>{forgotIdentifier}</strong>, then choose a new password.
+                  </p>
+                  {forgotMessage && (
+                    <p style={{ fontSize: '13px', color: 'var(--accent-emerald)', margin: 0 }}>{forgotMessage}</p>
+                  )}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>VERIFICATION CODE</label>
+                    <input
+                      type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} required
+                      className="glass-input" placeholder="123456" style={{ letterSpacing: '4px', fontWeight: 'bold', textAlign: 'center' }}
+                      value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NEW PASSWORD</label>
+                    <input type="password" required minLength={6} className="glass-input" placeholder="At least 6 characters" value={newPasswordOtp} onChange={e => setNewPasswordOtp(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>CONFIRM NEW PASSWORD</label>
+                    <input type="password" required minLength={6} className="glass-input" placeholder="Re-enter new password" value={confirmPasswordOtp} onChange={e => setConfirmPasswordOtp(e.target.value)} />
+                  </div>
+                  <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%' }}>
+                    {loading ? 'Resetting...' : 'Reset Password'}
+                  </button>
+                  <button
+                    type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }}
+                    disabled={resendCooldown > 0 || loading} onClick={handleResendOtp}
+                  >
+                    {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
+                  </button>
+                  <button type="button" className="glass-btn glass-btn-secondary" style={{ width: '100%', fontSize: '13px' }} onClick={handleBackToPhoneStep}>
+                    <ArrowLeft className="icon" /> Use a Different Number
                   </button>
                 </form>
               )}

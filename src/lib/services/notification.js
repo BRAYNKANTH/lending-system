@@ -49,13 +49,17 @@ export async function sendNotification({ recipientName, phone, message, role }) 
 }
 
 /**
- * Sends a temporary password to a user who requested a self-service reset.
+ * Sends a one-time verification code to a user who requested a self-service
+ * password reset. Deliberately just the code, not a usable password — the
+ * user still has to choose their own new password in the same step that
+ * verifies this OTP (see /api/auth/reset-password), so a leaked SMS alone
+ * can't grant account access.
  */
-export async function notifyPasswordReset({ user, tempPassword }) {
+export async function notifyPasswordResetOtp({ user, otp }) {
   await sendNotification({
     recipientName: user.name,
     phone: user.phone,
-    message: `Password reset requested. Your temporary password is: ${tempPassword} (you will be asked to change it on login).`,
+    message: `Your password reset code is: ${otp}. It expires in 10 minutes. If you didn't request this, you can ignore this message.`,
     role: user.role
   });
 }

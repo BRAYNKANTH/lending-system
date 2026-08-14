@@ -405,6 +405,21 @@ async function runIncrementalMigrations() {
   // nothing is a real loan yet — handleConvertIntakeToLoan reshapes this
   // into the wizard's guarantorForms state when a submission is converted.
   await addColumnIfMissing('borrower_intakes', 'guarantors', (t) => t.jsonb('guarantors').nullable());
+
+  // OTP-based self-service password reset — replaces the old flow where
+  // "Forgot Password" emailed/texted a full temporary password directly.
+  // Only a short-lived, single-use OTP code is ever sent now; the user
+  // still has to choose their own new password to actually complete a
+  // reset (see /api/auth/forgot-password and /api/auth/reset-password).
+  // The OTP itself is stored hashed (bcrypt), same as a real password,
+  // not in plaintext.
+  await addColumnIfMissing('users', 'reset_otp_hash', (t) => t.text('reset_otp_hash').nullable());
+  await addColumnIfMissing('users', 'reset_otp_expires_at', (t) => t.timestamp('reset_otp_expires_at').nullable());
+  await addColumnIfMissing('users', 'reset_otp_attempts', (t) => t.integer('reset_otp_attempts').notNullable().defaultTo(0));
+  // Drives both the server-side resend cooldown (a client can't just hammer
+  // the endpoint to re-send OTPs) and lets the UI restore its countdown on
+  // page refresh instead of resetting to 0.
+  await addColumnIfMissing('users', 'reset_otp_last_sent_at', (t) => t.timestamp('reset_otp_last_sent_at').nullable());
 }
 
 async function createSchemaAndSeed() {
