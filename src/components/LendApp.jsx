@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/apiClient.js';
+import { submitPaymentOrQueue, syncQueuedPayments, getQueueCount, onQueueChanged } from '@/lib/offlineQueue.js';
 import {
   Home, Banknote, ClipboardList, Users, Landmark, KeyRound, LogOut,
   ArrowLeft, ArrowRight, ScrollText, Check, X, Phone, IdCard, ShieldCheck,
@@ -11,6 +12,18 @@ import {
   CircleCheck, CircleAlert, RefreshCcw, Download, ChevronRight, Calendar,
   Plus, ThumbsUp, ThumbsDown, Clock, Filter, LayoutGrid, Camera
 } from 'lucide-react';
+
+// Delays reflecting a fast-changing value until it's stopped changing for
+// `delayMs` — used to debounce search inputs that trigger a server request
+// per change, so typing "Bandara" fires one request instead of seven.
+function useDebouncedValue(value, delayMs = 350) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 // Threshold for the manual "Active Loans Overdue" review table in Reminder
 // Settings — a plain "what's overdue right now" display filter (days since
@@ -110,6 +123,11 @@ export default function LendApp() {
   // the count, for the "Applications" nav badge; the full list is fetched
   // by the Applications view itself when it's actually open.
   const [pendingIntakeCount, setPendingIntakeCount] = useState(0);
+  // Payments recorded with no connection, saved locally until they can
+  // sync — see src/lib/offlineQueue.js. Initialized from localStorage
+  // (not 0) so a reload while offline still shows the true pending count
+  // instead of losing it until the next mutation.
+  const [pendingSyncCount, setPendingSyncCount] = useState(() => (typeof window !== 'undefined' ? getQueueCount() : 0));
   // This organization's own branding (name + logo), read from this
   // deployment's own database via GET /api/settings — public/unauthenticated
   // since the login screen needs it before anyone's signed in. Replaces the
@@ -139,6 +157,12 @@ export default function LendApp() {
   const [adminToolsTab, setAdminToolsTab] = useState('cash'); // 'cash', 'ledger', 'users'
   const [adminUsers, setAdminUsers] = useState([]);
   const [userRoleFilter, setUserRoleFilter] = useState('all'); // 'all', 'admin', 'agent', 'borrower'
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  // Cash Handovers (admin verification queue) — fetches every remittance
+  // ever submitted with no server-side limit, so this grows unbounded over
+  // time; defaults to 'pending' since that's the actual actionable queue,
+  // not the full history.
+  const [remittanceStatusFilter, setRemittanceStatusFilter] = useState('pending');
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUserForm, setNewUserForm] = useState({ name: '', phone: '', email: '', role: 'agent', password: '', finance_access: true, ticket_access: true });
   const [remittances, setRemittances] = useState([]);
@@ -392,6 +416,41 @@ export default function LendApp() {
         .then(res => setPendingIntakeCount(Array.isArray(res) ? res.length : 0))
         .catch(() => {});
     }
+  }, [token, user]);
+
+  // Offline payment queue — sync attempts fire on login, on the browser's
+  // 'online' event (network actually came back), whenever the queue itself
+  // changes, and on demand from the header's "Sync Now" button. A sync
+  // that isn't actually online yet is harmless: syncQueuedPayments just
+  // leaves everything queued and returns immediately on the first network
+  // error, so there's no harm calling this speculatively.
+  const attemptQueueSync = async () => {
+    const { synced, failed } = await syncQueuedPayments();
+    if (synced.length > 0) {
+      const total = synced.reduce((s, item) => s + (parseFloat(item.payload?.amount) || 0), 0);
+      showToast(`Back online — synced ${synced.length} queued payment${synced.length === 1 ? '' : 's'} (LKR ${total.toLocaleString()}).`);
+      fetchDashboardData();
+    }
+    if (failed.length > 0) {
+      // Couldn't succeed even once back online (e.g. the loan's state
+      // changed since it was queued) — surfaced distinctly so it isn't
+      // silently lost; the entry has already been removed from the queue
+      // (see syncQueuedPayments) since retrying it would never work.
+      failed.forEach(({ item, message }) => {
+        showToast(`A queued payment for ${item.meta?.borrowerName || 'a borrower'} (LKR ${item.payload?.amount || '?'}) could not be synced: ${message}`, 'error');
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!token || !user) return;
+    attemptQueueSync();
+    const unsubscribe = onQueueChanged(setPendingSyncCount);
+    window.addEventListener('online', attemptQueueSync);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('online', attemptQueueSync);
+    };
   }, [token, user]);
 
   const fetchDashboardData = async () => {
@@ -963,15 +1022,20 @@ export default function LendApp() {
     setLoading(true);
     setError('');
     try {
-      await api.post('/payments', {
+      const result = await submitPaymentOrQueue('/payments', {
         loan_id: loanId,
         amount,
         payment_type: 'principal',
         payment_method: 'cash',
         idempotency_key: 'idemp_principal_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now()
-      });
-      showToast(`Principal payment of LKR ${amount.toLocaleString()} recorded.`);
-      if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
+      }, { amount, kind: 'Principal' });
+
+      if (result.queued) {
+        showToast(`No connection — principal payment of LKR ${amount.toLocaleString()} saved and will sync automatically once you're back online.`, 'info');
+      } else {
+        showToast(`Principal payment of LKR ${amount.toLocaleString()} recorded.`);
+        if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1799,8 +1863,11 @@ export default function LendApp() {
 
     setLoading(true);
     setError('');
+    // Find which loan was updated
+    const loan = agentData.assignedLoans.find(l => l.id === paymentForm.loan_id);
+    const kind = paymentForm.payment_type === 'interest' ? 'Interest' : 'Principal';
     try {
-      await api.post('/payments', {
+      const result = await submitPaymentOrQueue('/payments', {
         loan_id: paymentForm.loan_id,
         payment_type: paymentForm.payment_type,
         amount: parseFloat(paymentForm.amount),
@@ -1808,16 +1875,15 @@ export default function LendApp() {
         proof_image_url: paymentForm.proof_image || null,
         payment_method: paymentForm.payment_method,
         idempotency_key: paymentForm.idempotency_key
-      });
+      }, { borrowerName: loan?.borrower_name, amount: paymentForm.amount, kind });
 
-      // Find which loan was updated
-      const loan = agentData.assignedLoans.find(l => l.id === paymentForm.loan_id);
-      const kind = paymentForm.payment_type === 'interest' ? 'Interest' : 'Principal';
-
-      showToast(`${kind} collection recorded successfully! LKR ${parseFloat(paymentForm.amount).toLocaleString()} collected from ${loan?.borrower_name || 'Borrower'}.`);
-
-      // Update data
-      fetchDashboardData();
+      if (result.queued) {
+        showToast(`No connection — ${kind.toLowerCase()} collection of LKR ${parseFloat(paymentForm.amount).toLocaleString()} from ${loan?.borrower_name || 'Borrower'} saved and will sync automatically once you're back online.`, 'info');
+      } else {
+        showToast(`${kind} collection recorded successfully! LKR ${parseFloat(paymentForm.amount).toLocaleString()} collected from ${loan?.borrower_name || 'Borrower'}.`);
+        // Update data
+        fetchDashboardData();
+      }
 
       // Deliberately NOT auto-opening the receipt here — forcing a full
       // receipt screen after every single collection is unnecessary
@@ -1843,8 +1909,9 @@ export default function LendApp() {
     setLoading(true);
     setError('');
     const isFlatInstallmentLoan = !!loanStatement.loan.is_flat_installment;
+    const kind = isFlatInstallmentLoan ? 'Daily installment' : (ledgerPaymentForm.payment_type === 'interest' ? 'Interest' : 'Principal');
     try {
-      const response = await api.post('/payments', {
+      const result = await submitPaymentOrQueue('/payments', {
         loan_id: loanId,
         payment_type: isFlatInstallmentLoan ? 'flat_installment' : ledgerPaymentForm.payment_type,
         amount: parseFloat(ledgerPaymentForm.amount),
@@ -1852,10 +1919,7 @@ export default function LendApp() {
         proof_image_url: ledgerPaymentForm.proof_image || null,
         payment_method: ledgerPaymentForm.payment_method,
         idempotency_key: ledgerPaymentForm.idempotency_key || (Math.random().toString(36).substring(2) + Date.now())
-      });
-
-      const kind = isFlatInstallmentLoan ? 'Daily installment' : (ledgerPaymentForm.payment_type === 'interest' ? 'Interest' : 'Principal');
-      showToast(`${kind} collection recorded successfully! LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString()} collected.`);
+      }, { borrowerName: loanStatement.loan.borrower_name, amount: ledgerPaymentForm.amount, kind });
 
       setLedgerPaymentForm({
         payment_type: 'interest',
@@ -1866,9 +1930,19 @@ export default function LendApp() {
         idempotency_key: Math.random().toString(36).substring(2) + Date.now()
       });
 
-      const updatedDetails = await api.get(`/loans/${loanId}`);
-      setLoanStatement(updatedDetails);
-      fetchDashboardData();
+      if (result.queued) {
+        // No network right now — the entry is saved locally and will
+        // replay automatically once back online (see syncQueuedPayments).
+        // Deliberately NOT refetching loan details here: the server hasn't
+        // actually applied this payment yet, so refetching would just
+        // show the same pre-payment balance and look like nothing happened.
+        showToast(`No connection — ${kind.toLowerCase()} payment of LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString()} saved and will sync automatically once you're back online.`, 'info');
+      } else {
+        showToast(`${kind} collection recorded successfully! LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString()} collected.`);
+        const updatedDetails = await api.get(`/loans/${loanId}`);
+        setLoanStatement(updatedDetails);
+        fetchDashboardData();
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1881,6 +1955,13 @@ export default function LendApp() {
     setSelectedLoanId(loanId);
     setView('ledger');
     setLedgerTab('passbook');
+    // Reset to the Record Payment sub-tab every time (mobile only — see
+    // passbookMobileTab), not just on first mount. Without this, opening
+    // one loan, switching to its Activity Log, then tapping a DIFFERENT
+    // loan from the directory would land you on that other loan's Activity
+    // Log too — carrying over a tab choice that had nothing to do with the
+    // new loan, and defeating a "tap card -> pay" quick action.
+    setPassbookMobileTab('record');
     setLedgerPaymentForm({
       payment_type: 'interest',
       amount: '',
@@ -2479,11 +2560,11 @@ export default function LendApp() {
           SMS was actually sent (see showToast above). */}
       <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '380px' }}>
         {toastAlerts.map(toast => (
-          <div key={toast.id} className="animate-fade-in" style={{ padding: '16px', background: toast.type === 'error' ? 'var(--accent-rose, #dc2626)' : 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
+          <div key={toast.id} className="animate-fade-in" style={{ padding: '16px', background: toast.type === 'error' ? 'var(--accent-rose, #dc2626)' : toast.type === 'info' ? 'var(--accent-amber, #d97706)' : 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
             <div style={{ fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {toast.type === 'error' ? <CircleAlert className="icon" /> : <CircleCheck className="icon" />}
-                {toast.type === 'error' ? 'Error' : 'Success'}
+                {toast.type === 'error' ? <CircleAlert className="icon" /> : toast.type === 'info' ? <Clock className="icon" /> : <CircleCheck className="icon" />}
+                {toast.type === 'error' ? 'Error' : toast.type === 'info' ? 'Saved — Pending Sync' : 'Success'}
               </span>
             </div>
             <p style={{ fontSize: '13px', lineHeight: '1.4' }}>{toast.message}</p>
@@ -2506,6 +2587,17 @@ export default function LendApp() {
               <span style={{ fontWeight: '800', letterSpacing: '0.5px' }}>{(orgSettings.org_name || 'Loading...').toUpperCase()}</span>
             </h1>
             <span className="badge badge-active">{user.role}</span>
+            {pendingSyncCount > 0 && (
+              <button
+                type="button"
+                className="badge badge-pending"
+                style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                onClick={attemptQueueSync}
+                title="Payments saved offline, waiting to sync — tap to retry now"
+              >
+                <Clock style={{ width: '11px', height: '11px' }} /> {pendingSyncCount} pending sync
+              </button>
+            )}
           </div>
 
           {/* Desktop Navigation Links */}
@@ -2519,7 +2611,10 @@ export default function LendApp() {
               </button>
               <button className={`nav-link-btn ${view === 'next-day-tasklist' ? 'active' : ''}`} onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); }}><Calendar className="icon" /> Next Day Tasklist</button>
               <button className={`nav-link-btn ${view === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); }}><CreditCard className="icon" /> Record Payment</button>
-              <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}><ClipboardList className="icon" /> Check Loans</button>
+              <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}>
+                <ClipboardList className="icon" /> Check Loans
+                {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ marginLeft: '6px', padding: '1px 6px', fontSize: '10px' }}>{adminData.summary.totalOverdue}</span>}
+              </button>
               <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}><Users className="icon" /> Agent Route</button>
               <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Users & Cash Tools</button>
               <button className={`nav-link-btn ${view === 'interest-center' ? 'active' : ''}`} onClick={() => { setView('interest-center'); setSelectedLoanId(null); setLoanStatement(null); }}><TrendingUp className="icon" /> Interest Center</button>
@@ -4282,7 +4377,7 @@ export default function LendApp() {
                 )}
 
                 {/* All Active Loans list */}
-                <LoansLoader onSelect={viewStatement} fetchTrigger={adminData} />
+                <LoansLoader onSelect={viewStatement} onQuickPay={viewStatement} fetchTrigger={adminData} />
               </div>
             )}
 
@@ -4437,11 +4532,32 @@ export default function LendApp() {
                       <Download className="icon" /> Export CSV
                     </button>
                   </div>
-                  {remittances.length === 0 ? (
-                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No cash handovers submitted yet.</p>
+                  {/* Defaults to Pending — that's the actionable queue; this
+                      list has no server-side date limit and grows forever,
+                      so without a filter every verified/rejected handover
+                      ever submitted buries the ones actually needing a
+                      decision. */}
+                  <div style={{ display: 'inline-flex', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '3px', marginBottom: '16px' }}>
+                    {['pending', 'verified', 'rejected', 'all'].map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setRemittanceStatusFilter(s)}
+                        style={{
+                          padding: '7px 14px', fontSize: '12px', fontWeight: '700', textTransform: 'capitalize', borderRadius: '7px', border: 'none', cursor: 'pointer',
+                          background: remittanceStatusFilter === s ? 'var(--accent-blue)' : 'transparent',
+                          color: remittanceStatusFilter === s ? '#fff' : 'var(--text-secondary)'
+                        }}
+                      >
+                        {s} {s !== 'all' && `(${remittances.filter(r => r.status === s).length})`}
+                      </button>
+                    ))}
+                  </div>
+                  {remittances.filter(r => remittanceStatusFilter === 'all' || r.status === remittanceStatusFilter).length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No {remittanceStatusFilter !== 'all' ? remittanceStatusFilter : ''} cash handovers.</p>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {remittances.map(r => (
+                      {remittances.filter(r => remittanceStatusFilter === 'all' || r.status === remittanceStatusFilter).map(r => (
                         <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', border: '1px solid var(--border-light)', borderRadius: '8px' }}>
                           <div>
                             <div style={{ fontWeight: 'bold' }}>{r.agent_name} — LKR {parseFloat(r.amount).toLocaleString()}</div>
@@ -4661,6 +4777,10 @@ export default function LendApp() {
                         </button>
                       ))}
                     </div>
+                    <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
+                      <Search style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', width: '14px', height: '14px', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                      <input type="text" className="glass-input" placeholder="Search name, phone, email…" value={userSearchTerm} onChange={e => setUserSearchTerm(e.target.value)} style={{ paddingLeft: '32px', fontSize: '13px', width: '100%' }} />
+                    </div>
                   </div>
 
                   <div className="desktop-only" style={{ overflowX: 'auto' }}>
@@ -4676,7 +4796,7 @@ export default function LendApp() {
                         </tr>
                       </thead>
                       <tbody>
-                        {adminUsers.filter(u => userRoleFilter === 'all' || u.role === userRoleFilter).map(u => (
+                        {adminUsers.filter(u => (userRoleFilter === 'all' || u.role === userRoleFilter) && (!userSearchTerm.trim() || [u.name, u.phone, u.email].some(f => (f || '').toLowerCase().includes(userSearchTerm.trim().toLowerCase())))).map(u => (
                           <tr key={u.id}>
                             <td style={{ fontWeight: 'bold' }}>{u.name}</td>
                             <td style={{ textTransform: 'capitalize' }}>{u.role}</td>
@@ -4713,7 +4833,7 @@ export default function LendApp() {
                   </div>
 
                   <div className="mobile-only mobile-card-list">
-                    {adminUsers.filter(u => userRoleFilter === 'all' || u.role === userRoleFilter).map(u => (
+                    {adminUsers.filter(u => (userRoleFilter === 'all' || u.role === userRoleFilter) && (!userSearchTerm.trim() || [u.name, u.phone, u.email].some(f => (f || '').toLowerCase().includes(userSearchTerm.trim().toLowerCase())))).map(u => (
                       <div key={u.id} className="mobile-row-card">
                         <div className="mobile-row-card-header">
                           <span className="mobile-row-card-title">{u.name}</span>
@@ -7292,9 +7412,10 @@ export default function LendApp() {
                 <span className="bottom-nav-label">Applications</span>
                 {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{pendingIntakeCount}</span>}
               </button>
-              <button className={`bottom-nav-item ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}>
+              <button className={`bottom-nav-item ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
                 <span className="bottom-nav-icon"><ClipboardList /></span>
                 <span className="bottom-nav-label">Check Loans</span>
+                {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{adminData.summary.totalOverdue}</span>}
               </button>
               <button className={`bottom-nav-item ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}>
                 <span className="bottom-nav-icon"><Users /></span>
@@ -7376,7 +7497,39 @@ function SkeletonCards({ count = 3, lines = 2 }) {
   );
 }
 
-function LoansLoader({ onSelect, fetchTrigger }) {
+// Last-5-days paid/not-paid streak, oldest -> newest (today on the right) —
+// like a sports scorecard's recent form. Only rendered for loans that
+// actually carry `last5Days` (daily-cadence loans — see GET /api/loans).
+// 'before_loan' days (the loan didn't exist yet) render as a neutral dash
+// rather than a red miss, since nothing was actually due that day.
+function Last5DaysStreak({ last5Days }) {
+  if (!last5Days || last5Days.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', gap: '3px' }} title="Last 5 days">
+      {last5Days.map((d) => {
+        const isPaid = d.status === 'paid';
+        const isBeforeLoan = d.status === 'before_loan';
+        const bg = isBeforeLoan ? 'var(--bg-tertiary)' : isPaid ? 'var(--accent-emerald)' : 'var(--accent-rose)';
+        return (
+          <span
+            key={d.date}
+            title={`${new Date(d.date).toLocaleDateString()}: ${isBeforeLoan ? 'Before loan started' : isPaid ? 'Paid' : 'Not paid'}`}
+            style={{
+              width: '14px', height: '14px', borderRadius: '4px', background: bg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+          >
+            {!isBeforeLoan && (isPaid
+              ? <Check style={{ width: '9px', height: '9px', color: '#fff', strokeWidth: 3.5 }} />
+              : <X style={{ width: '9px', height: '9px', color: '#fff', strokeWidth: 3.5 }} />)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
   const [loans, setLoans] = useState([]);
   const [agents, setAgents] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -7387,6 +7540,17 @@ function LoansLoader({ onSelect, fetchTrigger }) {
   // full remaining balance, or just what's due for one collection period
   // (today's round) on its schedule.
   const [outstandingView, setOutstandingView] = useState('total');
+  // Quick chip: active loans nobody's paid on in 7+ days (or ever) — the
+  // subtler "stalled" case the separate Overdue Accounts card (which only
+  // catches loans past their accrual date) doesn't surface on its own.
+  const [followUpFilter, setFollowUpFilter] = useState(false);
+  // Typeahead dropdown — shows a handful of matches right under the search
+  // box as you type (click one to jump straight to that loan), on top of
+  // the full list below still narrowing itself. The list below was already
+  // a live, per-keystroke filter (no debounce needed, everything's already
+  // in memory) — this isn't fixing a "too slow" search, it's giving a
+  // faster path to one specific loan without scrolling/paging the list.
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   // Quick period shortcut — sets fromDate/toDate for you rather than
@@ -7425,6 +7589,22 @@ function LoansLoader({ onSelect, fetchTrigger }) {
     }
   };
 
+  // Measured (not hardcoded) so the sticky search bar sits flush under the
+  // real .app-header regardless of how tall it renders — that height
+  // differs between desktop and the shrunk mobile header, and hardcoding
+  // either would either leave a gap or get hidden under the header on the
+  // other breakpoint. Re-measures on resize/orientation change.
+  const [stickyTop, setStickyTop] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      const header = document.querySelector('.app-header');
+      setStickyTop(header ? header.getBoundingClientRect().height : 0);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -7439,14 +7619,16 @@ function LoansLoader({ onSelect, fetchTrigger }) {
       .finally(() => setLoading(false));
   }, [fetchTrigger]);
 
-  useEffect(() => { setPage(1); }, [searchTerm, statusFilter, typeFilter, agentFilter, fromDate, toDate, fetchTrigger]);
+  useEffect(() => { setPage(1); }, [searchTerm, statusFilter, typeFilter, agentFilter, fromDate, toDate, followUpFilter, fetchTrigger]);
 
   const clearAllFilters = () => {
     setSearchTerm(''); setStatusFilter('all'); setTypeFilter('all');
-    setAgentFilter('all'); setFromDate(''); setToDate(''); setPeriodPreset('all');
+    setAgentFilter('all'); setFromDate(''); setToDate(''); setPeriodPreset('all'); setFollowUpFilter(false);
   };
 
   if (loading) return <div className="glass-card" style={{ marginTop: '24px' }}><SkeletonCards count={4} lines={2} /></div>;
+
+  const followUpCount = loans.filter(isNeedsFollowUp).length;
 
   const filteredLoans = loans.filter(loan => {
     const q = searchTerm.trim().toLowerCase();
@@ -7458,16 +7640,50 @@ function LoansLoader({ onSelect, fetchTrigger }) {
     const matchesStatus = statusFilter === 'all' || loan.status === statusFilter;
     const matchesType = typeFilter === 'all' || loan.interest_type === typeFilter;
     const matchesAgent = agentFilter === 'all' || String(loan.assigned_agent_id) === String(agentFilter);
+    const matchesFollowUp = !followUpFilter || isNeedsFollowUp(loan);
     let matchesDate = true;
     if (fromDate) matchesDate = matchesDate && new Date(loan.created_at) >= new Date(fromDate);
     if (toDate) { const e = new Date(toDate); e.setHours(23,59,59,999); matchesDate = matchesDate && new Date(loan.created_at) <= e; }
-    return matchesSearch && matchesStatus && matchesType && matchesAgent && matchesDate;
-  });
+    return matchesSearch && matchesStatus && matchesType && matchesAgent && matchesFollowUp && matchesDate;
+  })
+    // Sorted by urgency (Awaiting Approval -> Needs Follow-up -> Due Soon ->
+    // Active -> Defaulted -> Fully Paid -> Other) rather than left in the
+    // API's plain created-date order — a stable sort, so loans within the
+    // same urgency group keep their original relative order. This is what
+    // lets the directory read as "what needs attention first" without
+    // requiring a filter to be applied.
+    .sort((a, b) => urgencyGroupOf(a).rank - urgencyGroupOf(b).rank);
 
-  const hasActiveFilters = searchTerm || statusFilter !== 'all' || typeFilter !== 'all' || agentFilter !== 'all' || fromDate || toDate;
+  // Typeahead suggestions — searches the FULL loan list (not just the
+  // currently status/type/agent-filtered set), since the whole point is a
+  // fast path to one loan regardless of what filters happen to be active.
+  // Capped at 8 so it stays a quick-scan dropdown, not another full list.
+  const searchSuggestions = searchTerm.trim()
+    ? loans.filter(loan => {
+        const q = searchTerm.trim().toLowerCase();
+        return loan.borrower_name.toLowerCase().includes(q) ||
+          loan.borrower_phone.includes(q) ||
+          (loan.nic_number && loan.nic_number.toLowerCase().includes(q)) ||
+          (loan.reference_number && loan.reference_number.toLowerCase().includes(q));
+      }).slice(0, 8)
+    : [];
+
+  const hasActiveFilters = searchTerm || statusFilter !== 'all' || typeFilter !== 'all' || agentFilter !== 'all' || fromDate || toDate || followUpFilter;
   const totalPages = Math.max(1, Math.ceil(filteredLoans.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pagedLoans = filteredLoans.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  // Precomputes which rows start a new urgency section on THIS page, so
+  // both the desktop table and mobile card list can insert the same
+  // section header without duplicating the "did the group just change"
+  // bookkeeping in two separate render loops.
+  let prevGroupRank = null;
+  const pagedLoansWithGroups = pagedLoans.map(loan => {
+    const group = urgencyGroupOf(loan);
+    const showGroupHeader = group.rank !== prevGroupRank;
+    prevGroupRank = group.rank;
+    return { loan, group, showGroupHeader };
+  });
 
   // The loan's full remaining balance — principal and interest combined
   // into one figure. Splitting these into two columns only made sense as
@@ -7493,15 +7709,52 @@ function LoansLoader({ onSelect, fetchTrigger }) {
     return Math.min(period, remaining);
   };
 
+  // Tiny "Last Paid" detail for the directory — null/undefined means the
+  // loan has never had a payment collected. Colored amber/rose the longer
+  // it's been, so a stalled active account is spottable at a glance
+  // without opening the full statement (the whole point of a directory
+  // view — the Overdue Accounts card above already covers loans past
+  // their accrual date, this covers the subtler "still active but nobody's
+  // paid in a while" case a due-date check alone won't catch).
+  const lastPaidInfo = (loan) => {
+    if (!loan.last_payment_date) {
+      return { text: 'Never paid', color: loan.status === 'active' ? 'var(--accent-rose)' : 'var(--text-muted)' };
+    }
+    const days = Math.floor((Date.now() - new Date(loan.last_payment_date).getTime()) / 86400000);
+    const text = days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
+    const color = loan.status !== 'active' ? 'var(--text-muted)' : days >= 14 ? 'var(--accent-rose)' : days >= 7 ? 'var(--accent-amber)' : 'var(--text-muted)';
+    return { text, color };
+  };
+
+  const isNeedsFollowUp = (loan) => loan.status === 'active' && lastPaidInfo(loan).color !== 'var(--text-muted)';
+
+  // Which section a loan belongs in when the directory is sorted by
+  // urgency — lower rank surfaces first, so what needs a human's attention
+  // soonest (an approval decision, a stalled collection) is always at the
+  // top of the list instead of buried behind filters.
+  const urgencyGroupOf = (loan) => {
+    if (loan.status === 'pending') return { rank: 0, label: 'Awaiting Approval', icon: '⏳' };
+    if (loan.status === 'active') {
+      const { color } = lastPaidInfo(loan);
+      if (color === 'var(--accent-rose)') return { rank: 1, label: 'Needs Follow-up', icon: '🔴' };
+      if (color === 'var(--accent-amber)') return { rank: 2, label: 'Due Soon', icon: '🟡' };
+      return { rank: 3, label: 'Active', icon: '🟢' };
+    }
+    if (loan.status === 'defaulted') return { rank: 4, label: 'Defaulted', icon: '⚠️' };
+    if (loan.status === 'fully_paid') return { rank: 5, label: 'Fully Paid', icon: '✅' };
+    return { rank: 6, label: 'Other', icon: '⚪' };
+  };
+
   const handleExportCsv = () => {
     downloadCsv(
       `loans-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Total Collected', 'Total Outstanding', "Today's Due", 'Agent', 'Status'],
+      ['Date Given', 'Borrower', 'Phone', 'NIC', 'Principal', 'Interest Type', 'Rate %', 'Total Collected', 'Total Outstanding', "Today's Due", 'Last Paid', 'Agent', 'Status'],
       filteredLoans.map(loan => [
         new Date(loan.created_at).toLocaleDateString(), loan.borrower_name, loan.borrower_phone,
         loan.nic_number || '', parseFloat(loan.principal_amount).toFixed(2), loan.interest_type,
         loan.interest_rate, (parseFloat(loan.total_collected) || 0).toFixed(2), totalOutstandingOf(loan).toFixed(2),
-        periodDueOf(loan).toFixed(2), loan.agent_name || 'Self-Collect', loan.status
+        periodDueOf(loan).toFixed(2), loan.last_payment_date ? new Date(loan.last_payment_date).toLocaleDateString() : 'Never',
+        loan.agent_name || 'Self-Collect', loan.status
       ])
     );
   };
@@ -7589,10 +7842,59 @@ function LoansLoader({ onSelect, fetchTrigger }) {
 
       {/* Filter Panel */}
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        {/* Just the search bar sticks, not the whole filter drawer below it
+            — a full sticky panel (period/type/agent dropdowns and all)
+            would eat too much screen on a long scroll; the search box is
+            the one control worth keeping reachable without scrolling back
+            up, especially one-handed on mobile. */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', position: 'sticky', top: stickyTop, zIndex: 40, background: 'var(--bg-secondary)', paddingTop: '2px', paddingBottom: '2px' }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <Search style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', width: '14px', height: '14px', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input type="text" className="glass-input" placeholder="Search name, phone, NIC, code…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ paddingLeft: '32px', fontSize: '13px', width: '100%' }} />
+            <input
+              type="text"
+              className="glass-input"
+              placeholder="Search name, phone, NIC, code…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
+              style={{ paddingLeft: '32px', fontSize: '13px', width: '100%' }}
+            />
+            {isSearchFocused && searchSuggestions.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '10px',
+                  boxShadow: 'var(--shadow-md)', overflow: 'hidden', maxHeight: '320px', overflowY: 'auto',
+                }}
+              >
+                {searchSuggestions.map(loan => (
+                  <button
+                    key={loan.id}
+                    type="button"
+                    // onMouseDown (not onClick) fires BEFORE the input's onBlur
+                    // closes this dropdown — onClick alone would never get a
+                    // chance to run.
+                    onMouseDown={(e) => { e.preventDefault(); onSelect(loan.id); }}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%',
+                      padding: '10px 14px', border: 'none', borderBottom: '1px solid var(--border-light)',
+                      background: 'transparent', cursor: 'pointer', textAlign: 'left', font: 'inherit',
+                    }}
+                  >
+                    <span style={{ minWidth: 0 }}>
+                      <strong style={{ display: 'block', fontSize: '13px' }}>{loan.borrower_name}</strong>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {loan.borrower_phone}{loan.reference_number ? ` · ${loan.reference_number}` : ''}
+                      </span>
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: totalOutstandingOf(loan) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap', marginLeft: '10px' }}>
+                      {totalOutstandingOf(loan) > 0 ? `LKR ${totalOutstandingOf(loan).toLocaleString()}` : 'Settled'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -7664,6 +7966,17 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                 {f.label}
               </button>
             ))}
+            {/* Quick chip, separate from the status filters above — cuts
+                across status (only ever matches active loans) to answer
+                "who has nobody collected from in a while", which a status
+                filter alone can't express. */}
+            <span style={{ width: '1px', height: '18px', background: 'var(--border-light)', margin: '0 2px' }} />
+            <button type="button"
+              className={`glass-btn ${followUpFilter ? 'glass-btn-rose' : 'glass-btn-secondary'}`}
+              style={{ padding: '5px 14px', fontSize: '12px', fontWeight: followUpFilter ? '700' : '500' }}
+              onClick={() => setFollowUpFilter(f => !f)}>
+              🔴 Needs Follow-up ({followUpCount})
+            </button>
           </div>
         </div>
         {hasActiveFilters && (
@@ -7671,6 +7984,7 @@ function LoansLoader({ onSelect, fetchTrigger }) {
             <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active:</span>
             {searchTerm && <span style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>"{searchTerm}"</span>}
             {statusFilter !== 'all' && <span style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--accent-emerald)', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>{statusFilter}</span>}
+            {followUpFilter && <span style={{ background: 'rgba(244,63,94,0.15)', color: 'var(--accent-rose)', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>Needs Follow-up</span>}
             {typeFilter !== 'all' && <span style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--accent-amber)', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>{typeFilter}</span>}
             {agentFilter !== 'all' && <span style={{ background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>{agents.find(a => String(a.id) === agentFilter)?.name || 'Agent'}</span>}
             {fromDate && <span style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>From {fromDate}</span>}
@@ -7700,13 +8014,21 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                 </tr>
               </thead>
               <tbody>
-                {pagedLoans.map((loan, i) => {
+                {pagedLoansWithGroups.map(({ loan, group, showGroupHeader }, i) => {
                   const isActive = loan.status === 'active';
                   const isPaid = loan.status === 'fully_paid';
                   const isPending = loan.status === 'pending';
                   const isRejected = loan.status === 'rejected';
                   return (
-                    <tr key={loan.id}
+                    <React.Fragment key={loan.id}>
+                    {showGroupHeader && (
+                      <tr>
+                        <td colSpan={9} style={{ padding: '10px 14px', fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', background: 'var(--bg-tertiary)', borderTop: i > 0 ? '2px solid var(--border-light)' : 'none' }}>
+                          {group.icon} {group.label}
+                        </td>
+                      </tr>
+                    )}
+                    <tr
                       style={{ borderBottom: '1px solid var(--border-light)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)', cursor: 'pointer', transition: 'background 0.15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.06)'}
                       onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
@@ -7727,6 +8049,10 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                         </div>
                         {loan.nic_number && <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}><IdCard className="icon" /> {loan.nic_number}</span>}
                         {loan.reference_number && <span style={{ fontSize: '10px', background: 'rgba(59,130,246,0.12)', color: 'var(--accent-blue)', padding: '1px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '2px' }}>{loan.reference_number}</span>}
+                        <span style={{ fontSize: '10px', color: lastPaidInfo(loan).color, display: 'block', marginTop: '2px', fontWeight: lastPaidInfo(loan).color !== 'var(--text-muted)' ? '700' : '400' }}>
+                          <CreditCard className="icon" style={{ width: '10px', height: '10px' }} /> Last paid: {lastPaidInfo(loan).text}
+                        </span>
+                        {loan.last5Days && <div style={{ marginTop: '4px' }}><Last5DaysStreak last5Days={loan.last5Days} /></div>}
                       </td>
                       <td style={{ padding: '12px 14px', fontWeight: '700', whiteSpace: 'nowrap' }}>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
                       <td style={{ padding: '12px 14px' }}>
@@ -7753,23 +8079,37 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        <button className="glass-btn glass-btn-secondary" style={{ padding: '5px 12px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }} onClick={e => { e.stopPropagation(); onSelect(loan.id); }}>View &rarr;</button>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {isActive && (
+                            <button className="glass-btn glass-btn-emerald" style={{ padding: '5px 12px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }} onClick={e => { e.stopPropagation(); onQuickPay(loan.id); }} title="Jump straight to Record Payment for this loan">
+                              <CreditCard className="icon" style={{ width: '11px', height: '11px' }} /> Pay
+                            </button>
+                          )}
+                          <button className="glass-btn glass-btn-secondary" style={{ padding: '5px 12px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }} onClick={e => { e.stopPropagation(); onSelect(loan.id); }}>View &rarr;</button>
+                        </div>
                       </td>
                     </tr>
+                    </React.Fragment>
                   );
                 })}
               </tbody>
             </table>
           </div>
           <div className="mobile-only" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {pagedLoans.map(loan => {
+            {pagedLoansWithGroups.map(({ loan, group, showGroupHeader }) => {
               const isActive = loan.status === 'active';
               const isPaid = loan.status === 'fully_paid';
               const isPending = loan.status === 'pending';
               const isRejected = loan.status === 'rejected';
               const bc = isActive ? 'var(--accent-amber)' : isPaid ? 'var(--accent-emerald)' : isPending ? 'var(--accent-blue)' : isRejected ? 'var(--text-muted)' : 'var(--accent-rose)';
               return (
-                <div key={loan.id} onClick={() => onSelect(loan.id)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '14px 16px', cursor: 'pointer', borderLeft: `4px solid ${bc}` }}>
+                <React.Fragment key={loan.id}>
+                {showGroupHeader && (
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '10px 4px 2px' }}>
+                    {group.icon} {group.label}
+                  </div>
+                )}
+                <div onClick={() => onSelect(loan.id)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '14px 16px', cursor: 'pointer', borderLeft: `4px solid ${bc}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                     <div>
                       <strong style={{ fontSize: '15px', display: 'block' }}>{loan.borrower_name}</strong>
@@ -7814,11 +8154,31 @@ function LoansLoader({ onSelect, fetchTrigger }) {
                       </div>
                     ))}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-light)', fontSize: '11px', color: 'var(--text-muted)' }}>
-                    <span>{loan.agent_name || 'Office'} · {new Date(loan.created_at).toLocaleDateString()}</span>
-                    <span style={{ color: 'var(--accent-blue)', fontWeight: '700' }}>View →</span>
+                  {loan.last5Days && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Last 5 Days:</span>
+                      <Last5DaysStreak last5Days={loan.last5Days} />
+                    </div>
+                  )}
+                  {isActive && (
+                    <button
+                      type="button"
+                      className="glass-btn glass-btn-emerald"
+                      style={{ width: '100%', marginTop: '10px', padding: '10px', fontSize: '13px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                      onClick={e => { e.stopPropagation(); onQuickPay(loan.id); }}
+                    >
+                      <CreditCard className="icon" style={{ width: '14px', height: '14px' }} /> Record Payment
+                    </button>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-light)', fontSize: '11px' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>{loan.agent_name || 'Office'} · {new Date(loan.created_at).toLocaleDateString()}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ color: lastPaidInfo(loan).color, fontWeight: lastPaidInfo(loan).color !== 'var(--text-muted)' ? '700' : '400' }}>Paid: {lastPaidInfo(loan).text}</span>
+                      <ChevronRight style={{ width: '13px', height: '13px', color: 'var(--text-muted)' }} />
+                    </span>
                   </div>
                 </div>
+                </React.Fragment>
               );
             })}
           </div>
@@ -8008,11 +8368,17 @@ function AuditLogLoader() {
   const [actionType, setActionType] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  // The typed value updates instantly (so the input never feels laggy);
+  // the DEBOUNCED value is what actually triggers a request — this was
+  // previously firing a fresh /api/audit-logs call on every single
+  // keystroke, which both hammers the server and makes fast typing feel
+  // janky as each half-typed query briefly flashes its own results.
+  const debouncedSearch = useDebouncedValue(search, 350);
 
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), limit: '25' });
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     if (actionType) params.set('actionType', actionType);
     if (fromDate) params.set('from', fromDate);
     if (toDate) params.set('to', toDate);
@@ -8021,11 +8387,11 @@ function AuditLogLoader() {
       .then(res => setData(res))
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
-  }, [page, search, actionType, fromDate, toDate]);
+  }, [page, debouncedSearch, actionType, fromDate, toDate]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, actionType, fromDate, toDate]);
+  }, [debouncedSearch, actionType, fromDate, toDate]);
 
   const clearFilters = () => {
     setSearch('');
@@ -8170,11 +8536,12 @@ function PaymentHistoryLoader() {
   const [toDate, setToDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [paymentType, setPaymentType] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 350);
 
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), limit: '25' });
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     if (fromDate) params.set('from', fromDate);
     if (toDate) params.set('to', toDate);
     if (paymentMethod) params.set('paymentMethod', paymentMethod);
@@ -8184,11 +8551,11 @@ function PaymentHistoryLoader() {
       .then(res => setData(res))
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
-  }, [page, search, fromDate, toDate, paymentMethod, paymentType]);
+  }, [page, debouncedSearch, fromDate, toDate, paymentMethod, paymentType]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, fromDate, toDate, paymentMethod, paymentType]);
+  }, [debouncedSearch, fromDate, toDate, paymentMethod, paymentType]);
 
   const clearFilters = () => {
     setSearch('');
@@ -8464,6 +8831,11 @@ const flatInstallmentDueToday = (loan) => {
 function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   const [collectionType, setCollectionType] = useState('daily'); // 'daily', 'weekly', 'monthly'
   const [searchTerm, setSearchTerm] = useState('');
+  // Only meaningful in admin usage (self-fetches every agent's loans mixed
+  // together) — an agent's own view already only ever contains their own
+  // loans, so the dropdown naturally has nothing to filter and stays hidden
+  // (see the "> 1 distinct agent" check below).
+  const [agentFilter, setAgentFilter] = useState('all');
   const [selectedRows, setSelectedRows] = useState({});
   const [submittingIds, setSubmittingIds] = useState({});
   const [fetchedLoans, setFetchedLoans] = useState([]);
@@ -8500,7 +8872,15 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
   const activeSource = (loans && loans.length > 0) ? loans : fetchedLoans;
   const typeLoans = activeSource.filter(l => l.status === 'active' && l.interest_type === collectionType);
 
+  // Distinct agents present in THIS collection type's loans, sorted by
+  // name — recomputed per tab since "who has daily loans" and "who has
+  // monthly loans" can be different sets of agents.
+  const distinctAgents = Array.from(
+    new Map(typeLoans.filter(l => l.assigned_agent_id).map(l => [l.assigned_agent_id, l.agent_name])).entries()
+  ).sort((a, b) => (a[1] || '').localeCompare(b[1] || ''));
+
   const filteredLoans = typeLoans.filter(l => {
+    if (agentFilter !== 'all' && String(l.assigned_agent_id) !== agentFilter) return false;
     if (!searchTerm) return true;
     const term = searchTerm.trim().toLowerCase();
     return (
@@ -8580,7 +8960,8 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     try {
       const idempotencyKey = `idemp_${collectionType}_${loan.id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const isBackdated = collectionDate && collectionDate !== todayLocalDateStr();
-      await api.post('/payments', {
+      const typeLabel = paymentType === 'flat_installment' ? 'daily installment' : paymentType;
+      const result = await submitPaymentOrQueue('/payments', {
         loan_id: loan.id,
         amount: amountVal,
         payment_type: paymentType,
@@ -8588,27 +8969,35 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
         payment_method: 'cash',
         idempotency_key: idempotencyKey,
         ...(isBackdated ? { payment_date: collectionDate } : {})
-      });
+      }, { borrowerName: loan.borrower_name, amount: amountVal, kind: typeLabel });
 
-      if (showToast) {
-        const typeLabel = paymentType === 'flat_installment' ? 'daily installment' : paymentType;
-        showToast(`Recorded LKR ${amountVal.toLocaleString()} ${typeLabel} payment for ${loan.borrower_name}!`);
+      if (result.queued) {
+        // Deliberately does NOT clear the row or refresh Due figures here —
+        // unlike a synced success, the server hasn't actually applied this
+        // yet, so this loan should still show as needing collection until
+        // the queued entry actually syncs (see the "Tharsika double-payment"
+        // note above this component — the exact failure mode this avoids
+        // is a stale-looking row getting submitted again as a genuine
+        // duplicate because the UI implied it was already done).
+        if (showToast) showToast(`No connection — LKR ${amountVal.toLocaleString()} ${typeLabel} payment for ${loan.borrower_name} saved and will sync automatically once you're back online.`, 'info');
+      } else {
+        if (showToast) showToast(`Recorded LKR ${amountVal.toLocaleString()} ${typeLabel} payment for ${loan.borrower_name}!`);
+
+        // Clear completed row input
+        setSelectedRows(prev => {
+          const copy = { ...prev };
+          delete copy[loan.id];
+          return copy;
+        });
+
+        if (onRefresh) onRefresh();
+        // onRefresh() only updates the PARENT's data (adminData/agentData) —
+        // in self-fetch mode this screen's own loan list (fetchedLoans) is a
+        // separate copy that onRefresh never touches, so it has to be
+        // explicitly refreshed here too or this loan's Due figure stays
+        // stale for the rest of the session.
+        if (!loans || loans.length === 0) fetchOwnLoans();
       }
-
-      // Clear completed row input
-      setSelectedRows(prev => {
-        const copy = { ...prev };
-        delete copy[loan.id];
-        return copy;
-      });
-
-      if (onRefresh) onRefresh();
-      // onRefresh() only updates the PARENT's data (adminData/agentData) —
-      // in self-fetch mode this screen's own loan list (fetchedLoans) is a
-      // separate copy that onRefresh never touches, so it has to be
-      // explicitly refreshed here too or this loan's Due figure stays
-      // stale for the rest of the session.
-      if (!loans || loans.length === 0) fetchOwnLoans();
     } catch (err) {
       if (showToast) showToast(err.message || 'Payment recording failed.', 'error');
     } finally {
@@ -8692,14 +9081,24 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
         )}
       </div>
 
-      <input
-        type="text"
-        className="glass-input"
-        placeholder="Search borrower, phone, NIC, or ID..."
-        value={searchTerm}
-        onChange={e => setSearchTerm(e.target.value)}
-        style={{ marginBottom: '16px' }}
-      />
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          className="glass-input"
+          placeholder="Search borrower, phone, NIC, or ID..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          style={{ flex: 1, minWidth: '200px' }}
+        />
+        {/* Only worth showing once there's actually more than one agent to
+            tell apart — an agent's own view never has more than one. */}
+        {distinctAgents.length > 1 && (
+          <select className="glass-input" value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{ width: 'auto', minWidth: '160px' }}>
+            <option value="all">All Agents</option>
+            {distinctAgents.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        )}
+      </div>
 
       {!loadingLoans && filteredLoans.length > 0 && (
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', fontSize: '13px', fontWeight: '600' }}>
@@ -8768,6 +9167,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <strong style={{ display: 'block', fontSize: '14px' }}>{loan.borrower_name}</strong>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                        {loan.last5Days && <div style={{ marginTop: '4px' }}><Last5DaysStreak last5Days={loan.last5Days} /></div>}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <span style={{ fontWeight: 'bold', color: totalDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
@@ -8863,6 +9263,7 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                       </span>
                       <strong style={{ display: 'block', fontSize: '14px', marginTop: '4px' }}>{loan.borrower_name}</strong>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                      {loan.last5Days && <div style={{ marginTop: '4px' }}><Last5DaysStreak last5Days={loan.last5Days} /></div>}
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <span style={{ fontWeight: 'bold', fontSize: '15px', color: totalDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
