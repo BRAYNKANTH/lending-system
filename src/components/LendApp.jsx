@@ -7628,6 +7628,49 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
 
   if (loading) return <div className="glass-card" style={{ marginTop: '24px' }}><SkeletonCards count={4} lines={2} /></div>;
 
+  // Tiny "Last Paid" detail for the directory — null/undefined means the
+  // loan has never had a payment collected. Colored amber/rose the longer
+  // it's been, so a stalled active account is spottable at a glance
+  // without opening the full statement (the whole point of a directory
+  // view — the Overdue Accounts card above already covers loans past
+  // their accrual date, this covers the subtler "still active but nobody's
+  // paid in a while" case a due-date check alone won't catch).
+  //
+  // Declared here (before filteredLoans/followUpCount below, which both
+  // call it) rather than further down near the other render helpers —
+  // this and urgencyGroupOf/isNeedsFollowUp MUST come before their first
+  // use: as `const`, referencing them earlier throws "Cannot access
+  // before initialization" (temporal dead zone), not just an undefined
+  // value — this exact ordering bug crashed the whole page on load.
+  const lastPaidInfo = (loan) => {
+    if (!loan.last_payment_date) {
+      return { text: 'Never paid', color: loan.status === 'active' ? 'var(--accent-rose)' : 'var(--text-muted)' };
+    }
+    const days = Math.floor((Date.now() - new Date(loan.last_payment_date).getTime()) / 86400000);
+    const text = days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
+    const color = loan.status !== 'active' ? 'var(--text-muted)' : days >= 14 ? 'var(--accent-rose)' : days >= 7 ? 'var(--accent-amber)' : 'var(--text-muted)';
+    return { text, color };
+  };
+
+  const isNeedsFollowUp = (loan) => loan.status === 'active' && lastPaidInfo(loan).color !== 'var(--text-muted)';
+
+  // Which section a loan belongs in when the directory is sorted by
+  // urgency — lower rank surfaces first, so what needs a human's attention
+  // soonest (an approval decision, a stalled collection) is always at the
+  // top of the list instead of buried behind filters.
+  const urgencyGroupOf = (loan) => {
+    if (loan.status === 'pending') return { rank: 0, label: 'Awaiting Approval', icon: '⏳' };
+    if (loan.status === 'active') {
+      const { color } = lastPaidInfo(loan);
+      if (color === 'var(--accent-rose)') return { rank: 1, label: 'Needs Follow-up', icon: '🔴' };
+      if (color === 'var(--accent-amber)') return { rank: 2, label: 'Due Soon', icon: '🟡' };
+      return { rank: 3, label: 'Active', icon: '🟢' };
+    }
+    if (loan.status === 'defaulted') return { rank: 4, label: 'Defaulted', icon: '⚠️' };
+    if (loan.status === 'fully_paid') return { rank: 5, label: 'Fully Paid', icon: '✅' };
+    return { rank: 6, label: 'Other', icon: '⚪' };
+  };
+
   const followUpCount = loans.filter(isNeedsFollowUp).length;
 
   const filteredLoans = loans.filter(loan => {
@@ -7707,42 +7750,6 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
     const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
     const period = loan.interest_type === 'daily' ? monthlyInterest / 30 : loan.interest_type === 'weekly' ? monthlyInterest / 4 : monthlyInterest;
     return Math.min(period, remaining);
-  };
-
-  // Tiny "Last Paid" detail for the directory — null/undefined means the
-  // loan has never had a payment collected. Colored amber/rose the longer
-  // it's been, so a stalled active account is spottable at a glance
-  // without opening the full statement (the whole point of a directory
-  // view — the Overdue Accounts card above already covers loans past
-  // their accrual date, this covers the subtler "still active but nobody's
-  // paid in a while" case a due-date check alone won't catch).
-  const lastPaidInfo = (loan) => {
-    if (!loan.last_payment_date) {
-      return { text: 'Never paid', color: loan.status === 'active' ? 'var(--accent-rose)' : 'var(--text-muted)' };
-    }
-    const days = Math.floor((Date.now() - new Date(loan.last_payment_date).getTime()) / 86400000);
-    const text = days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
-    const color = loan.status !== 'active' ? 'var(--text-muted)' : days >= 14 ? 'var(--accent-rose)' : days >= 7 ? 'var(--accent-amber)' : 'var(--text-muted)';
-    return { text, color };
-  };
-
-  const isNeedsFollowUp = (loan) => loan.status === 'active' && lastPaidInfo(loan).color !== 'var(--text-muted)';
-
-  // Which section a loan belongs in when the directory is sorted by
-  // urgency — lower rank surfaces first, so what needs a human's attention
-  // soonest (an approval decision, a stalled collection) is always at the
-  // top of the list instead of buried behind filters.
-  const urgencyGroupOf = (loan) => {
-    if (loan.status === 'pending') return { rank: 0, label: 'Awaiting Approval', icon: '⏳' };
-    if (loan.status === 'active') {
-      const { color } = lastPaidInfo(loan);
-      if (color === 'var(--accent-rose)') return { rank: 1, label: 'Needs Follow-up', icon: '🔴' };
-      if (color === 'var(--accent-amber)') return { rank: 2, label: 'Due Soon', icon: '🟡' };
-      return { rank: 3, label: 'Active', icon: '🟢' };
-    }
-    if (loan.status === 'defaulted') return { rank: 4, label: 'Defaulted', icon: '⚠️' };
-    if (loan.status === 'fully_paid') return { rank: 5, label: 'Fully Paid', icon: '✅' };
-    return { rank: 6, label: 'Other', icon: '⚪' };
   };
 
   const handleExportCsv = () => {
