@@ -208,6 +208,10 @@ export default function LendApp() {
   const [loanEditForm, setLoanEditForm] = useState({ interest_rate: '', assigned_agent_id: '' });
   const [defaultReason, setDefaultReason] = useState('');
   const [penaltyForm, setPenaltyForm] = useState({ amount: '', reason: '' });
+  // Delete Loan — for a mistaken/test entry only (see handleDeleteLoan);
+  // password re-entry is the confirmation, not another window.confirm.
+  const [showDeleteLoanModal, setShowDeleteLoanModal] = useState(false);
+  const [deleteLoanForm, setDeleteLoanForm] = useState({ reason: '', password: '' });
 
   // Configurable Overdue Reminder Days Threshold (default 3 days). Loaded
   // from and saved to org_settings (see the /settings fetch effect below
@@ -884,6 +888,41 @@ export default function LendApp() {
       viewStatement(selectedLoanId);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Admin: permanently delete a mistaken/test loan. Only ever succeeds for
+  // a loan with zero real payments/accruals — the server enforces that
+  // authoritatively (and the DB itself would refuse it regardless, see the
+  // DELETE handler's comment) — this is for the "oops, wrong loan, never
+  // should have been created" case, not a way to close out a real account.
+  const handleDeleteLoan = async () => {
+    if (!selectedLoanId) return;
+    if (!deleteLoanForm.reason.trim()) {
+      showToast('A reason is required to delete this loan.', 'error');
+      return;
+    }
+    if (!deleteLoanForm.password) {
+      showToast('Enter your password to confirm.', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.delete(`/loans/${selectedLoanId}`, { reason: deleteLoanForm.reason, password: deleteLoanForm.password });
+      showToast('Loan permanently deleted.');
+      setShowDeleteLoanModal(false);
+      setDeleteLoanForm({ reason: '', password: '' });
+      setSelectedLoanId(null);
+      setLoanStatement(null);
+      setView('loans');
+      fetchDashboardData();
+    } catch (err) {
+      // Deliberately shown in the modal itself (not the page-level error
+      // banner) so a wrong password or "still has activity" rejection
+      // doesn't close the confirmation dialog out from under the admin.
+      showToast(err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -2705,6 +2744,42 @@ export default function LendApp() {
                   <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={() => setShowChangePassword(false)}>Cancel</button>
                 )}
                 <button type="submit" className="glass-btn glass-btn-emerald" style={{ flex: 1 }} disabled={loading}>Update Password</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Loan confirmation — password re-entry is the actual
+          safeguard here, not just another "are you sure" dialog. Closing
+          the modal (Cancel, backdrop click) discards whatever was typed —
+          deliberately not persisted in state beyond this modal's lifetime. */}
+      {showDeleteLoanModal && (
+        <div className="receipt-modal-overlay" onClick={() => { setShowDeleteLoanModal(false); setDeleteLoanForm({ reason: '', password: '' }); }}>
+          <div className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '20px', marginBottom: '8px', color: 'var(--accent-rose)' }}><Trash2 className="icon" /> Delete This Loan</h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              This permanently removes the loan and cannot be undone. Only use this for a mistaken entry or test data — a real closed-out loan should be Written Off instead, which keeps it in the audit trail.
+            </p>
+            <form onSubmit={e => { e.preventDefault(); handleDeleteLoan(); }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Reason</label>
+                <input type="text" required autoFocus className="glass-input" style={{ width: '100%' }}
+                  placeholder="e.g. Created by mistake, duplicate entry"
+                  value={deleteLoanForm.reason}
+                  onChange={e => setDeleteLoanForm(prev => ({ ...prev, reason: e.target.value }))} />
+              </div>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Confirm Your Password</label>
+                <input type="password" required className="glass-input" style={{ width: '100%' }}
+                  value={deleteLoanForm.password}
+                  onChange={e => setDeleteLoanForm(prev => ({ ...prev, password: e.target.value }))} />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={() => { setShowDeleteLoanModal(false); setDeleteLoanForm({ reason: '', password: '' }); }}>Cancel</button>
+                <button type="submit" className="glass-btn glass-btn-rose" style={{ flex: 1 }} disabled={loading}>
+                  <Trash2 className="icon" /> {loading ? 'Deleting...' : 'Delete Permanently'}
+                </button>
               </div>
             </form>
           </div>
@@ -7045,6 +7120,24 @@ export default function LendApp() {
                           <Ban className="icon" /> Write Off as Bad Debt
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Delete Loan — only ever possible for a loan with zero real
+                      payments/interest accruals (checked here for UX, and
+                      authoritatively re-checked server-side; the database's
+                      own ON DELETE RESTRICT constraint is the final backstop).
+                      Not shown at all once a loan has real activity — Write
+                      Off above is what closes those out. */}
+                  {loanStatement.payments.length === 0 && loanStatement.accruals.length === 0 && (
+                    <div className="glass-card" style={{ borderColor: 'var(--accent-rose)' }}>
+                      <h3 style={{ fontSize: '18px', marginBottom: '8px', color: 'var(--accent-rose)' }}><Trash2 className="icon" /> Danger Zone</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                        This loan has no payments or interest accruals recorded against it yet — safe to permanently delete if it was created by mistake or was test data. Once it has any real activity, this option disappears and Write Off is the only way to close it out.
+                      </p>
+                      <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={() => setShowDeleteLoanModal(true)}>
+                        <Trash2 className="icon" /> Delete This Loan
+                      </button>
                     </div>
                   )}
                 </div>

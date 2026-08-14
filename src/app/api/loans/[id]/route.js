@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
 import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { runInterestAccruals } from '@/lib/services/interest.js';
 import { logError } from '@/lib/logger.js';
+import { checkRateLimit } from '@/lib/rateLimit.js';
 
 // Get detailed loan statement
 export async function GET(request, { params }) {
@@ -124,5 +126,86 @@ export async function PATCH(request, { params }) {
     if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
     logError('Update loan error', error, { method: request.method, url: request.url });
     return NextResponse.json({ message: 'Internal server error while updating loan.' }, { status: 500 });
+  }
+}
+
+// Permanently deletes a loan (Admin only) — for a mistaken entry or test
+// data, NOT a real closed-out account (that's what Write Off is for).
+// Requires the admin to re-enter their own password, same idea as a
+// destructive-action re-auth prompt elsewhere: being logged in proves who
+// you are for browsing, not that you specifically mean to do this one
+// irreversible thing right now.
+//
+// Deliberately does not attempt to delete a loan with any real payment or
+// interest-accrual history — transactions.loan_id and
+// interest_accruals.loan_id are ON DELETE RESTRICT at the database level
+// (see schema.sql / scripts/migrate.js), so Postgres itself would refuse
+// the delete anyway; this just checks first to return a clear message
+// instead of a raw constraint-violation error. guarantors and
+// daily_collections cascade-delete automatically (ON DELETE CASCADE);
+// ledger_entries do NOT cascade (ON DELETE SET NULL) so they're deleted
+// explicitly below rather than left as orphaned rows with a null loan_id.
+export async function DELETE(request, { params }) {
+  try {
+    const authUser = await requireAuth(request, ['admin']);
+    const { id } = params;
+    const { password, reason } = await request.json();
+
+    if (!password) {
+      return NextResponse.json({ message: 'Your password is required to confirm this deletion.' }, { status: 400 });
+    }
+    if (!reason || !reason.trim()) {
+      return NextResponse.json({ message: 'A reason is required to delete a loan.' }, { status: 400 });
+    }
+
+    // Same per-account limiter shape as login — this endpoint lets someone
+    // repeatedly guess the admin's password if left unthrottled.
+    const { limited, retryAfterMs } = checkRateLimit(`delete-loan-auth:${authUser.id}`, { windowMs: 15 * 60 * 1000, max: 10 });
+    if (limited) {
+      return NextResponse.json(
+        { message: 'Too many attempts. Please wait 15 minutes and try again.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+      );
+    }
+
+    const actingUser = await db('users').where({ id: authUser.id }).first();
+    const passwordOk = actingUser && await bcrypt.compare(password, actingUser.password_hash);
+    if (!passwordOk) {
+      return NextResponse.json({ message: 'Incorrect password.' }, { status: 401 });
+    }
+
+    const loan = await db('loans')
+      .join('users as borrowers', 'loans.borrower_id', 'borrowers.id')
+      .where('loans.id', id)
+      .select('loans.*', 'borrowers.name as borrower_name')
+      .first();
+    if (!loan) {
+      return NextResponse.json({ message: 'Loan not found.' }, { status: 404 });
+    }
+
+    const [{ count: txCount }] = await db('transactions').where({ loan_id: id }).count('id as count');
+    const [{ count: accrualCount }] = await db('interest_accruals').where({ loan_id: id }).count('id as count');
+    if (parseInt(txCount, 10) > 0 || parseInt(accrualCount, 10) > 0) {
+      return NextResponse.json({
+        message: `This loan has real activity (${txCount} payment${txCount == 1 ? '' : 's'}, ${accrualCount} interest accrual${accrualCount == 1 ? '' : 's'}) and can't be deleted — use Write Off instead if it needs to be closed out.`,
+      }, { status: 400 });
+    }
+
+    await db.transaction(async (trx) => {
+      await trx('ledger_entries').where({ loan_id: id }).del();
+      await trx('loans').where({ id }).del(); // guarantors + daily_collections cascade automatically
+
+      await trx('audit_logs').insert({
+        actor_id: authUser.id,
+        action_type: 'DELETE_LOAN',
+        description: `Deleted loan '${loan.reference_number || id}' for borrower '${loan.borrower_name}' (principal LKR ${parseFloat(loan.principal_amount).toLocaleString()}, status was '${loan.status}'). Reason: ${reason.trim()}.`,
+      });
+    });
+
+    return NextResponse.json({ message: 'Loan permanently deleted.' });
+  } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ message: error.message }, { status: error.status });
+    logError('Delete loan error', error, { method: request.method, url: request.url });
+    return NextResponse.json({ message: 'Internal server error while deleting loan.' }, { status: 500 });
   }
 }
