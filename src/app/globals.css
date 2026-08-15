@@ -12,7 +12,10 @@
 
   --text-primary: #0f1b31; /* Deep navy-slate */
   --text-secondary: #47597a; /* Blue-grey */
-  --text-muted: #8395b3; /* Muted blue-grey */
+  /* Was #8395b3 (~3.2:1 on white — fails WCAG AA's 4.5:1 body-text minimum,
+     measured during the mobile UX audit). Darkened to keep the same muted
+     blue-grey character while clearing AA with room to spare (~5:1). */
+  --text-muted: #5c7096; /* Muted blue-grey */
 
   --accent-blue: #2554e8; /* Vivid modern primary blue */
   --accent-blue-dark: #1739ad;
@@ -167,6 +170,15 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   transform: translateY(-6px);
   box-shadow: var(--shadow-lg);
   border-color: var(--menu-accent, var(--accent-blue));
+}
+
+/* These are role="button" divs, not real <button> elements (see
+   handleCardKeyDown in LendApp.jsx), so they need an explicit visible
+   focus state for keyboard/switch-device navigation — a browser's default
+   outline on a div can be easy to lose track of against a card this size. */
+.menu-card:focus-visible {
+  outline: 3px solid var(--menu-accent, var(--accent-blue));
+  outline-offset: 2px;
 }
 
 .menu-card-give {
@@ -485,6 +497,24 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   display: none;
 }
 
+/* A faint right-edge fade so a row that needs scrolling looks like it
+   needs scrolling — otherwise the last icon just gets cut off at the
+   screen edge with nothing suggesting there's more to see. Positioned
+   absolutely against the bar's own `position: fixed` (not part of the
+   scrolling flex content), so it stays put as a permanent edge hint
+   rather than scrolling away with the icons. Harmless on a phone wide
+   enough that nothing overflows — it just fades over empty background. */
+.bottom-nav-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: env(safe-area-inset-bottom, 0px);
+  width: 28px;
+  background: linear-gradient(to right, transparent, var(--bg-secondary) 85%);
+  pointer-events: none;
+}
+
 .bottom-nav-item {
   background: none;
   border: none;
@@ -626,6 +656,15 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   .app-header-nav .glass-btn,
   .app-header-nav .glass-btn-rose {
     padding: 10px !important;
+    /* Icon-only on mobile (text hidden above) still needs a full-size tap
+       target — these are the Settings/Switch Portal/Logout buttons, tapped
+       on every single visit, and 10px padding around a ~14px icon was only
+       ~34-38px, short of the ~44px minimum comfortable touch target. */
+    min-width: 44px !important;
+    min-height: 44px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
   }
 
   /* Loan Details page actions (View Agreement / Download PDF / Go Back) —

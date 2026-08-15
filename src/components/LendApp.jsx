@@ -25,6 +25,20 @@ function useDebouncedValue(value, delayMs = 350) {
   return debounced;
 }
 
+// Lets a clickable <div> (the dashboard's menu-card tiles, styled as big
+// touch-friendly buttons but not actual <button> elements) respond to the
+// keyboard the same way a real button would — Enter or Space activates it.
+// Without this, the cards were only reachable by mouse/touch: a
+// keyboard-only or switch-device user tabbing through them (once
+// role="button" tabIndex={0} makes them focusable at all) could focus a
+// card but never activate it.
+function handleCardKeyDown(e, action) {
+  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+    e.preventDefault();
+    action();
+  }
+}
+
 // Threshold for the manual "Active Loans Overdue" review table in Reminder
 // Settings — a plain "what's overdue right now" display filter (days since
 // last accrual), kept separate from overdueDaysThreshold below, which
@@ -432,7 +446,7 @@ export default function LendApp() {
     const { synced, failed } = await syncQueuedPayments();
     if (synced.length > 0) {
       const total = synced.reduce((s, item) => s + (parseFloat(item.payload?.amount) || 0), 0);
-      showToast(`Back online — synced ${synced.length} queued payment${synced.length === 1 ? '' : 's'} (LKR ${total.toLocaleString()}).`);
+      showToast(`Back online — synced ${synced.length} queued payment${synced.length === 1 ? '' : 's'} (LKR ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}).`);
       fetchDashboardData();
     }
     if (failed.length > 0) {
@@ -738,7 +752,7 @@ export default function LendApp() {
     setError('');
     try {
       await api.post('/remittances', { amount: parseFloat(remittanceForm.amount), notes: remittanceForm.notes });
-      showToast(`LKR ${parseFloat(remittanceForm.amount).toLocaleString()} cash handover submitted to the office.`);
+      showToast(`LKR ${parseFloat(remittanceForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cash handover submitted to the office.`);
       setRemittanceForm({ amount: '', notes: '' });
       fetchDashboardData();
       const remits = await api.get('/remittances');
@@ -1035,7 +1049,7 @@ export default function LendApp() {
     setError('');
     try {
       await api.post(`/loans/${loanId}/daily-collection`, { date, status, amount });
-      showToast(status === 'not_paid' ? 'Marked as not paid today.' : `Marked as ${status} — LKR ${amount.toLocaleString()} recorded.`);
+      showToast(status === 'not_paid' ? 'Marked as not paid today.' : `Marked as ${status} — LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded.`);
       fetchDashboardData();
       if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
     } catch (err) {
@@ -1070,9 +1084,9 @@ export default function LendApp() {
       }, { amount, kind: 'Principal' });
 
       if (result.queued) {
-        showToast(`No connection — principal payment of LKR ${amount.toLocaleString()} saved and will sync automatically once you're back online.`, 'info');
+        showToast(`No connection — principal payment of LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} saved and will sync automatically once you're back online.`, 'info');
       } else {
-        showToast(`Principal payment of LKR ${amount.toLocaleString()} recorded.`);
+        showToast(`Principal payment of LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded.`);
         if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
       }
     } catch (err) {
@@ -1917,9 +1931,9 @@ export default function LendApp() {
       }, { borrowerName: loan?.borrower_name, amount: paymentForm.amount, kind });
 
       if (result.queued) {
-        showToast(`No connection — ${kind.toLowerCase()} collection of LKR ${parseFloat(paymentForm.amount).toLocaleString()} from ${loan?.borrower_name || 'Borrower'} saved and will sync automatically once you're back online.`, 'info');
+        showToast(`No connection — ${kind.toLowerCase()} collection of LKR ${parseFloat(paymentForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} from ${loan?.borrower_name || 'Borrower'} saved and will sync automatically once you're back online.`, 'info');
       } else {
-        showToast(`${kind} collection recorded successfully! LKR ${parseFloat(paymentForm.amount).toLocaleString()} collected from ${loan?.borrower_name || 'Borrower'}.`);
+        showToast(`${kind} collection recorded successfully! LKR ${parseFloat(paymentForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} collected from ${loan?.borrower_name || 'Borrower'}.`);
         // Update data
         fetchDashboardData();
       }
@@ -1975,9 +1989,9 @@ export default function LendApp() {
         // Deliberately NOT refetching loan details here: the server hasn't
         // actually applied this payment yet, so refetching would just
         // show the same pre-payment balance and look like nothing happened.
-        showToast(`No connection — ${kind.toLowerCase()} payment of LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString()} saved and will sync automatically once you're back online.`, 'info');
+        showToast(`No connection — ${kind.toLowerCase()} payment of LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} saved and will sync automatically once you're back online.`, 'info');
       } else {
-        showToast(`${kind} collection recorded successfully! LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString()} collected.`);
+        showToast(`${kind} collection recorded successfully! LKR ${parseFloat(ledgerPaymentForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} collected.`);
         const updatedDetails = await api.get(`/loans/${loanId}`);
         setLoanStatement(updatedDetails);
         fetchDashboardData();
@@ -2395,7 +2409,7 @@ export default function LendApp() {
               <div className="print-divider"></div>
               <div className="print-row">
                 <span>Orig. Principal:</span>
-                <span>LKR {parseFloat(selectedReceipt.loan_principal).toLocaleString()}</span>
+                <span>LKR {parseFloat(selectedReceipt.loan_principal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="print-row">
                 <span>Interest Accrual:</span>
@@ -2404,17 +2418,17 @@ export default function LendApp() {
               {selectedReceipt.loan_interest_type === 'daily' ? (
                 <div className="print-row" style={{ fontWeight: 'bold' }}>
                   <span>Total Outstanding:</span>
-                  <span>LKR {(parseFloat(selectedReceipt.loan_principal_outstanding || 0) + parseFloat(selectedReceipt.loan_interest_balance || 0)).toLocaleString()}</span>
+                  <span>LKR {(parseFloat(selectedReceipt.loan_principal_outstanding || 0) + parseFloat(selectedReceipt.loan_interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               ) : (
                 <>
                   <div className="print-row" style={{ fontWeight: 'bold' }}>
                     <span>Principal Outstanding:</span>
-                    <span>LKR {parseFloat(selectedReceipt.loan_principal_outstanding).toLocaleString()}</span>
+                    <span>LKR {parseFloat(selectedReceipt.loan_principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="print-row" style={{ fontWeight: 'bold' }}>
                     <span>Interest Due:</span>
-                    <span>LKR {parseFloat(selectedReceipt.loan_interest_balance).toLocaleString()}</span>
+                    <span>LKR {parseFloat(selectedReceipt.loan_interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </>
               )}
@@ -2465,7 +2479,7 @@ export default function LendApp() {
             </p>
 
             <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>1. Loan Amount</h4>
-            <p style={{ fontSize: '14px' }}>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>.</p>
+            <p style={{ fontSize: '14px' }}>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.</p>
 
             <h4 style={{ fontSize: '15px', margin: '16px 0 6px' }}>2. {loanStatement.loan.is_flat_installment ? 'Daily Installment & Repayment' : 'Interest & Repayment'}</h4>
             {loanStatement.loan.is_flat_installment ? (
@@ -2479,7 +2493,7 @@ export default function LendApp() {
               <p style={{ fontSize: '14px' }}>
                 Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
                 The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
-                settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
+                settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} has been repaid, regardless of the
                 interest payment schedule.
               </p>
             )}
@@ -2536,7 +2550,7 @@ export default function LendApp() {
           </p>
 
           <h2>1. Loan Amount</h2>
-          <p>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>.</p>
+          <p>The Lender agrees to give the Borrower a loan of <strong>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.</p>
 
           <h2>2. {loanStatement.loan.is_flat_installment ? 'Daily Installment & Repayment' : 'Interest & Repayment'}</h2>
           {loanStatement.loan.is_flat_installment ? (
@@ -2551,7 +2565,7 @@ export default function LendApp() {
               Interest is charged at <strong>{loanStatement.loan.interest_rate}%</strong> of the principal, payable every{' '}
               <strong>{loanStatement.loan.interest_type === 'daily' ? 'day' : loanStatement.loan.interest_type === 'weekly' ? 'week' : 'month'}</strong>.
               The principal amount remains payable in full (or in part, at the Borrower's discretion) at any time; the loan is considered
-              settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()} has been repaid, regardless of the
+              settled once the full principal of LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} has been repaid, regardless of the
               interest payment schedule.
             </p>
           )}
@@ -2722,20 +2736,20 @@ export default function LendApp() {
             )}
             <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Current Password</label>
-                <input type="password" required className="glass-input" style={{ width: '100%' }}
+                <label htmlFor="f-current-password-2739" style={{ fontSize: '13px', fontWeight: 'bold' }}>Current Password</label>
+                <input id="f-current-password-2739" type="password" required className="glass-input" style={{ width: '100%' }}
                   value={passwordForm.current_password}
                   onChange={e => setPasswordForm(prev => ({ ...prev, current_password: e.target.value }))} />
               </div>
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>New Password</label>
-                <input type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
+                <label htmlFor="f-new-password-2745" style={{ fontSize: '13px', fontWeight: 'bold' }}>New Password</label>
+                <input id="f-new-password-2745" type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
                   value={passwordForm.new_password}
                   onChange={e => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))} />
               </div>
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Confirm New Password</label>
-                <input type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
+                <label htmlFor="f-confirm-new-password-2751" style={{ fontSize: '13px', fontWeight: 'bold' }}>Confirm New Password</label>
+                <input id="f-confirm-new-password-2751" type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
                   value={passwordForm.confirm_password}
                   onChange={e => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))} />
               </div>
@@ -2763,15 +2777,15 @@ export default function LendApp() {
             </p>
             <form onSubmit={e => { e.preventDefault(); handleDeleteLoan(); }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Reason</label>
-                <input type="text" required autoFocus className="glass-input" style={{ width: '100%' }}
+                <label htmlFor="f-reason-2780" style={{ fontSize: '13px', fontWeight: 'bold' }}>Reason</label>
+                <input id="f-reason-2780" type="text" required autoFocus className="glass-input" style={{ width: '100%' }}
                   placeholder="e.g. Created by mistake, duplicate entry"
                   value={deleteLoanForm.reason}
                   onChange={e => setDeleteLoanForm(prev => ({ ...prev, reason: e.target.value }))} />
               </div>
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Confirm Your Password</label>
-                <input type="password" required className="glass-input" style={{ width: '100%' }}
+                <label htmlFor="f-confirm-your-password-2787" style={{ fontSize: '13px', fontWeight: 'bold' }}>Confirm Your Password</label>
+                <input id="f-confirm-your-password-2787" type="password" required className="glass-input" style={{ width: '100%' }}
                   value={deleteLoanForm.password}
                   onChange={e => setDeleteLoanForm(prev => ({ ...prev, password: e.target.value }))} />
               </div>
@@ -2857,20 +2871,20 @@ export default function LendApp() {
             {settingsTab === 'profile' && (
               <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>FULL NAME *</label>
-                  <input type="text" required className="glass-input" style={{ width: '100%' }}
+                  <label htmlFor="f-full-name-2874" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                  <input id="f-full-name-2874" type="text" required className="glass-input" style={{ width: '100%' }}
                     value={profileForm.name}
                     onChange={e => setProfileForm(prev => ({ ...prev, name: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>PHONE NUMBER *</label>
-                  <input type="tel" required className="glass-input" style={{ width: '100%' }}
+                  <label htmlFor="f-phone-number-2880" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
+                  <input id="f-phone-number-2880" type="tel" required className="glass-input" style={{ width: '100%' }}
                     value={profileForm.phone}
                     onChange={e => setProfileForm(prev => ({ ...prev, phone: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>EMAIL ADDRESS</label>
-                  <input type="email" className="glass-input" style={{ width: '100%' }}
+                  <label htmlFor="f-email-address-2886" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Email Address</label>
+                  <input id="f-email-address-2886" type="email" className="glass-input" style={{ width: '100%' }}
                     value={profileForm.email}
                     onChange={e => setProfileForm(prev => ({ ...prev, email: e.target.value }))} />
                 </div>
@@ -2908,20 +2922,20 @@ export default function LendApp() {
                 }
               }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>CURRENT PASSWORD</label>
-                  <input type="password" required className="glass-input" style={{ width: '100%' }}
+                  <label htmlFor="f-current-password-2925" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Current Password</label>
+                  <input id="f-current-password-2925" type="password" required className="glass-input" style={{ width: '100%' }}
                     value={passwordForm.current_password}
                     onChange={e => setPasswordForm(prev => ({ ...prev, current_password: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>NEW PASSWORD</label>
-                  <input type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
+                  <label htmlFor="f-new-password-2931" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>New Password</label>
+                  <input id="f-new-password-2931" type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
                     value={passwordForm.new_password}
                     onChange={e => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>CONFIRM NEW PASSWORD</label>
-                  <input type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
+                  <label htmlFor="f-confirm-new-password-2937" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Confirm New Password</label>
+                  <input id="f-confirm-new-password-2937" type="password" required minLength={6} className="glass-input" style={{ width: '100%' }}
                     value={passwordForm.confirm_password}
                     onChange={e => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))} />
                 </div>
@@ -2964,13 +2978,13 @@ export default function LendApp() {
                   This name and logo appear on the header, login screen, receipts, and downloadable loan agreement PDFs.
                 </p>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>ORGANIZATION NAME *</label>
-                  <input type="text" required className="glass-input" style={{ width: '100%' }}
+                  <label htmlFor="f-organization-name-2981" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Organization Name *</label>
+                  <input id="f-organization-name-2981" type="text" required className="glass-input" style={{ width: '100%' }}
                     value={orgSettingsForm.org_name}
                     onChange={e => setOrgSettingsForm(prev => ({ ...prev, org_name: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>LOGO</label>
+                  <label htmlFor="f-org-logo" style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Logo</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {orgSettingsForm.logo_url ? (
                       <img src={orgSettingsForm.logo_url} alt="Logo preview" style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--bg-tertiary)' }} />
@@ -2979,7 +2993,7 @@ export default function LendApp() {
                         <Landmark style={{ width: '24px', height: '24px', color: 'var(--accent-blue)' }} />
                       </div>
                     )}
-                    <input type="file" accept="image/*" className="glass-input" style={{ flex: 1, padding: '8px' }}
+                    <input id="f-org-logo" type="file" accept="image/*" className="glass-input" style={{ flex: 1, padding: '8px' }}
                       onChange={(e) => {
                         const file = e.target.files[0];
                         if (!file) return;
@@ -3044,12 +3058,12 @@ export default function LendApp() {
               {!showForgotPassword ? (
                 <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
-                    <input type="tel" required className="glass-input" placeholder="e.g. 0771234567" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} />
+                    <label htmlFor="f-phone-number-3061" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Phone Number</label>
+                    <input id="f-phone-number-3061" type="tel" required className="glass-input" placeholder="e.g. 0771234567" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PASSWORD</label>
-                    <input type="password" required className="glass-input" placeholder="••••••••" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
+                    <label htmlFor="f-password-3065" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Password</label>
+                    <input id="f-password-3065" type="password" required className="glass-input" placeholder="••••••••" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
                   </div>
                   <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%', marginTop: '8px' }}>
                     {loading ? 'Loading...' : 'Login'}
@@ -3064,8 +3078,8 @@ export default function LendApp() {
                     Enter your registered phone number. A 6-digit verification code will be sent via SMS.
                   </p>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
-                    <input type="tel" required className="glass-input" placeholder="e.g. 0771234567" value={forgotIdentifier} onChange={e => setForgotIdentifier(e.target.value)} />
+                    <label htmlFor="f-phone-number-3081" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Phone Number</label>
+                    <input id="f-phone-number-3081" type="tel" required className="glass-input" placeholder="e.g. 0771234567" value={forgotIdentifier} onChange={e => setForgotIdentifier(e.target.value)} />
                   </div>
                   <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%' }}>
                     {loading ? 'Sending...' : 'Send Verification Code'}
@@ -3083,20 +3097,20 @@ export default function LendApp() {
                     <p style={{ fontSize: '13px', color: 'var(--accent-emerald)', margin: 0 }}>{forgotMessage}</p>
                   )}
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>VERIFICATION CODE</label>
-                    <input
+                    <label htmlFor="f-verification-code-3100" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Verification Code</label>
+                    <input id="f-verification-code-3100"
                       type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} required
                       className="glass-input" placeholder="123456" style={{ letterSpacing: '4px', fontWeight: 'bold', textAlign: 'center' }}
                       value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NEW PASSWORD</label>
-                    <input type="password" required minLength={6} className="glass-input" placeholder="At least 6 characters" value={newPasswordOtp} onChange={e => setNewPasswordOtp(e.target.value)} />
+                    <label htmlFor="f-new-password-3108" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>New Password</label>
+                    <input id="f-new-password-3108" type="password" required minLength={6} className="glass-input" placeholder="At least 6 characters" value={newPasswordOtp} onChange={e => setNewPasswordOtp(e.target.value)} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>CONFIRM NEW PASSWORD</label>
-                    <input type="password" required minLength={6} className="glass-input" placeholder="Re-enter new password" value={confirmPasswordOtp} onChange={e => setConfirmPasswordOtp(e.target.value)} />
+                    <label htmlFor="f-confirm-new-password-3112" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Confirm New Password</label>
+                    <input id="f-confirm-new-password-3112" type="password" required minLength={6} className="glass-input" placeholder="Re-enter new password" value={confirmPasswordOtp} onChange={e => setConfirmPasswordOtp(e.target.value)} />
                   </div>
                   <button type="submit" className="glass-btn" disabled={loading} style={{ width: '100%' }}>
                     {loading ? 'Resetting...' : 'Reset Password'}
@@ -3194,27 +3208,27 @@ export default function LendApp() {
                       </div>
                       <form onSubmit={handleCreateTicket} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>TICKET GROUP NAME *</label>
-                          <input required type="text" className="glass-input" placeholder="e.g. name of group" value={newTicketForm.name} onChange={e => setNewTicketForm(prev => ({ ...prev, name: e.target.value }))} />
+                          <label htmlFor="f-ticket-group-name-3211" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Ticket Group Name *</label>
+                          <input id="f-ticket-group-name-3211" required type="text" className="glass-input" placeholder="e.g. name of group" value={newTicketForm.name} onChange={e => setNewTicketForm(prev => ({ ...prev, name: e.target.value }))} />
                         </div>
                         <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                           <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>TOTAL VALUE (LKR) *</label>
-                            <input required type="number" inputMode="decimal" min="1" className="glass-input" placeholder="e.g. 300000" value={newTicketForm.total_value} onChange={e => setNewTicketForm(prev => ({ ...prev, total_value: e.target.value }))} />
+                            <label htmlFor="f-total-value-lkr-3216" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Total Value (LKR) *</label>
+                            <input id="f-total-value-lkr-3216" required type="number" inputMode="decimal" min="1" className="glass-input" placeholder="e.g. 300000" value={newTicketForm.total_value} onChange={e => setNewTicketForm(prev => ({ ...prev, total_value: e.target.value }))} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>MEMBER COUNT *</label>
-                            <input required type="number" inputMode="numeric" min="2" className="glass-input" placeholder="e.g. 20" value={newTicketForm.member_count} onChange={e => setNewTicketForm(prev => ({ ...prev, member_count: e.target.value }))} />
+                            <label htmlFor="f-member-count-3220" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Member Count *</label>
+                            <input id="f-member-count-3220" required type="number" inputMode="numeric" min="2" className="glass-input" placeholder="e.g. 20" value={newTicketForm.member_count} onChange={e => setNewTicketForm(prev => ({ ...prev, member_count: e.target.value }))} />
                           </div>
                         </div>
                         <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                           <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>START DATE *</label>
-                            <input required type="date" className="glass-input" value={newTicketForm.start_date} onChange={e => setNewTicketForm(prev => ({ ...prev, start_date: e.target.value }))} />
+                            <label htmlFor="f-start-date-3226" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Start Date *</label>
+                            <input id="f-start-date-3226" required type="date" className="glass-input" value={newTicketForm.start_date} onChange={e => setNewTicketForm(prev => ({ ...prev, start_date: e.target.value }))} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>HOST FEE CALCULATION *</label>
-                            <select className="glass-input" value={newTicketForm.host_fee_type} onChange={e => setNewTicketForm(prev => ({ ...prev, host_fee_type: e.target.value, host_fee_value: '' }))}>
+                            <label htmlFor="f-host-fee-calculation-3230" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Host Fee Calculation *</label>
+                            <select id="f-host-fee-calculation-3230" className="glass-input" value={newTicketForm.host_fee_type} onChange={e => setNewTicketForm(prev => ({ ...prev, host_fee_type: e.target.value, host_fee_value: '' }))}>
                               <option value="percentage">Percentage (on original share)</option>
                               <option value="fixed">Fixed Fee (per member)</option>
                             </select>
@@ -3227,8 +3241,8 @@ export default function LendApp() {
                           <input required type="number" inputMode="decimal" step="0.01" min="0" className="glass-input" placeholder={newTicketForm.host_fee_type === 'percentage' ? 'e.g. 5.00' : 'e.g. 500'} value={newTicketForm.host_fee_value} onChange={e => setNewTicketForm(prev => ({ ...prev, host_fee_value: e.target.value }))} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>STARTING ROUND (OPTIONAL)</label>
-                          <input
+                          <label htmlFor="f-starting-round-optional-3244" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Starting Round (Optional)</label>
+                          <input id="f-starting-round-optional-3244"
                             type="number" inputMode="numeric" min="1" max={newTicketForm.member_count || undefined}
                             className="glass-input" placeholder="Leave blank to start at round 1"
                             value={newTicketForm.starting_round}
@@ -3311,7 +3325,7 @@ export default function LendApp() {
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Total Ticket Value</span>
-                              <span style={{ fontSize: '14px', fontWeight: '700' }}>LKR {totalVal.toLocaleString()}</span>
+                              <span style={{ fontSize: '14px', fontWeight: '700' }}>LKR {totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Member Count</span>
@@ -3319,12 +3333,12 @@ export default function LendApp() {
                             </div>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Original Share</span>
-                              <span style={{ fontSize: '14px', fontWeight: '700' }}>LKR {originalShare.toLocaleString()}</span>
+                              <span style={{ fontSize: '14px', fontWeight: '700' }}>LKR {originalShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>Host Fee Rules</span>
                               <span style={{ fontSize: '13px', fontWeight: '600' }}>
-                                {t.host_fee_type === 'percentage' ? `${t.host_fee_value}% Share` : `LKR ${parseFloat(t.host_fee_value).toLocaleString()} Fixed`}
+                                {t.host_fee_type === 'percentage' ? `${t.host_fee_value}% Share` : `LKR ${parseFloat(t.host_fee_value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Fixed`}
                               </span>
                             </div>
                           </div>
@@ -3347,7 +3361,7 @@ export default function LendApp() {
                     <ArrowLeft className="icon" /> Back to Groups List
                   </button>
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <span className="badge badge-active" style={{ background: 'var(--accent-emerald-light)', color: 'var(--accent-emerald)', padding: '6px 12px' }}>Total LKR {parseFloat(selectedTicket.total_value).toLocaleString()}</span>
+                    <span className="badge badge-active" style={{ background: 'var(--accent-emerald-light)', color: 'var(--accent-emerald)', padding: '6px 12px' }}>Total LKR {parseFloat(selectedTicket.total_value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
 
@@ -3420,13 +3434,13 @@ export default function LendApp() {
                       ) : (
                         <form onSubmit={handleRunTicketAuction} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                           <div>
-                            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>BID AMOUNT (கழிவு / DISCOUNT) *</label>
-                            <input required type="number" inputMode="decimal" min="0" max={parseFloat(selectedTicket.total_value)} className="glass-input" placeholder="e.g. 130000" value={auctionForm.bid_amount} onChange={e => setAuctionForm(prev => ({ ...prev, bid_amount: e.target.value }))} />
+                            <label htmlFor="f-bid-amount-discount-3437" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>BID AMOUNT (கழிவு / DISCOUNT) *</label>
+                            <input id="f-bid-amount-discount-3437" required type="number" inputMode="decimal" min="0" max={parseFloat(selectedTicket.total_value)} className="glass-input" placeholder="e.g. 130000" value={auctionForm.bid_amount} onChange={e => setAuctionForm(prev => ({ ...prev, bid_amount: e.target.value }))} />
                           </div>
 
                           <div>
-                            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>ROUND WINNER</label>
-                            <select className="glass-input" value={auctionForm.winner_member_id} onChange={e => setAuctionForm(prev => ({ ...prev, winner_member_id: e.target.value }))}>
+                            <label htmlFor="f-round-winner-3442" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Round Winner</label>
+                            <select id="f-round-winner-3442" className="glass-input" value={auctionForm.winner_member_id} onChange={e => setAuctionForm(prev => ({ ...prev, winner_member_id: e.target.value }))}>
                               <option value="">-- No Winner Selected Yet --</option>
                               {ticketMembers.filter(m => !ticketAuctions.some(a => a.winner_member_id === m.id)).map(m => (
                                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -3437,12 +3451,12 @@ export default function LendApp() {
 
                           <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
-                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>AUCTION DATE *</label>
-                              <input required type="date" className="glass-input" value={auctionForm.auction_date} onChange={e => setAuctionForm(prev => ({ ...prev, auction_date: e.target.value }))} />
+                              <label htmlFor="f-auction-date-3454" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Auction Date *</label>
+                              <input id="f-auction-date-3454" required type="date" className="glass-input" value={auctionForm.auction_date} onChange={e => setAuctionForm(prev => ({ ...prev, auction_date: e.target.value }))} />
                             </div>
                             <div>
-                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>NEXT ROUND DATE *</label>
-                              <input required type="date" className="glass-input" value={auctionForm.next_round_date} onChange={e => setAuctionForm(prev => ({ ...prev, next_round_date: e.target.value }))} />
+                              <label htmlFor="f-next-round-date-3458" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Next Round Date *</label>
+                              <input id="f-next-round-date-3458" required type="date" className="glass-input" value={auctionForm.next_round_date} onChange={e => setAuctionForm(prev => ({ ...prev, next_round_date: e.target.value }))} />
                             </div>
                           </div>
 
@@ -3518,12 +3532,12 @@ export default function LendApp() {
                           ? new Date(selectedTicket.next_round_date).toLocaleDateString()
                           : '____________';
 
-                        const noticeText = `ரூ ${totalVal.toLocaleString()}\n` +
-                          `${roundNum}ம் சீட்டு கழிவு ரூ ${bidVal.toLocaleString()}\n` +
+                        const noticeText = `ரூ ${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+                          `${roundNum}ம் சீட்டு கழிவு ரூ ${bidVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
                           `💵 கிடைக்கும் தொகை:\n` +
-                          `ரூ ${payout.toLocaleString()}\n` +
+                          `ரூ ${payout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
                           `💳 கட்டு காசு:\n` +
-                          `ரூ ${finalAmount.toLocaleString()}\n` +
+                          `ரூ ${finalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
                           `📅 ${roundNum + 1}ம் சீட்டு திகதி:\n` +
                           `${nextDateStr}`;
 
@@ -3564,12 +3578,12 @@ export default function LendApp() {
                         const finalAmount = base + fee;
                         const roundNum = selectedTicket.current_round;
 
-                        const noticeText = `ரூ ${totalVal.toLocaleString()}\n` +
-                          `${roundNum}ம் சீட்டு கழிவு ரூ ${bidVal.toLocaleString()}\n` +
+                        const noticeText = `ரூ ${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+                          `${roundNum}ம் சீட்டு கழிவு ரூ ${bidVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
                           `💵 கிடைக்கும் தொகை:\n` +
-                          `ரூ ${payout.toLocaleString()}\n` +
+                          `ரூ ${payout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
                           `💳 கட்டு காசு:\n` +
-                          `ரூ ${finalAmount.toLocaleString()}\n` +
+                          `ரூ ${finalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
                           `📅 ${roundNum + 1}ம் சீட்டு திகதி:\n` +
                           `${auctionForm.next_round_date ? new Date(auctionForm.next_round_date).toLocaleDateString() : '____________'}`;
 
@@ -3669,12 +3683,12 @@ export default function LendApp() {
                       ) : memberAddMode === 'single' ? (
                         <form onSubmit={handleAddTicketMember} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                           <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>FULL NAME *</label>
-                            <input required type="text" className="glass-input" placeholder="e.g. S. Arulpragasam" value={newMemberForm.name} onChange={e => setNewMemberForm(prev => ({ ...prev, name: e.target.value }))} />
+                            <label htmlFor="f-full-name-3686" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Full Name *</label>
+                            <input id="f-full-name-3686" required type="text" className="glass-input" placeholder="e.g. S. Arulpragasam" value={newMemberForm.name} onChange={e => setNewMemberForm(prev => ({ ...prev, name: e.target.value }))} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>PHONE NUMBER</label>
-                            <input type="tel" className="glass-input" placeholder="e.g. 0771234567" value={newMemberForm.phone} onChange={e => setNewMemberForm(prev => ({ ...prev, phone: e.target.value }))} />
+                            <label htmlFor="f-phone-number-3690" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Phone Number</label>
+                            <input id="f-phone-number-3690" type="tel" className="glass-input" placeholder="e.g. 0771234567" value={newMemberForm.phone} onChange={e => setNewMemberForm(prev => ({ ...prev, phone: e.target.value }))} />
                           </div>
                           <button type="submit" className="glass-btn glass-btn-emerald" disabled={loading} style={{ width: '100%', padding: '12px' }}>
                             Add Member to Roster
@@ -3758,7 +3772,7 @@ export default function LendApp() {
                                         <span style={{ color: 'var(--text-muted)' }}>—</span>
                                       )}
                                     </td>
-                                    <td style={{ fontWeight: 'bold' }}>LKR {auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}</td>
+                                    <td style={{ fontWeight: 'bold' }}>LKR {auction ? parseFloat(auction.amount_per_member).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}</td>
                                     <td>
                                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                                         <input
@@ -3781,7 +3795,7 @@ export default function LendApp() {
                                           const txt = `*STN CHIT FUND - PAYMENT REMINDER*\n\n` +
                                             `Group: *${selectedTicket.name}*\n` +
                                             `Round: *Round ${p.round_number}*\n` +
-                                            `Amount Due: *LKR ${auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}*\n\n` +
+                                            `Amount Due: *LKR ${auction ? parseFloat(auction.amount_per_member).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}*\n\n` +
                                             `Please make your payment to the host. Thank you!`;
                                           window.open(`https://wa.me/${int}?text=${encodeURIComponent(txt)}`, '_blank');
                                         }}>
@@ -3807,7 +3821,7 @@ export default function LendApp() {
                                 <div>
                                   <strong style={{ display: 'block', fontSize: '14px' }}>{p.member_name}</strong>
                                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                    Due: <strong>LKR {auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}</strong>
+                                    Due: <strong>LKR {auction ? parseFloat(auction.amount_per_member).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}</strong>
                                   </div>
                                   {p.member_phone && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
@@ -3842,7 +3856,7 @@ export default function LendApp() {
                                       const txt = `*STN CHIT FUND - PAYMENT REMINDER*\n\n` +
                                         `Group: *${selectedTicket.name}*\n` +
                                         `Round: *Round ${p.round_number}*\n` +
-                                        `Amount Due: *LKR ${auction ? parseFloat(auction.amount_per_member).toLocaleString() : 'N/A'}*\n\n` +
+                                        `Amount Due: *LKR ${auction ? parseFloat(auction.amount_per_member).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}*\n\n` +
                                         `Please make your payment to the host. Thank you!`;
                                       window.open(`https://wa.me/${int}?text=${encodeURIComponent(txt)}`, '_blank');
                                     }}>
@@ -3884,7 +3898,7 @@ export default function LendApp() {
                                 <tr key={a.id}>
                                   <td style={{ fontWeight: 'bold' }}>Round {a.round_number}</td>
                                   <td>{new Date(a.auction_date).toLocaleDateString()}</td>
-                                  <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</td>
+                                  <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(a.bid_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   <td>
                                     {a.winner_name ? (
                                       <strong>{a.winner_name}</strong>
@@ -3906,9 +3920,9 @@ export default function LendApp() {
                                       </span>
                                     )}
                                   </td>
-                                  <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(a.winner_payout).toLocaleString()}</td>
-                                  <td>LKR {parseFloat(a.amount_per_member).toLocaleString()}</td>
-                                  <td>LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString()}</td>
+                                  <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(a.winner_payout).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td>LKR {parseFloat(a.amount_per_member).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td>LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -3945,16 +3959,16 @@ export default function LendApp() {
                                 )}
 
                                 <span className="mobile-row-card-label">Bid (கழிவு)</span>
-                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(a.bid_amount).toLocaleString()}</span>
+                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(a.bid_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                                 <span className="mobile-row-card-label">Payout</span>
-                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)' }}>LKR {parseFloat(a.winner_payout).toLocaleString()}</span>
+                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)' }}>LKR {parseFloat(a.winner_payout).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                                 <span className="mobile-row-card-label">Per Member</span>
-                                <span className="mobile-row-card-value">LKR {parseFloat(a.amount_per_member).toLocaleString()}</span>
+                                <span className="mobile-row-card-value">LKR {parseFloat(a.amount_per_member).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                                 <span className="mobile-row-card-label">Host Fee</span>
-                                <span className="mobile-row-card-value">LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString()}</span>
+                                <span className="mobile-row-card-value">LKR {(parseFloat(a.host_fee_per_member) * selectedTicket.member_count).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </div>
                           ))}
@@ -4006,7 +4020,7 @@ export default function LendApp() {
                         <span className="kpi-lbl">Active Loans</span>
                         <h3 className="kpi-val">{adminData.summary.totalActiveLoans}</h3>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-                          Out Principal: <strong>LKR {adminData.summary.totalPrincipalOutstanding.toLocaleString()}</strong>
+                          Out Principal: <strong>LKR {adminData.summary.totalPrincipalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                         </span>
                       </div>
                       <div className="kpi-icon-bubble blue">
@@ -4020,7 +4034,7 @@ export default function LendApp() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
                         <span className="kpi-lbl">Total Disbursed</span>
-                        <h3 className="kpi-val">LKR {adminData.summary.totalMoneyLent.toLocaleString()}</h3>
+                        <h3 className="kpi-val">LKR {adminData.summary.totalMoneyLent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
                           Total Capital Issued
                         </span>
@@ -4035,12 +4049,17 @@ export default function LendApp() {
                   <div className="kpi-card kpi-card-emerald">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                       <span className="kpi-lbl">Collections Progress</span>
-                      <div style={{ display: 'flex', background: 'var(--bg-tertiary)', padding: '2px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      {/* Buttons were 3px/8px padding at 10px font — a ~20px
+                          tall tap target for a toggle admins use constantly
+                          to check today's collection vs the running total.
+                          Sized up toward the usual comfortable minimum while
+                          still fitting the KPI card header row. */}
+                      <div style={{ display: 'flex', background: 'var(--bg-tertiary)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
                         <button
                           type="button"
                           onClick={() => setCollectionSummaryMode('today')}
                           style={{
-                            padding: '3px 8px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                            padding: '8px 14px', minHeight: '36px', fontSize: '13px', fontWeight: 'bold', borderRadius: '6px', border: 'none', cursor: 'pointer',
                             background: collectionSummaryMode === 'today' ? 'var(--accent-emerald)' : 'transparent',
                             color: collectionSummaryMode === 'today' ? '#fff' : 'var(--text-secondary)'
                           }}
@@ -4051,7 +4070,7 @@ export default function LendApp() {
                           type="button"
                           onClick={() => setCollectionSummaryMode('all-time')}
                           style={{
-                            padding: '3px 8px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                            padding: '8px 14px', minHeight: '36px', fontSize: '13px', fontWeight: 'bold', borderRadius: '6px', border: 'none', cursor: 'pointer',
                             background: collectionSummaryMode === 'all-time' ? 'var(--accent-emerald)' : 'transparent',
                             color: collectionSummaryMode === 'all-time' ? '#fff' : 'var(--text-secondary)'
                           }}
@@ -4063,16 +4082,16 @@ export default function LendApp() {
                     {collectionSummaryMode === 'today' ? (
                       <div>
                         <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>
-                          LKR {(adminData.dailyReport?.collectionsToday || 0).toLocaleString()}
+                          LKR {(adminData.dailyReport?.collectionsToday || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </h3>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-                          Target Today: <strong>LKR {(adminData.summary.expectedTodayTarget || 0).toLocaleString()}</strong>
+                          Target Today: <strong>LKR {(adminData.summary.expectedTodayTarget || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                         </span>
                       </div>
                     ) : (
                       <div>
                         <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>
-                          LKR {adminData.summary.totalRepayments.toLocaleString()}
+                          LKR {adminData.summary.totalRepayments.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </h3>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
                           Total Cash Collected All-Time
@@ -4087,7 +4106,7 @@ export default function LendApp() {
                       <div>
                         <span className="kpi-lbl">Agent Cash in Hand</span>
                         <h3 className="kpi-val" style={{ color: 'var(--accent-amber)' }}>
-                          LKR {(adminData.summary.agentCashInHand || 0).toLocaleString()}
+                          LKR {(adminData.summary.agentCashInHand || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </h3>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
                           Collected by agents, unremitted
@@ -4108,7 +4127,7 @@ export default function LendApp() {
                           {adminData.summary.totalOverdue} Loans
                         </h3>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-                          Overdue Balance: <strong>LKR {(adminData.summary.totalOverdueAmount || 0).toLocaleString()}</strong>
+                          Overdue Balance: <strong>LKR {(adminData.summary.totalOverdueAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                         </span>
                       </div>
                       <div className="kpi-icon-bubble" style={{ background: '#ffe4e6', color: '#e11d48' }}>
@@ -4134,7 +4153,7 @@ export default function LendApp() {
                             </div>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--accent-amber)' }}>LKR {parseFloat(loan.principal_amount).toLocaleString()}</span>
+                            <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--accent-amber)' }}>LKR {parseFloat(loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 14px', fontSize: '12px', fontWeight: '700' }} onClick={() => viewStatement(loan.id)}>
                               Review &rarr;
                             </button>
@@ -4151,7 +4170,7 @@ export default function LendApp() {
                 </h2>
                 <div className="menu-card-grid">
                   
-                  <div className="menu-card menu-card-give" onClick={() => setView('create-loan')}>
+                  <div className="menu-card menu-card-give" role="button" tabIndex={0} aria-label="Give New Loan" onClick={() => setView('create-loan')} onKeyDown={(e) => handleCardKeyDown(e, () => setView('create-loan'))}>
                     <span className="menu-card-icon"><Banknote /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-emerald)' }}>Give New Loan</h3>
@@ -4159,7 +4178,7 @@ export default function LendApp() {
                     </div>
                   </div>
 
-                  <div className="menu-card menu-card-give" onClick={() => setView('next-day-tasklist')}>
+                  <div className="menu-card menu-card-give" role="button" tabIndex={0} aria-label="Next Day Tasklist" onClick={() => setView('next-day-tasklist')} onKeyDown={(e) => handleCardKeyDown(e, () => setView('next-day-tasklist'))}>
                     <span className="menu-card-icon"><Calendar /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-emerald)' }}>Next Day Tasklist</h3>
@@ -4167,7 +4186,7 @@ export default function LendApp() {
                     </div>
                   </div>
 
-                  <div className="menu-card menu-card-check" onClick={() => setView('record-payment')}>
+                  <div className="menu-card menu-card-check" role="button" tabIndex={0} aria-label="Record Payment" onClick={() => setView('record-payment')} onKeyDown={(e) => handleCardKeyDown(e, () => setView('record-payment'))}>
                     <span className="menu-card-icon"><CreditCard /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-blue)' }}>Record Payment</h3>
@@ -4175,7 +4194,7 @@ export default function LendApp() {
                     </div>
                   </div>
 
-                  <div className="menu-card menu-card-check" onClick={() => setView('loans')}>
+                  <div className="menu-card menu-card-check" role="button" tabIndex={0} aria-label="Check Loans & Payments" onClick={() => setView('loans')} onKeyDown={(e) => handleCardKeyDown(e, () => setView('loans'))}>
                     <span className="menu-card-icon"><ClipboardList /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-blue)' }}>Check Loans & Payments</h3>
@@ -4183,7 +4202,7 @@ export default function LendApp() {
                     </div>
                   </div>
 
-                  <div className="menu-card menu-card-agent" onClick={() => setView('agents')}>
+                  <div className="menu-card menu-card-agent" role="button" tabIndex={0} aria-label="Agent Route Progress" onClick={() => setView('agents')} onKeyDown={(e) => handleCardKeyDown(e, () => setView('agents'))}>
                     <span className="menu-card-icon"><Users /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: '#7c3aed' }}>Agent Route Progress</h3>
@@ -4191,7 +4210,7 @@ export default function LendApp() {
                     </div>
                   </div>
 
-                  <div className="menu-card menu-card-gold" onClick={() => setView('interest-center')}>
+                  <div className="menu-card menu-card-gold" role="button" tabIndex={0} aria-label="Interest Accrual Center" onClick={() => setView('interest-center')} onKeyDown={(e) => handleCardKeyDown(e, () => setView('interest-center'))}>
                     <span className="menu-card-icon"><TrendingUp /></span>
                     <div>
                       <h3 style={{ fontSize: '26px', marginBottom: '10px', fontWeight: '800', color: 'var(--accent-gold)' }}>Interest Accrual Center</h3>
@@ -4286,7 +4305,7 @@ export default function LendApp() {
                                 <tr key={idx} style={{ fontSize: '14px' }}>
                                   <td style={{ padding: '12px 16px' }}><strong>{acc.borrower_name}</strong></td>
                                   <td style={{ padding: '12px 16px' }}>{new Date(acc.created_at).toLocaleString()}</td>
-                                  <td style={{ padding: '12px 16px', color: 'var(--accent-rose)', fontWeight: 'bold' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</td>
+                                  <td style={{ padding: '12px 16px', color: 'var(--accent-rose)', fontWeight: 'bold' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-secondary)' }}>{acc.calculation_log}</td>
                                 </tr>
                               ))}
@@ -4299,7 +4318,7 @@ export default function LendApp() {
                             <div key={idx} className="mobile-row-card">
                               <div className="mobile-row-card-header">
                                 <span className="mobile-row-card-title">{acc.borrower_name}</span>
-                                <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold', fontSize: '14px' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString()}</span>
+                                <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold', fontSize: '14px' }}>+LKR {parseFloat(acc.amount_accrued).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(acc.created_at).toLocaleString()}</span>
                               <div style={{ fontFamily: 'monospace', fontSize: '11.5px', color: 'var(--text-secondary)', background: 'var(--bg-tertiary)', borderRadius: '6px', padding: '8px 10px', marginTop: '4px', wordBreak: 'break-word' }}>
@@ -4360,15 +4379,15 @@ export default function LendApp() {
                                 )}
                               </td>
                               <td style={{ textTransform: 'capitalize' }}>{loan.interest_type}</td>
-                              <td>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
+                              <td>LKR {parseFloat(loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                               <td>{loan.interest_rate}%</td>
                               <td style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>
                                 {loan.interest_type === 'daily' ? (
-                                  <div>Total Outstanding: LKR {(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString()}</div>
+                                  <div>Total Outstanding: LKR {(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 ) : (
                                   <>
-                                    <div>Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</div>
-                                    <div style={{ fontSize: '12px', fontWeight: 'normal' }}>Interest due: LKR {parseFloat(loan.interest_balance).toLocaleString()}</div>
+                                    <div>Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                    <div style={{ fontSize: '12px', fontWeight: 'normal' }}>Interest due: LKR {parseFloat(loan.interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                   </>
                                 )}
                               </td>
@@ -4412,7 +4431,7 @@ export default function LendApp() {
                           <div className="mobile-row-card-grid-compact">
                             <div>
                               <span className="mobile-row-card-label">Principal:</span>
-                              <span className="mobile-row-card-value"> LKR {parseFloat(loan.principal_amount).toLocaleString()}</span>
+                              <span className="mobile-row-card-value"> LKR {parseFloat(loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div>
                               <span className="mobile-row-card-label">Rate:</span>
@@ -4429,17 +4448,17 @@ export default function LendApp() {
                             {loan.interest_type === 'daily' ? (
                               <div style={{ gridColumn: 'span 2' }}>
                                 <span className="mobile-row-card-label">Total Outstanding:</span>
-                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString()}</span>
+                                <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             ) : (
                               <>
                                 <div>
                                   <span className="mobile-row-card-label">Principal Due:</span>
-                                  <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.principal_outstanding).toLocaleString()}</span>
+                                  <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                                 <div>
                                   <span className="mobile-row-card-label">Interest Due:</span>
-                                  <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.interest_balance).toLocaleString()}</span>
+                                  <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}> LKR {parseFloat(loan.interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                               </>
                             )}
@@ -4475,7 +4494,7 @@ export default function LendApp() {
                         <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px' }}>
                             <span style={{ fontWeight: 'bold' }}>{perf.agent_name}</span>
-                            <strong style={{ color: 'var(--accent-emerald)', fontSize: '18px' }}>LKR {parseFloat(perf.total_collected).toLocaleString()}</strong>
+                            <strong style={{ color: 'var(--accent-emerald)', fontSize: '18px' }}>LKR {parseFloat(perf.total_collected).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                           </div>
                           <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-light)', height: '14px', borderRadius: '7px', overflow: 'hidden' }}>
                             <div style={{ 
@@ -4565,10 +4584,10 @@ export default function LendApp() {
                             {cashReconciliation.agents.map(a => (
                               <tr key={a.agentId}>
                                 <td style={{ fontWeight: 'bold' }}>{a.agentName}</td>
-                                <td>LKR {a.totalCollected.toLocaleString()}</td>
-                                <td>LKR {a.totalRemitted.toLocaleString()}</td>
+                                <td>LKR {a.totalCollected.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td>LKR {a.totalRemitted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                 <td style={{ fontWeight: 'bold', color: a.cashInHand > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                                  LKR {a.cashInHand.toLocaleString()}
+                                  LKR {a.cashInHand.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
                               </tr>
                             ))}
@@ -4582,15 +4601,15 @@ export default function LendApp() {
                             <div className="mobile-row-card-header">
                               <span className="mobile-row-card-title">{a.agentName}</span>
                               <span className="mobile-row-card-value" style={{ fontWeight: 'bold', color: a.cashInHand > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                                LKR {a.cashInHand.toLocaleString()}
+                                LKR {a.cashInHand.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </span>
                             </div>
                             <div className="mobile-row-card-grid">
                               <span className="mobile-row-card-label">Collected</span>
-                              <span className="mobile-row-card-value">LKR {a.totalCollected.toLocaleString()}</span>
+                              <span className="mobile-row-card-value">LKR {a.totalCollected.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                               <span className="mobile-row-card-label">Handed Over</span>
-                              <span className="mobile-row-card-value">LKR {a.totalRemitted.toLocaleString()}</span>
+                              <span className="mobile-row-card-value">LKR {a.totalRemitted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                           </div>
                         ))}
@@ -4635,7 +4654,7 @@ export default function LendApp() {
                       {remittances.filter(r => remittanceStatusFilter === 'all' || r.status === remittanceStatusFilter).map(r => (
                         <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', border: '1px solid var(--border-light)', borderRadius: '8px' }}>
                           <div>
-                            <div style={{ fontWeight: 'bold' }}>{r.agent_name} — LKR {parseFloat(r.amount).toLocaleString()}</div>
+                            <div style={{ fontWeight: 'bold' }}>{r.agent_name} — LKR {parseFloat(r.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(r.created_at).toLocaleString()} {r.notes ? `• ${r.notes}` : ''}</div>
                           </div>
                           {r.status === 'verified' ? (
@@ -4672,12 +4691,12 @@ export default function LendApp() {
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '16px' }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>From</label>
-                      <input type="date" className="glass-input" style={{ padding: '6px 10px' }} value={ledgerFrom} onChange={e => setLedgerFrom(e.target.value)} />
+                      <label htmlFor="f-from-4694" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>From</label>
+                      <input id="f-from-4694" type="date" className="glass-input" style={{ padding: '6px 10px' }} value={ledgerFrom} onChange={e => setLedgerFrom(e.target.value)} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>To</label>
-                      <input type="date" className="glass-input" style={{ padding: '6px 10px' }} value={ledgerTo} onChange={e => setLedgerTo(e.target.value)} />
+                      <label htmlFor="f-to-4698" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>To</label>
+                      <input id="f-to-4698" type="date" className="glass-input" style={{ padding: '6px 10px' }} value={ledgerTo} onChange={e => setLedgerTo(e.target.value)} />
                     </div>
                     <button className="glass-btn glass-btn-secondary" style={{ padding: '7px 14px', fontSize: '12px' }} onClick={handleFetchLedgerReport} disabled={loading}>
                       Apply Range
@@ -4706,17 +4725,17 @@ export default function LendApp() {
                             {ledgerReport.accounts.map(a => (
                               <tr key={a.account}>
                                 <td style={{ fontWeight: 'bold' }}>{a.label}</td>
-                                <td>LKR {a.debit.toLocaleString()}</td>
-                                <td>LKR {a.credit.toLocaleString()}</td>
-                                <td>LKR {a.net.toLocaleString()}</td>
+                                <td>LKR {a.debit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td>LKR {a.credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td>LKR {a.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot>
                             <tr style={{ borderTop: '2px solid var(--border-light)', fontWeight: 'bold' }}>
                               <td>Totals</td>
-                              <td>LKR {ledgerReport.totals.debit.toLocaleString()}</td>
-                              <td>LKR {ledgerReport.totals.credit.toLocaleString()}</td>
+                              <td>LKR {ledgerReport.totals.debit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                              <td>LKR {ledgerReport.totals.credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                               <td style={{ color: ledgerReport.totals.balanced ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
                                 {ledgerReport.totals.balanced ? <><CircleCheck className="icon" /> Balanced</> : <><CircleAlert className="icon" /> Out of balance</>}
                               </td>
@@ -4730,14 +4749,14 @@ export default function LendApp() {
                           <div key={a.account} className="mobile-row-card">
                             <div className="mobile-row-card-header">
                               <span className="mobile-row-card-title">{a.label}</span>
-                              <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}>Net: LKR {a.net.toLocaleString()}</span>
+                              <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}>Net: LKR {a.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div className="mobile-row-card-grid">
                               <span className="mobile-row-card-label">Debit</span>
-                              <span className="mobile-row-card-value">LKR {a.debit.toLocaleString()}</span>
+                              <span className="mobile-row-card-value">LKR {a.debit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                               <span className="mobile-row-card-label">Credit</span>
-                              <span className="mobile-row-card-value">LKR {a.credit.toLocaleString()}</span>
+                              <span className="mobile-row-card-value">LKR {a.credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                           </div>
                         ))}
@@ -4750,10 +4769,10 @@ export default function LendApp() {
                           </div>
                           <div className="mobile-row-card-grid">
                             <span className="mobile-row-card-label">Debit</span>
-                            <span className="mobile-row-card-value">LKR {ledgerReport.totals.debit.toLocaleString()}</span>
+                            <span className="mobile-row-card-value">LKR {ledgerReport.totals.debit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                             <span className="mobile-row-card-label">Credit</span>
-                            <span className="mobile-row-card-value">LKR {ledgerReport.totals.credit.toLocaleString()}</span>
+                            <span className="mobile-row-card-value">LKR {ledgerReport.totals.credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         </div>
                       </div>
@@ -4778,24 +4797,24 @@ export default function LendApp() {
                     <form onSubmit={handleAddUser} style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px', padding: '18px', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', background: 'var(--bg-tertiary)' }}>
                       <div className="form-grid-2-col">
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>FULL NAME</label>
-                          <input required type="text" className="glass-input" value={newUserForm.name} onChange={e => setNewUserForm(prev => ({ ...prev, name: e.target.value }))} />
+                          <label htmlFor="f-full-name-4800" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Full Name</label>
+                          <input id="f-full-name-4800" required type="text" className="glass-input" value={newUserForm.name} onChange={e => setNewUserForm(prev => ({ ...prev, name: e.target.value }))} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
-                          <input required type="tel" className="glass-input" placeholder="e.g. 0771234567" value={newUserForm.phone} onChange={e => setNewUserForm(prev => ({ ...prev, phone: e.target.value }))} />
-                        </div>
-                      </div>
-                      <div className="form-grid-2-col">
-                        <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>EMAIL (OPTIONAL)</label>
-                          <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newUserForm.email} onChange={e => setNewUserForm(prev => ({ ...prev, email: e.target.value }))} />
+                          <label htmlFor="f-phone-number-4804" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Phone Number</label>
+                          <input id="f-phone-number-4804" required type="tel" className="glass-input" placeholder="e.g. 0771234567" value={newUserForm.phone} onChange={e => setNewUserForm(prev => ({ ...prev, phone: e.target.value }))} />
                         </div>
                       </div>
                       <div className="form-grid-2-col">
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ROLE</label>
-                          <select className="glass-input" value={newUserForm.role} onChange={e => setNewUserForm(prev => ({ ...prev, role: e.target.value }))}>
+                          <label htmlFor="f-email-optional-4810" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Email (Optional)</label>
+                          <input id="f-email-optional-4810" type="email" className="glass-input" placeholder="e.g. name@example.com" value={newUserForm.email} onChange={e => setNewUserForm(prev => ({ ...prev, email: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="form-grid-2-col">
+                        <div>
+                          <label htmlFor="f-role-4816" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ROLE</label>
+                          <select id="f-role-4816" className="glass-input" value={newUserForm.role} onChange={e => setNewUserForm(prev => ({ ...prev, role: e.target.value }))}>
                             <option value="agent">Agent</option>
                             <option value="admin">Admin</option>
                             <option value="borrower">Borrower</option>
@@ -4804,13 +4823,13 @@ export default function LendApp() {
                         <div>
                           {newUserForm.role === 'borrower' ? (
                             <>
-                              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold', opacity: 0.5 }}>PASSWORD (NOT REQUIRED)</label>
-                              <input disabled type="text" className="glass-input" placeholder="Borrowers have no login access" value="" />
+                              <label htmlFor="f-password-not-required-4826" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold', opacity: 0.5 }}>Password (Not Required)</label>
+                              <input id="f-password-not-required-4826" disabled type="text" className="glass-input" placeholder="Borrowers have no login access" value="" />
                             </>
                           ) : (
                             <>
-                              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PASSWORD</label>
-                              <input required type="text" className="glass-input" placeholder="Set an initial password" value={newUserForm.password} onChange={e => setNewUserForm(prev => ({ ...prev, password: e.target.value }))} />
+                              <label htmlFor="f-password-4831" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Password</label>
+                              <input id="f-password-4831" required type="text" className="glass-input" placeholder="Set an initial password" value={newUserForm.password} onChange={e => setNewUserForm(prev => ({ ...prev, password: e.target.value }))} />
                             </>
                           )}
                         </div>
@@ -5049,7 +5068,7 @@ export default function LendApp() {
                                         <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>{l.borrower_phone}</span>
                                       </td>
                                       <td style={{ textTransform: 'capitalize' }}>{l.interest_type}</td>
-                                      <td style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString()}</td>
+                                      <td style={{ fontWeight: 'bold', color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                       <td>
                                         <span className="badge badge-defaulted">{diffDays} Days Overdue</span>
                                       </td>
@@ -5091,7 +5110,7 @@ export default function LendApp() {
                                     <span className="mobile-row-card-value" style={{ textTransform: 'capitalize' }}>{l.interest_type}</span>
 
                                     <span className="mobile-row-card-label">Uncollected</span>
-                                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString()}</span>
+                                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-rose)' }}>LKR {parseFloat(l.interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                                     <span className="mobile-row-card-label">Collector</span>
                                     <span className="mobile-row-card-value">{l.agent_name || 'Office Staff'}</span>
@@ -5123,20 +5142,20 @@ export default function LendApp() {
                       </div>
                       <form onSubmit={handleUpdateUser} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>FULL NAME</label>
-                          <input required type="text" className="glass-input" value={editUserForm.name} onChange={e => setEditUserForm(prev => ({ ...prev, name: e.target.value }))} />
+                          <label htmlFor="f-full-name-5145" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Full Name</label>
+                          <input id="f-full-name-5145" required type="text" className="glass-input" value={editUserForm.name} onChange={e => setEditUserForm(prev => ({ ...prev, name: e.target.value }))} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHONE NUMBER</label>
-                          <input required type="tel" className="glass-input" value={editUserForm.phone} onChange={e => setEditUserForm(prev => ({ ...prev, phone: e.target.value }))} />
+                          <label htmlFor="f-phone-number-5149" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Phone Number</label>
+                          <input id="f-phone-number-5149" required type="tel" className="glass-input" value={editUserForm.phone} onChange={e => setEditUserForm(prev => ({ ...prev, phone: e.target.value }))} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>EMAIL (OPTIONAL)</label>
-                          <input type="email" className="glass-input" value={editUserForm.email || ''} onChange={e => setEditUserForm(prev => ({ ...prev, email: e.target.value }))} />
+                          <label htmlFor="f-email-optional-5153" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Email (Optional)</label>
+                          <input id="f-email-optional-5153" type="email" className="glass-input" value={editUserForm.email || ''} onChange={e => setEditUserForm(prev => ({ ...prev, email: e.target.value }))} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ROLE</label>
-                          <select className="glass-input" value={editUserForm.role} onChange={e => setEditUserForm(prev => ({ ...prev, role: e.target.value }))} disabled={editingUser.id === user.id}>
+                          <label htmlFor="f-role-5157" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ROLE</label>
+                          <select id="f-role-5157" className="glass-input" value={editUserForm.role} onChange={e => setEditUserForm(prev => ({ ...prev, role: e.target.value }))} disabled={editingUser.id === user.id}>
                             <option value="agent">Agent</option>
                             <option value="admin">Admin</option>
                             <option value="borrower">Borrower</option>
@@ -5328,30 +5347,30 @@ export default function LendApp() {
                               </p>
                               
                               <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER NAME *</label>
+                                <label htmlFor="borrower_name" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Borrower Name *</label>
                                 <input id="borrower_name" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_name ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_name ? '2px' : '' }} placeholder="e.g. Bandara Perera" value={newLoan.borrower_name} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_name: e.target.value })); clearFieldError('borrower_name'); }} />
                                 {validationErrors.borrower_name && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_name}</span>}
                               </div>
 
                               <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER MOBILE NUMBER (SRI LANKA) *</label>
+                                <label htmlFor="borrower_phone" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Borrower Mobile Number (Sri Lanka) *</label>
                                 <input id="borrower_phone" type="tel" className="glass-input" style={{ borderColor: validationErrors.borrower_phone ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_phone ? '2px' : '' }} placeholder="e.g. 0771234567 or +94771234567" value={newLoan.borrower_phone} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_phone: e.target.value })); clearFieldError('borrower_phone'); }} />
                                 {validationErrors.borrower_phone && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_phone}</span>}
                               </div>
 
                               <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER ADDRESS *</label>
+                                <label htmlFor="borrower_address" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Borrower Address *</label>
                                 <input id="borrower_address" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_address ? '2px' : '' }} placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_address: e.target.value })); clearFieldError('borrower_address'); }} />
                                 {validationErrors.borrower_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_address}</span>}
                               </div>
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>BORROWER EMAIL (OPTIONAL)</label>
-                                  <input type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
+                                  <label htmlFor="f-borrower-email-optional-5369" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Borrower Email (Optional)</label>
+                                  <input id="f-borrower-email-optional-5369" type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
                                 </div>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>DATE OF BIRTH *</label>
+                                  <label htmlFor="date_of_birth" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Date of Birth *</label>
                                   <input id="date_of_birth" type="date" max={new Date().toISOString().slice(0, 10)} className="glass-input" style={{ borderColor: validationErrors.date_of_birth ? 'var(--accent-rose)' : '', borderWidth: validationErrors.date_of_birth ? '2px' : '' }} value={newLoan.date_of_birth} onChange={e => { setNewLoan(prev => ({ ...prev, date_of_birth: e.target.value })); clearFieldError('date_of_birth'); }} />
                                   {validationErrors.date_of_birth && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.date_of_birth}</span>}
                                 </div>
@@ -5359,15 +5378,15 @@ export default function LendApp() {
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC NUMBER *</label>
+                                  <label htmlFor="nic_number" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC Number *</label>
                                   <input id="nic_number" type="text" className="glass-input" style={{ borderColor: validationErrors.nic_number ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_number ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={newLoan.nic_number} onChange={e => { setNewLoan(prev => ({ ...prev, nic_number: e.target.value })); clearFieldError('nic_number'); }} onBlur={e => runNicLookup('borrower', e.target.value)} />
                                   {validationErrors.nic_number && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.nic_number}</span>}
                                   {nicLookup.borrower?.loading && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Checking record…</span>}
                                   {renderNicLookupWarning('borrower')}
                                 </div>
                                 <div>
-                                  <label id="nic_photos" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO * {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
-                                  <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.nic_photos ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_photos ? '2px' : '' }} onChange={e => { handleNICPhotoChange(e); clearFieldError('nic_photos'); }} disabled={(newLoan.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
+                                  <label htmlFor="f-nic-photo-newloan-nic-photos-length-0-0--5388" id="nic_photos" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO * {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
+                                  <input id="f-nic-photo-newloan-nic-photos-length-0-0--5388" type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.nic_photos ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_photos ? '2px' : '' }} onChange={e => { handleNICPhotoChange(e); clearFieldError('nic_photos'); }} disabled={(newLoan.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
                                   <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
                                   {(newLoan.nic_photos?.length || 0) > 0 && (
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -5384,8 +5403,8 @@ export default function LendApp() {
                               </div>
 
                               <div>
-                                <label id="photo_proofs" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHOTO PROOF (e.g. utility bill or other ID evidence) * {(newLoan.photo_proofs?.length || 0) > 0 && `(${newLoan.photo_proofs.length}/${MAX_KYC_PHOTOS})`}</label>
-                                <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.photo_proofs ? 'var(--accent-rose)' : '', borderWidth: validationErrors.photo_proofs ? '2px' : '' }} onChange={e => { handleAddressProofChange(e); clearFieldError('photo_proofs'); }} disabled={(newLoan.photo_proofs?.length || 0) >= MAX_KYC_PHOTOS} />
+                                <label htmlFor="f-photo-proof-e-g-utility-bill-or-other-id-5406" id="photo_proofs" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHOTO PROOF (e.g. utility bill or other ID evidence) * {(newLoan.photo_proofs?.length || 0) > 0 && `(${newLoan.photo_proofs.length}/${MAX_KYC_PHOTOS})`}</label>
+                                <input id="f-photo-proof-e-g-utility-bill-or-other-id-5406" type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.photo_proofs ? 'var(--accent-rose)' : '', borderWidth: validationErrors.photo_proofs ? '2px' : '' }} onChange={e => { handleAddressProofChange(e); clearFieldError('photo_proofs'); }} disabled={(newLoan.photo_proofs?.length || 0) >= MAX_KYC_PHOTOS} />
                                 <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
                                 {(newLoan.photo_proofs?.length || 0) > 0 && (
                                   <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -5422,13 +5441,13 @@ export default function LendApp() {
 
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
+                                  <label htmlFor="loan_purpose" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
                                   <input id="loan_purpose" type="text" className="glass-input" style={{ borderColor: validationErrors.loan_purpose ? 'var(--accent-rose)' : '', borderWidth: validationErrors.loan_purpose ? '2px' : '' }} placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value })); clearFieldError('loan_purpose'); }} />
                                   {validationErrors.loan_purpose && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.loan_purpose}</span>}
                                 </div>
 
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
+                                  <label htmlFor="monthly_income" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
                                   <input id="monthly_income" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.monthly_income ? 'var(--accent-rose)' : '', borderWidth: validationErrors.monthly_income ? '2px' : '' }} value={borrowerProfileForm.monthly_income} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value })); clearFieldError('monthly_income'); }} />
                                   {validationErrors.monthly_income && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.monthly_income}</span>}
                                 </div>
@@ -5436,17 +5455,17 @@ export default function LendApp() {
                                 <p style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', margin: '4px 0 -4px' }}>Spouse Details (if applicable)</p>
                                 <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                   <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Name</label>
-                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_name} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_name: e.target.value }))} />
+                                    <label htmlFor="f-spouse-name-5458" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Name</label>
+                                    <input id="f-spouse-name-5458" type="text" className="glass-input" value={borrowerProfileForm.spouse_name} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_name: e.target.value }))} />
                                   </div>
                                   <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse NIC Number</label>
-                                    <input type="text" className="glass-input" value={borrowerProfileForm.spouse_nic} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_nic: e.target.value }))} />
+                                    <label htmlFor="f-spouse-nic-number-5462" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse NIC Number</label>
+                                    <input id="f-spouse-nic-number-5462" type="text" className="glass-input" value={borrowerProfileForm.spouse_nic} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_nic: e.target.value }))} />
                                   </div>
                                 </div>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Occupation</label>
-                                  <input type="text" className="glass-input" value={borrowerProfileForm.spouse_occupation} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_occupation: e.target.value }))} />
+                                  <label htmlFor="f-spouse-occupation-5467" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spouse Occupation</label>
+                                  <input id="f-spouse-occupation-5467" type="text" className="glass-input" value={borrowerProfileForm.spouse_occupation} onChange={e => setBorrowerProfileForm(prev => ({ ...prev, spouse_occupation: e.target.value }))} />
                                 </div>
                               </div>
                             </div>
@@ -5469,20 +5488,20 @@ export default function LendApp() {
                               </p>
 
                               <div>
-                                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PRINCIPAL AMOUNT (LKR) *</label>
+                                <label htmlFor="principal_amount" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Principal Amount (LKR) *</label>
                                 <input id="principal_amount" type="number" min="1" className="glass-input" style={{ borderColor: validationErrors.principal_amount ? 'var(--accent-rose)' : '', borderWidth: validationErrors.principal_amount ? '2px' : '' }} placeholder="e.g. 50000" value={newLoan.principal_amount} onChange={e => { setNewLoan(prev => ({ ...prev, principal_amount: e.target.value })); clearFieldError('principal_amount'); }} />
                                 {validationErrors.principal_amount && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.principal_amount}</span>}
                               </div>
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>INTEREST RATE (%) *</label>
+                                  <label htmlFor="interest_rate" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Interest Rate (%) *</label>
                                   <input id="interest_rate" type="number" step="0.01" min="0" className="glass-input" style={{ borderColor: validationErrors.interest_rate ? 'var(--accent-rose)' : '', borderWidth: validationErrors.interest_rate ? '2px' : '' }} placeholder="2.00" value={newLoan.interest_rate} onChange={e => { setNewLoan(prev => ({ ...prev, interest_rate: e.target.value })); clearFieldError('interest_rate'); }} />
                                   {validationErrors.interest_rate && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.interest_rate}</span>}
                                 </div>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ACCRUAL FREQUENCY</label>
-                                  <select required className="glass-input" value={newLoan.interest_type} onChange={e => setNewLoan(prev => ({ ...prev, interest_type: e.target.value }))}>
+                                  <label htmlFor="f-accrual-frequency-5503" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Accrual Frequency</label>
+                                  <select id="f-accrual-frequency-5503" required className="glass-input" value={newLoan.interest_type} onChange={e => setNewLoan(prev => ({ ...prev, interest_type: e.target.value }))}>
                                     <option value="daily">Daily Accumulation</option>
                                     <option value="weekly">Weekly Accumulation</option>
                                     <option value="monthly">Monthly Accumulation</option>
@@ -5492,8 +5511,8 @@ export default function LendApp() {
 
                               {user.role !== 'agent' && (
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>DISBURSEMENT DATE</label>
-                                  <input
+                                  <label htmlFor="f-disbursement-date-5514" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Disbursement Date</label>
+                                  <input id="f-disbursement-date-5514"
                                     type="date"
                                     max={todayLocalDateStr()}
                                     className="glass-input"
@@ -5508,8 +5527,8 @@ export default function LendApp() {
 
                               <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>LOAN TERM</label>
-                                  <select required className="glass-input" value={newLoan.collection_mode} onChange={e => setNewLoan(prev => ({ ...prev, collection_mode: e.target.value }))}>
+                                  <label htmlFor="f-loan-term-5530" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Loan Term</label>
+                                  <select id="f-loan-term-5530" required className="glass-input" value={newLoan.collection_mode} onChange={e => setNewLoan(prev => ({ ...prev, collection_mode: e.target.value }))}>
                                     <option value="open_ended">Open-Ended (Runs until fully paid)</option>
                                     <option value="fixed_term">Fixed Term (Set duration)</option>
                                   </select>
@@ -5572,8 +5591,8 @@ export default function LendApp() {
                                 </div>
                               ) : (
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>ASSIGN COLLECTION AGENT</label>
-                                  <select className="glass-input" value={newLoan.assigned_agent_id} onChange={e => setNewLoan(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
+                                  <label htmlFor="f-assign-collection-agent-5594" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Assign Collection Agent</label>
+                                  <select id="f-assign-collection-agent-5594" className="glass-input" value={newLoan.assigned_agent_id} onChange={e => setNewLoan(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
                                     <option value="">-- No Agent (Self Collect) --</option>
                                     {agentsList.map(a => (
                                       <option key={a.id} value={a.id}>{a.name}</option>
@@ -5626,12 +5645,12 @@ export default function LendApp() {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                   <div className="form-grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                     <div>
-                                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                                      <label htmlFor={`guarantor_${i}_full_name`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
                                       <input id={`guarantor_${i}_full_name`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_full_name`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_full_name`] ? '2px' : '' }} value={g.full_name} onChange={e => { updateGuarantorField(i, 'full_name', e.target.value); clearFieldError(`guarantor_${i}_full_name`); }} />
                                       {validationErrors[`guarantor_${i}_full_name`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_full_name`]}</span>}
                                     </div>
                                     <div>
-                                      <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
+                                      <label htmlFor={`guarantor_${i}_nic_number`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
                                       <input id={`guarantor_${i}_nic_number`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_number`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_number`] ? '2px' : '' }} placeholder="e.g. 199012345678 or 123456789V" value={g.nic_number} onChange={e => { updateGuarantorField(i, 'nic_number', e.target.value); clearFieldError(`guarantor_${i}_nic_number`); }} onBlur={e => runNicLookup(`guarantor_${i}`, e.target.value)} />
                                       {validationErrors[`guarantor_${i}_nic_number`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_nic_number`]}</span>}
                                       {nicLookup[`guarantor_${i}`]?.loading && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Checking record…</span>}
@@ -5640,8 +5659,8 @@ export default function LendApp() {
                                   </div>
 
                                   <div>
-                                    <label id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo * {(g.nic_photos?.length || 0) > 0 && `(${g.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
-                                    <input type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} disabled={(g.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
+                                    <label htmlFor="f-nic-photo-g-nic-photos-length-0-0-g-nic--5662" id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo * {(g.nic_photos?.length || 0) > 0 && `(${g.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
+                                    <input id="f-nic-photo-g-nic-photos-length-0-0-g-nic--5662" type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} disabled={(g.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
                                     <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
                                     {(g.nic_photos?.length || 0) > 0 && (
                                       <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -5660,13 +5679,13 @@ export default function LendApp() {
                                       to identify them; see the comment on runGuarantorValidation. */}
 
                                   <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
+                                    <label htmlFor={`guarantor_${i}_phone`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone Number *</label>
                                     <input id={`guarantor_${i}_phone`} type="tel" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_phone`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_phone`] ? '2px' : '' }} value={g.phone} onChange={e => { updateGuarantorField(i, 'phone', e.target.value); clearFieldError(`guarantor_${i}_phone`); }} />
                                     {validationErrors[`guarantor_${i}_phone`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_phone`]}</span>}
                                   </div>
 
                                   <div>
-                                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                                    <label htmlFor={`guarantor_${i}_address`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
                                     <input id={`guarantor_${i}_address`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address`] ? '2px' : '' }} value={g.address} onChange={e => { updateGuarantorField(i, 'address', e.target.value); clearFieldError(`guarantor_${i}_address`); }} />
                                     {validationErrors[`guarantor_${i}_address`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address`]}</span>}
                                   </div>
@@ -5742,7 +5761,7 @@ export default function LendApp() {
                 <div className="responsive-grid-equal-2-col">
                   <div className="kpi-card kpi-card-emerald">
                     <span className="kpi-lbl">Collected Today</span>
-                    <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {agentData.summary.collectionsToday.toLocaleString()}</h3>
+                    <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {agentData.summary.collectionsToday.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total cash collected today</span>
                   </div>
                   <div className="kpi-card kpi-card-blue">
@@ -5783,22 +5802,22 @@ export default function LendApp() {
                     <form onSubmit={handleCollectPayment} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                       
                       <div>
-                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>CHOOSE CUSTOMER</label>
-                        <select required className="glass-input" value={paymentForm.loan_id} onChange={e => resetPaymentForm(e.target.value)}>
+                        <label htmlFor="f-choose-customer-5805" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Choose Customer</label>
+                        <select id="f-choose-customer-5805" required className="glass-input" value={paymentForm.loan_id} onChange={e => resetPaymentForm(e.target.value)}>
                           <option value="">-- Select Customer --</option>
                           {agentData.assignedLoans.filter(l => l.status === 'active').map(loan => (
                             <option key={loan.id} value={loan.id}>
                               {loan.interest_type === 'daily'
-                                ? `${loan.borrower_name} (Total Outstanding: LKR ${(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString()})`
-                                : `${loan.borrower_name} (Principal: LKR ${parseFloat(loan.principal_outstanding).toLocaleString()}, Interest Due: LKR ${parseFloat(loan.interest_balance).toLocaleString()})`}
+                                ? `${loan.borrower_name} (Total Outstanding: LKR ${(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+                                : `${loan.borrower_name} (Principal: LKR ${parseFloat(loan.principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Interest Due: LKR ${parseFloat(loan.interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`}
                             </option>
                           ))}
                         </select>
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PAYMENT TYPE</label>
-                        <div style={{ display: 'flex', gap: '10px' }}>
+                        <label id="f-agent-payment-type" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Payment Type</label>
+                        <div role="group" aria-labelledby="f-agent-payment-type" style={{ display: 'flex', gap: '10px' }}>
                           <button type="button"
                             className={`glass-btn ${paymentForm.payment_type === 'interest' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
                             style={{ flex: 1 }}
@@ -5815,11 +5834,11 @@ export default function LendApp() {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
-                          {paymentForm.payment_type === 'interest' ? 'INTEREST AMOUNT (LKR)' : 'PRINCIPAL AMOUNT (LKR)'}
+                        <label htmlFor="f-agent-payment-amount" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>
+                          {paymentForm.payment_type === 'interest' ? 'Interest Amount (LKR)' : 'Principal Amount (LKR)'}
                         </label>
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                          <input type="number" required min="1" className="glass-input" placeholder="Enter amount" value={paymentForm.amount} onChange={e => setPaymentForm(prev => ({ ...prev, amount: e.target.value }))} />
+                          <input id="f-agent-payment-amount" type="number" required min="1" className="glass-input" placeholder="Enter amount" value={paymentForm.amount} onChange={e => setPaymentForm(prev => ({ ...prev, amount: e.target.value }))} />
                         </div>
                         {/* Quick-fill: exact amount currently due for the selected payment type */}
                         {paymentForm.loan_id && (() => {
@@ -5829,7 +5848,7 @@ export default function LendApp() {
                           if (!(due > 0)) return null;
                           return (
                             <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', borderRadius: '6px', marginBottom: '8px' }} onClick={() => setPaymentForm(prev => ({ ...prev, amount: due.toString() }))}>
-                              Pay full {paymentForm.payment_type === 'interest' ? 'interest' : 'principal'} due (LKR {due.toLocaleString()})
+                              Pay full {paymentForm.payment_type === 'interest' ? 'interest' : 'principal'} due (LKR {due.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                             </button>
                           );
                         })()}
@@ -5837,15 +5856,15 @@ export default function LendApp() {
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           {[500, 1000, 5000, 10000].map(val => (
                             <button key={val} type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', borderRadius: '6px' }} onClick={() => setPaymentForm(prev => ({ ...prev, amount: val.toString() }))}>
-                              +LKR {val.toLocaleString()}
+                              +LKR {val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </button>
                           ))}
                         </div>
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PAYMENT METHOD</label>
-                        <select required className="glass-input" value={paymentForm.payment_method} onChange={e => setPaymentForm(prev => ({ ...prev, payment_method: e.target.value }))}>
+                        <label htmlFor="f-payment-method-5866" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Payment Method</label>
+                        <select id="f-payment-method-5866" required className="glass-input" value={paymentForm.payment_method} onChange={e => setPaymentForm(prev => ({ ...prev, payment_method: e.target.value }))}>
                           <option value="cash">Cash Collection</option>
                           <option value="bank_transfer">Bank Deposit / Transfer</option>
                           <option value="mobile_wallet">Mobile Wallet (eZ Cash / mCash)</option>
@@ -5854,8 +5873,8 @@ export default function LendApp() {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>RECEIPT PHOTO (OPTIONAL)</label>
-                        <input type="file" accept="image/*" className="glass-input" onChange={handleFileChange} />
+                        <label htmlFor="f-receipt-photo-optional-5876" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Receipt Photo (Optional)</label>
+                        <input id="f-receipt-photo-optional-5876" type="file" accept="image/*" className="glass-input" onChange={handleFileChange} />
                         {paymentForm.proof_image && (
                           <div style={{ marginTop: '10px' }}>
                             <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo attached.</span>
@@ -5864,8 +5883,8 @@ export default function LendApp() {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NOTES (OPTIONAL)</label>
-                        <textarea className="glass-input" rows="2" placeholder="e.g. Paid in full, promised next Friday" value={paymentForm.notes} onChange={e => setPaymentForm(prev => ({ ...prev, notes: e.target.value }))} />
+                        <label htmlFor="f-notes-optional-5886" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Notes (Optional)</label>
+                        <textarea id="f-notes-optional-5886" className="glass-input" rows="2" placeholder="e.g. Paid in full, promised next Friday" value={paymentForm.notes} onChange={e => setPaymentForm(prev => ({ ...prev, notes: e.target.value }))} />
                       </div>
 
                       {/* Anti-double submission unique lock */}
@@ -5924,10 +5943,10 @@ export default function LendApp() {
                                   </div>
                                   <div style={{ textAlign: 'right' }}>
                                     <span style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-rose)' }}>
-                                      Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString()}
+                                      Principal: LKR {parseFloat(loan.principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                     <span style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-rose)' }}>
-                                      Interest: LKR {parseFloat(loan.interest_balance).toLocaleString()}
+                                      Interest: LKR {parseFloat(loan.interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                   </div>
                                 </div>
@@ -5988,7 +6007,7 @@ export default function LendApp() {
                             <tr key={tx.id}>
                               <td>{new Date(tx.payment_date).toLocaleString()}</td>
                               <td>{tx.borrower_name}</td>
-                              <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(tx.amount).toLocaleString()}</td>
+                              <td style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                               <td style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{tx.idempotency_key}</td>
                               <td>{tx.notes || '-'}</td>
                               <td>
@@ -6018,7 +6037,7 @@ export default function LendApp() {
                         <div key={tx.id} className="mobile-row-card mobile-row-card-success">
                           <div className="mobile-row-card-header">
                             <span className="mobile-row-card-title">{tx.borrower_name}</span>
-                            <span className="badge badge-active" style={{ color: 'var(--accent-emerald)' }}>LKR {parseFloat(tx.amount).toLocaleString()}</span>
+                            <span className="badge badge-active" style={{ color: 'var(--accent-emerald)' }}>LKR {parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                           <div className="mobile-row-card-grid">
                             <span className="mobile-row-card-label">Date</span>
@@ -6060,11 +6079,11 @@ export default function LendApp() {
                 <div className="responsive-grid-equal-2-col">
                   <div className="kpi-card kpi-card-emerald">
                     <span className="kpi-lbl">Collected (All Time)</span>
-                    <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {(agentData.summary.totalCollected || 0).toLocaleString()}</h3>
+                    <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {(agentData.summary.totalCollected || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
                   </div>
                   <div className="kpi-card kpi-card-rose">
                     <span className="kpi-lbl">Cash Still In Hand</span>
-                    <h3 className="kpi-val" style={{ color: 'var(--accent-rose)' }}>LKR {(agentData.summary.cashInHand || 0).toLocaleString()}</h3>
+                    <h3 className="kpi-val" style={{ color: 'var(--accent-rose)' }}>LKR {(agentData.summary.cashInHand || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Collected minus what you've remitted to the office</span>
                   </div>
                 </div>
@@ -6073,14 +6092,14 @@ export default function LendApp() {
                   <h3 style={{ fontSize: '22px', marginBottom: '16px' }}><Landmark className="icon" /> Hand over Cash to Office</h3>
                   <form onSubmit={handleSubmitRemittance} style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '420px' }}>
                     <div>
-                      <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Amount (LKR)</label>
-                      <input type="number" min="1" required className="glass-input" placeholder="e.g. 20000"
+                      <label htmlFor="f-amount-lkr-6095" style={{ fontSize: '13px', fontWeight: 'bold' }}>Amount (LKR)</label>
+                      <input id="f-amount-lkr-6095" type="number" min="1" required className="glass-input" placeholder="e.g. 20000"
                         value={remittanceForm.amount}
                         onChange={e => setRemittanceForm(prev => ({ ...prev, amount: e.target.value }))} />
                     </div>
                     <div>
-                      <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Notes</label>
-                      <input type="text" className="glass-input" placeholder="e.g. Handed to admin at branch office"
+                      <label htmlFor="f-notes-6101" style={{ fontSize: '13px', fontWeight: 'bold' }}>Notes</label>
+                      <input id="f-notes-6101" type="text" className="glass-input" placeholder="e.g. Handed to admin at branch office"
                         value={remittanceForm.notes}
                         onChange={e => setRemittanceForm(prev => ({ ...prev, notes: e.target.value }))} />
                     </div>
@@ -6097,7 +6116,7 @@ export default function LendApp() {
                       {remittances.map(r => (
                         <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', border: '1px solid var(--border-light)', borderRadius: '8px' }}>
                           <div>
-                            <div style={{ fontWeight: 'bold' }}>LKR {parseFloat(r.amount).toLocaleString()}</div>
+                            <div style={{ fontWeight: 'bold' }}>LKR {parseFloat(r.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(r.created_at).toLocaleString()} {r.notes ? `• ${r.notes}` : ''}</div>
                           </div>
                           <span className={`badge ${r.status === 'verified' ? 'badge-active' : 'badge-defaulted'}`}>{r.status === 'verified' ? 'Verified' : 'Pending'}</span>
@@ -6311,7 +6330,7 @@ export default function LendApp() {
                       other loan type is unchanged. */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px 16px', margin: '12px 0' }}>
                     <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                      Original Principal: <strong style={{ color: 'var(--text-primary)' }}>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString()}</strong>
+                      Original Principal: <strong style={{ color: 'var(--text-primary)' }}>LKR {parseFloat(loanStatement.loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                     </div>
                     {showsUnifiedOutstanding(loanStatement.loan) ? (
                       <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
@@ -6322,10 +6341,10 @@ export default function LendApp() {
                     ) : (
                       <>
                         <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                          Principal Outstanding: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.principal_outstanding).toLocaleString()}</strong>
+                          Principal Outstanding: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.principal_outstanding).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                         </div>
                         <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                          Interest Due: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString()}</strong>
+                          Interest Due: <strong style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                           {(() => {
                             const projected = projectCurrentInterestBalance(loanStatement.loan);
                             const stored = parseFloat(loanStatement.loan.interest_balance) || 0;
@@ -6630,19 +6649,19 @@ export default function LendApp() {
                                   fontWeight: 'bold',
                                   color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
                                 }}>
-                                  {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
+                                  {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `- LKR ${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                                 </td>
                                 {showsUnifiedOutstanding(loanStatement.loan) ? (
                                   <td style={{ fontWeight: 'bold' }}>
-                                    LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}
+                                    LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   </td>
                                 ) : (
                                   <>
                                     <td style={{ fontWeight: 'bold' }}>
-                                      LKR {entry.runningPrincipalBalance.toLocaleString()}
+                                      LKR {entry.runningPrincipalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
                                     <td style={{ fontWeight: 'bold' }}>
-                                      LKR {entry.runningInterestBalance.toLocaleString()}
+                                      LKR {entry.runningInterestBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
                                   </>
                                 )}
@@ -6673,7 +6692,7 @@ export default function LendApp() {
                                   fontWeight: 'bold',
                                   color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
                                 }}>
-                                  {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString()}` : `- LKR ${entry.amount.toLocaleString()}`}
+                                  {entry.change === 'increase' ? `+ LKR ${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `- LKR ${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                                 </span>
                               </div>
                               <div style={{ gridColumn: 'span 2' }}>
@@ -6683,17 +6702,17 @@ export default function LendApp() {
                               {showsUnifiedOutstanding(loanStatement.loan) ? (
                                 <div style={{ gridColumn: 'span 2', borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
                                   <span className="mobile-row-card-label">Total Outstanding:</span>
-                                  <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}</span>
+                                  <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                               ) : (
                                 <>
                                   <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
                                     <span className="mobile-row-card-label">Principal Bal:</span>
-                                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
+                                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningPrincipalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                   </div>
                                   <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '4px', marginTop: '4px' }}>
                                     <span className="mobile-row-card-label">Interest Bal:</span>
-                                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
+                                    <span className="mobile-row-card-value" style={{ fontWeight: 'bold' }}> LKR {entry.runningInterestBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                   </div>
                                 </>
                               )}
@@ -6717,13 +6736,13 @@ export default function LendApp() {
                           </p>
                           <form onSubmit={handleLedgerCollectPayment} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <div>
-                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>PAYMENT TYPE</label>
+                              <label id="f-ledger-payment-type" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Payment Type</label>
                               {loanStatement.loan.is_flat_installment ? (
-                                <div className="glass-btn glass-btn-emerald" style={{ width: '100%', padding: '8px 12px', fontSize: '12px', textAlign: 'center', cursor: 'default' }}>
+                                <div aria-labelledby="f-ledger-payment-type" className="glass-btn glass-btn-emerald" style={{ width: '100%', padding: '8px 12px', fontSize: '12px', textAlign: 'center', cursor: 'default' }}>
                                   Principal + Interest (Flat Installment)
                                 </div>
                               ) : (
-                                <div style={{ display: 'flex', gap: '8px' }}>
+                                <div role="group" aria-labelledby="f-ledger-payment-type" style={{ display: 'flex', gap: '8px' }}>
                                   <button type="button"
                                     className={`glass-btn ${ledgerPaymentForm.payment_type === 'interest' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
                                     style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
@@ -6746,24 +6765,24 @@ export default function LendApp() {
                             </div>
 
                             <div>
-                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>AMOUNT (LKR) *</label>
-                              <input required type="number" inputMode="decimal" step="0.01" min="0.01" className="glass-input" placeholder="0.00"
+                              <label htmlFor="f-amount-lkr-6768" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Amount (LKR) *</label>
+                              <input id="f-amount-lkr-6768" required type="number" inputMode="decimal" step="0.01" min="0.01" className="glass-input" placeholder="0.00"
                                 value={ledgerPaymentForm.amount}
                                 onChange={e => setLedgerPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
                                 style={{ padding: '10px 12px', fontSize: '16px', fontWeight: 'bold' }} />
                             </div>
 
                             <div>
-                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>NOTES / DESCRIPTION</label>
-                              <input type="text" className="glass-input" placeholder="e.g. Week 2 payment"
+                              <label htmlFor="f-notes-description-6776" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Notes / Description</label>
+                              <input id="f-notes-description-6776" type="text" className="glass-input" placeholder="e.g. Week 2 payment"
                                 value={ledgerPaymentForm.notes}
                                 onChange={e => setLedgerPaymentForm(prev => ({ ...prev, notes: e.target.value }))}
                                 style={{ padding: '8px 12px', fontSize: '13px' }} />
                             </div>
 
                             <div>
-                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>RECEIPT PHOTO / PROOF</label>
-                              <input type="file" accept="image/*" className="glass-input"
+                              <label htmlFor="f-receipt-photo-proof-6784" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Receipt Photo / Proof</label>
+                              <input id="f-receipt-photo-proof-6784" type="file" accept="image/*" className="glass-input"
                                 onChange={async (e) => {
                                   const file = e.target.files[0];
                                   if (file) {
@@ -6852,7 +6871,7 @@ export default function LendApp() {
                                   <span>{new Date(acc.created_at).toLocaleDateString()}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <strong style={{ color: 'var(--accent-gold)' }}>+ LKR {parseFloat(acc.amount_accrued).toLocaleString()}</strong>
+                                  <strong style={{ color: 'var(--accent-gold)' }}>+ LKR {parseFloat(acc.amount_accrued).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                                 </div>
                                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace' }}>{acc.calculation_log}</p>
                               </div>
@@ -6877,7 +6896,7 @@ export default function LendApp() {
                         <div><strong>Date of Birth:</strong> {loanStatement.loan.date_of_birth ? new Date(loanStatement.loan.date_of_birth).toLocaleDateString() : '-'}</div>
                         <div style={{ gridColumn: '1 / -1' }}><strong>Purpose of Loan:</strong> {loanStatement.loan.loan_purpose || '-'}</div>
                         <div><strong>Dependents:</strong> {loanStatement.loan.dependents_count ?? '-'}</div>
-                        <div><strong>Monthly Income:</strong> {loanStatement.loan.monthly_income !== null && loanStatement.loan.monthly_income !== undefined ? `LKR ${parseFloat(loanStatement.loan.monthly_income).toLocaleString()}` : '-'}</div>
+                        <div><strong>Monthly Income:</strong> {loanStatement.loan.monthly_income !== null && loanStatement.loan.monthly_income !== undefined ? `LKR ${parseFloat(loanStatement.loan.monthly_income).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</div>
                         <div><strong>Spouse Name:</strong> {loanStatement.loan.spouse_name || '-'}</div>
                         <div><strong>Spouse NIC:</strong> {loanStatement.loan.spouse_nic || '-'}</div>
                         <div style={{ gridColumn: '1 / -1' }}><strong>Spouse Occupation:</strong> {loanStatement.loan.spouse_occupation || '-'}</div>
@@ -6957,16 +6976,16 @@ export default function LendApp() {
                             parseFloat(gtor.monthly_income_business || 0) +
                             parseFloat(gtor.monthly_income_agriculture || 0) +
                             parseFloat(gtor.monthly_income_other || 0)
-                          ).toLocaleString()}
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Business: {parseFloat(gtor.monthly_income_business || 0).toLocaleString()}, Agriculture: {parseFloat(gtor.monthly_income_agriculture || 0).toLocaleString()}, Other: {parseFloat(gtor.monthly_income_other || 0).toLocaleString()})</span>
+                          ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Business: {parseFloat(gtor.monthly_income_business || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Agriculture: {parseFloat(gtor.monthly_income_agriculture || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Other: {parseFloat(gtor.monthly_income_other || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                         </div>
                         <div>
                           <strong>Monthly Expense:</strong> LKR {(
                             parseFloat(gtor.monthly_expense_food || 0) +
                             parseFloat(gtor.monthly_expense_rent || 0) +
                             parseFloat(gtor.monthly_expense_other || 0)
-                          ).toLocaleString()}
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(gtor.monthly_expense_food || 0).toLocaleString()}, Rent: {parseFloat(gtor.monthly_expense_rent || 0).toLocaleString()}, Other: {parseFloat(gtor.monthly_expense_other || 0).toLocaleString()})</span>
+                          ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> (Food: {parseFloat(gtor.monthly_expense_food || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Rent: {parseFloat(gtor.monthly_expense_rent || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Other: {parseFloat(gtor.monthly_expense_other || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                         </div>
                       </div>
                     </div>
@@ -6992,23 +7011,23 @@ export default function LendApp() {
                       <form onSubmit={handleSaveGuarantor} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div className="form-grid-2-col">
                           <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
-                            <input required type="text" className="glass-input" value={guarantorEditForm.full_name} onChange={e => setGuarantorEditForm(prev => ({ ...prev, full_name: e.target.value }))} />
+                            <label htmlFor="f-full-name-7014" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Full Name *</label>
+                            <input id="f-full-name-7014" required type="text" className="glass-input" value={guarantorEditForm.full_name} onChange={e => setGuarantorEditForm(prev => ({ ...prev, full_name: e.target.value }))} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
-                            <input required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} onBlur={e => runNicLookup('guarantor_edit', e.target.value)} />
+                            <label htmlFor="f-nic-number-7018" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Number *</label>
+                            <input id="f-nic-number-7018" required type="text" className="glass-input" placeholder="e.g. 199012345678 or 123456789V" value={guarantorEditForm.nic_number} onChange={e => setGuarantorEditForm(prev => ({ ...prev, nic_number: e.target.value }))} onBlur={e => runNicLookup('guarantor_edit', e.target.value)} />
                             {nicLookup.guarantor_edit?.loading && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Checking record…</span>}
                             {renderNicLookupWarning('guarantor_edit', { forGuarantee: true })}
                           </div>
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone *</label>
-                          <input required type="tel" className="glass-input" value={guarantorEditForm.phone} onChange={e => setGuarantorEditForm(prev => ({ ...prev, phone: e.target.value }))} />
+                          <label htmlFor="f-phone-7025" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Phone *</label>
+                          <input id="f-phone-7025" required type="tel" className="glass-input" value={guarantorEditForm.phone} onChange={e => setGuarantorEditForm(prev => ({ ...prev, phone: e.target.value }))} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                          <input required type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
+                          <label htmlFor="f-address-7029" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                          <input id="f-address-7029" required type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
                         </div>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
                           <input type="checkbox" checked={guarantorEditForm.protected_under_debt_act} onChange={e => setGuarantorEditForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />
@@ -7051,14 +7070,14 @@ export default function LendApp() {
                           <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Edit Terms</h4>
                           <form onSubmit={handleUpdateLoan} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <div>
-                              <label style={{ fontSize: '12px', fontWeight: 'bold' }}>New Interest Rate (%) — currently {loanStatement.loan.interest_rate}%</label>
-                              <input type="number" step="0.01" min="0" className="glass-input" placeholder="Leave blank to keep unchanged"
+                              <label htmlFor="f-new-interest-rate-currently-loanstatemen-7073" style={{ fontSize: '12px', fontWeight: 'bold' }}>New Interest Rate (%) — currently {loanStatement.loan.interest_rate}%</label>
+                              <input id="f-new-interest-rate-currently-loanstatemen-7073" type="number" step="0.01" min="0" className="glass-input" placeholder="Leave blank to keep unchanged"
                                 value={loanEditForm.interest_rate}
                                 onChange={e => setLoanEditForm(prev => ({ ...prev, interest_rate: e.target.value }))} />
                             </div>
                             <div>
-                              <label style={{ fontSize: '12px', fontWeight: 'bold' }}>Reassign Agent</label>
-                              <select className="glass-input" value={loanEditForm.assigned_agent_id}
+                              <label htmlFor="f-reassign-agent-7079" style={{ fontSize: '12px', fontWeight: 'bold' }}>Reassign Agent</label>
+                              <select id="f-reassign-agent-7079" className="glass-input" value={loanEditForm.assigned_agent_id}
                                 onChange={e => setLoanEditForm(prev => ({ ...prev, assigned_agent_id: e.target.value }))}>
                                 <option value="">Leave unchanged</option>
                                 {agentsList.map(a => (
@@ -7308,10 +7327,10 @@ export default function LendApp() {
                                 fontWeight: 'bold',
                                 color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
                               }}>
-                                {entry.change === 'increase' ? `+LKR ${entry.amount.toLocaleString()}` : `-LKR ${entry.amount.toLocaleString()}`}
+                                {entry.change === 'increase' ? `+LKR ${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `-LKR ${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                               </td>
                               <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}
+                                LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
                             </>
                           ) : (
@@ -7321,20 +7340,20 @@ export default function LendApp() {
                                 fontWeight: 'bold',
                                 color: entry.principalDelta !== 0 ? (entry.principalDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
                               }}>
-                                {entry.principalDelta !== 0 ? (entry.principalDelta > 0 ? `+LKR ${entry.principalDelta.toLocaleString()}` : `-LKR ${Math.abs(entry.principalDelta).toLocaleString()}`) : '-'}
+                                {entry.principalDelta !== 0 ? (entry.principalDelta > 0 ? `+LKR ${entry.principalDelta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `-LKR ${Math.abs(entry.principalDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : '-'}
                               </td>
                               <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                LKR {entry.runningPrincipalBalance.toLocaleString()}
+                                LKR {entry.runningPrincipalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
                               <td style={{
                                 textAlign: 'right',
                                 fontWeight: 'bold',
                                 color: entry.interestDelta !== 0 ? (entry.interestDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
                               }}>
-                                {entry.interestDelta !== 0 ? (entry.interestDelta > 0 ? `+LKR ${entry.interestDelta.toLocaleString()}` : `-LKR ${Math.abs(entry.interestDelta).toLocaleString()}`) : '-'}
+                                {entry.interestDelta !== 0 ? (entry.interestDelta > 0 ? `+LKR ${entry.interestDelta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `-LKR ${Math.abs(entry.interestDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : '-'}
                               </td>
                               <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                LKR {entry.runningInterestBalance.toLocaleString()}
+                                LKR {entry.runningInterestBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
                             </>
                           )}
@@ -7371,12 +7390,12 @@ export default function LendApp() {
                                 fontSize: '12px',
                                 color: entry.change === 'decrease' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
                               }}>
-                                {entry.change === 'increase' ? `+${entry.amount.toLocaleString()}` : `-${entry.amount.toLocaleString()}`}
+                                {entry.change === 'increase' ? `+${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `-${entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                               </span>
                             </div>
                             <div>
                               <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Total Outstanding:</span>
-                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString()}</span>
+                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {(entry.runningPrincipalBalance + entry.runningInterestBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                           </div>
                         ) : (
@@ -7387,7 +7406,7 @@ export default function LendApp() {
                                 fontSize: '12px',
                                 color: entry.principalDelta !== 0 ? (entry.principalDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
                               }}>
-                                {entry.principalDelta !== 0 ? (entry.principalDelta > 0 ? `+${entry.principalDelta.toLocaleString()}` : `-${Math.abs(entry.principalDelta).toLocaleString()}`) : '-'}
+                                {entry.principalDelta !== 0 ? (entry.principalDelta > 0 ? `+${entry.principalDelta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `-${Math.abs(entry.principalDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : '-'}
                               </span>
                             </div>
                             <div>
@@ -7396,16 +7415,16 @@ export default function LendApp() {
                                 fontSize: '12px',
                                 color: entry.interestDelta !== 0 ? (entry.interestDelta < 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)') : 'inherit'
                               }}>
-                                {entry.interestDelta !== 0 ? (entry.interestDelta > 0 ? `+${entry.interestDelta.toLocaleString()}` : `-${Math.abs(entry.interestDelta).toLocaleString()}`) : '-'}
+                                {entry.interestDelta !== 0 ? (entry.interestDelta > 0 ? `+${entry.interestDelta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `-${Math.abs(entry.interestDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : '-'}
                               </span>
                             </div>
                             <div>
                               <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Principal Bal:</span>
-                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningPrincipalBalance.toLocaleString()}</span>
+                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningPrincipalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div>
                               <span className="mobile-row-card-label" style={{ fontSize: '10px' }}>Interest Bal:</span>
-                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningInterestBalance.toLocaleString()}</span>
+                              <span className="mobile-row-card-value" style={{ fontSize: '12px' }}> LKR {entry.runningInterestBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                           </div>
                         )}
@@ -7444,14 +7463,6 @@ export default function LendApp() {
                 onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
               >
                 <Calendar className="icon" /> Next Day Tasklist
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <CreditCard className="icon" /> Record Payment
               </button>
               <button
                 type="button"
@@ -7500,6 +7511,18 @@ export default function LendApp() {
                 <span className="bottom-nav-icon"><Banknote /></span>
                 <span className="bottom-nav-label">Give Loan</span>
               </button>
+              {/* Record Payment gets its own always-reachable icon (used
+                  every collection round, not just occasionally) rather than
+                  being buried inside "More" — on a real ~375px phone only
+                  about 5 icons fit before the row has to scroll, so the
+                  order here is deliberately "how often is this actually
+                  tapped", not the order features shipped in. It's still
+                  also reachable from the More sheet below for anyone used to
+                  finding it there. */}
+              <button className={`bottom-nav-item ${view === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); }}>
+                <span className="bottom-nav-icon"><CreditCard /></span>
+                <span className="bottom-nav-label">Record</span>
+              </button>
               <button className={`bottom-nav-item ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
                 <span className="bottom-nav-icon"><ClipboardCheck /></span>
                 <span className="bottom-nav-label">Applications</span>
@@ -7518,14 +7541,13 @@ export default function LendApp() {
                 <span className="bottom-nav-icon"><Landmark /></span>
                 <span className="bottom-nav-label">Users & Cash</span>
               </button>
-              {/* "More" — Next Day Tasklist, Record Payment, and Interest
-                  Accrual Center are real, frequently-needed screens that
-                  only had a path in from the dashboard's menu grid (or the
-                  desktop-only top nav, hidden on mobile). On mobile that
-                  meant Home -> scroll -> tap from ANY other screen just to
-                  reach them. This bottom sheet gives them a permanent,
-                  reachable path without crowding 8 items into one row. */}
-              <button className={`bottom-nav-item ${['next-day-tasklist', 'record-payment', 'interest-center', 'payment-history', 'audit-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)}>
+              {/* "More" — Next Day Tasklist and Interest Accrual Center are
+                  real, frequently-needed screens that only had a path in
+                  from the dashboard's menu grid (or the desktop-only top
+                  nav, hidden on mobile). This bottom sheet gives them a
+                  permanent, reachable path without crowding 9 items into
+                  one row. */}
+              <button className={`bottom-nav-item ${['next-day-tasklist', 'interest-center', 'payment-history', 'audit-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)}>
                 <span className="bottom-nav-icon"><LayoutGrid /></span>
                 <span className="bottom-nav-label">More</span>
               </button>
@@ -7925,10 +7947,10 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
       {/* Summary KPI Strip */}
       <div className="kpi-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
         {[
-          { label: 'Total Disbursed', val: `LKR ${Math.round(totalPrincipal).toLocaleString()}`, color: 'var(--accent-blue)', icon: '💰' },
-          { label: 'Total Collected', val: `LKR ${Math.round(totalCollected).toLocaleString()}`, color: 'var(--accent-emerald)', icon: '🧾' },
-          { label: 'Total Outstanding', val: `LKR ${Math.round(totalOutstanding).toLocaleString()}`, color: 'var(--accent-rose)', icon: '📊' },
-          { label: "Today's Due (Active)", val: `LKR ${Math.round(totalDueToday).toLocaleString()}`, color: 'var(--accent-amber)', icon: '📅' },
+          { label: 'Total Disbursed', val: `LKR ${Math.round(totalPrincipal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: 'var(--accent-blue)', icon: '💰' },
+          { label: 'Total Collected', val: `LKR ${Math.round(totalCollected).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: 'var(--accent-emerald)', icon: '🧾' },
+          { label: 'Total Outstanding', val: `LKR ${Math.round(totalOutstanding).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: 'var(--accent-rose)', icon: '📊' },
+          { label: "Today's Due (Active)", val: `LKR ${Math.round(totalDueToday).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: 'var(--accent-amber)', icon: '📅' },
           { label: 'Active / Unpaid', val: activeCount, color: 'var(--accent-emerald)', icon: '🟢' },
           { label: 'Fully Paid', val: paidCount, color: 'var(--text-secondary)', icon: '✅' },
         ].map(k => (
@@ -7989,7 +8011,7 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
                       </span>
                     </span>
                     <span style={{ fontSize: '11px', fontWeight: '700', color: totalOutstandingOf(loan) > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)', whiteSpace: 'nowrap', marginLeft: '10px' }}>
-                      {totalOutstandingOf(loan) > 0 ? `LKR ${totalOutstandingOf(loan).toLocaleString()}` : 'Settled'}
+                      {totalOutstandingOf(loan) > 0 ? `LKR ${totalOutstandingOf(loan).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Settled'}
                     </span>
                   </button>
                 ))}
@@ -8011,8 +8033,8 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
         <div className={`${!showMobileFilters ? 'mobile-hidden' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'flex-end' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>⏱️ Period</label>
-              <select className="glass-input" value={periodPreset} onChange={e => applyPeriodPreset(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
+              <label htmlFor="f-period-8036" style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>⏱️ Period</label>
+              <select id="f-period-8036" className="glass-input" value={periodPreset} onChange={e => applyPeriodPreset(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
                 <option value="all">All Time</option>
                 <option value="today">Today</option>
                 <option value="this_month">This Month</option>
@@ -8024,16 +8046,16 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 From Date</label>
-              <input type="date" className="glass-input" value={fromDate} onChange={e => { setFromDate(e.target.value); setPeriodPreset('custom'); }} style={{ fontSize: '13px', width: '100%' }} />
+              <label htmlFor="f-from-date-8049" style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 From Date</label>
+              <input id="f-from-date-8049" type="date" className="glass-input" value={fromDate} onChange={e => { setFromDate(e.target.value); setPeriodPreset('custom'); }} style={{ fontSize: '13px', width: '100%' }} />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 To Date</label>
-              <input type="date" className="glass-input" value={toDate} onChange={e => { setToDate(e.target.value); setPeriodPreset('custom'); }} style={{ fontSize: '13px', width: '100%' }} />
+              <label htmlFor="f-to-date-8053" style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>📅 To Date</label>
+              <input id="f-to-date-8053" type="date" className="glass-input" value={toDate} onChange={e => { setToDate(e.target.value); setPeriodPreset('custom'); }} style={{ fontSize: '13px', width: '100%' }} />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔄 Collection Type</label>
-              <select className="glass-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
+              <label htmlFor="f-collection-type-8057" style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>🔄 Collection Type</label>
+              <select id="f-collection-type-8057" className="glass-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
                 <option value="all">All Types</option>
                 <option value="daily">Daily Collection</option>
                 <option value="weekly">Weekly Collection</option>
@@ -8041,8 +8063,8 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>👤 Assigned Agent</label>
-              <select className="glass-input" value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
+              <label htmlFor="f-assigned-agent-8066" style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>👤 Assigned Agent</label>
+              <select id="f-assigned-agent-8066" className="glass-input" value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{ fontSize: '13px', width: '100%' }}>
                 <option value="all">All Agents</option>
                 {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
@@ -8154,7 +8176,7 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
                         </span>
                         {loan.last5Days && <div style={{ marginTop: '4px' }}><Last5DaysStreak last5Days={loan.last5Days} /></div>}
                       </td>
-                      <td style={{ padding: '12px 14px', fontWeight: '700', whiteSpace: 'nowrap' }}>LKR {parseFloat(loan.principal_amount).toLocaleString()}</td>
+                      <td style={{ padding: '12px 14px', fontWeight: '700', whiteSpace: 'nowrap' }}>LKR {parseFloat(loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{ background: (typeColor[loan.interest_type] || '#666') + '22', color: typeColor[loan.interest_type] || 'var(--text-secondary)', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
                           {loan.interest_type}
@@ -8234,11 +8256,11 @@ function LoansLoader({ onSelect, onQuickPay, fetchTrigger }) {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                     {(loan.is_flat_installment
                       ? [
-                          ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null],
+                          ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, null],
                           ['Daily Installment', `LKR ${parseFloat(loan.daily_installment_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, null]
                         ]
                       : [
-                          ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString()}`, null],
+                          ['Principal', `LKR ${parseFloat(loan.principal_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, null],
                           ['Rate', `${loan.interest_rate}%`, null]
                         ]
                     ).concat([
@@ -8436,7 +8458,7 @@ function BorrowerIntakesLoader({ onConvert, onCountChange, showToast }) {
                   {intake.date_of_birth && <div><strong style={{ color: 'var(--text-secondary)' }}>DOB:</strong> {new Date(intake.date_of_birth).toLocaleDateString()}</div>}
                   {intake.loan_purpose && <div><strong style={{ color: 'var(--text-secondary)' }}>Purpose:</strong> {intake.loan_purpose}</div>}
                   {intake.dependents_count !== null && <div><strong style={{ color: 'var(--text-secondary)' }}>Dependents:</strong> {intake.dependents_count}</div>}
-                  {intake.monthly_income !== null && <div><strong style={{ color: 'var(--text-secondary)' }}>Monthly Income:</strong> LKR {parseFloat(intake.monthly_income).toLocaleString()}</div>}
+                  {intake.monthly_income !== null && <div><strong style={{ color: 'var(--text-secondary)' }}>Monthly Income:</strong> LKR {parseFloat(intake.monthly_income).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
                   {intake.spouse_name && <div><strong style={{ color: 'var(--text-secondary)' }}>Spouse:</strong> {intake.spouse_name}{intake.spouse_occupation ? ` (${intake.spouse_occupation})` : ''}</div>}
                 </div>
                 {(intake.nic_photo_count > 0 || intake.photo_proof_count > 0 || intake.guarantors?.length > 0) && (
@@ -8524,8 +8546,8 @@ function AuditLogLoader() {
       {/* Filter Toolbar */}
       <div style={{ padding: '14px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>SEARCH DESCRIPTION</label>
-          <input
+          <label htmlFor="f-search-description-8549" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Search Description</label>
+          <input id="f-search-description-8549"
             type="text"
             className="glass-input"
             placeholder="Search description..."
@@ -8535,8 +8557,8 @@ function AuditLogLoader() {
           />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>FROM DATE</label>
-          <input
+          <label htmlFor="f-from-date-8560" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>From Date</label>
+          <input id="f-from-date-8560"
             type="date"
             className="glass-input"
             value={fromDate}
@@ -8545,8 +8567,8 @@ function AuditLogLoader() {
           />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>TO DATE</label>
-          <input
+          <label htmlFor="f-to-date-8570" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>To Date</label>
+          <input id="f-to-date-8570"
             type="date"
             className="glass-input"
             value={toDate}
@@ -8555,8 +8577,8 @@ function AuditLogLoader() {
           />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>ACTION TYPE</label>
-          <select className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={actionType} onChange={e => setActionType(e.target.value)}>
+          <label htmlFor="f-action-type-8580" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Action Type</label>
+          <select id="f-action-type-8580" className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={actionType} onChange={e => setActionType(e.target.value)}>
             <option value="">All Action Types</option>
             {(data?.actionTypes || []).map(t => (
               <option key={t} value={t}>{t}</option>
@@ -8712,8 +8734,8 @@ function PaymentHistoryLoader() {
       {/* Advanced Filter Toolbar */}
       <div style={{ padding: '14px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>SEARCH (NAME / PHONE / NIC / CODE)</label>
-          <input
+          <label htmlFor="f-search-name-phone-nic-code-8737" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Search (Name / Phone / NIC / Code)</label>
+          <input id="f-search-name-phone-nic-code-8737"
             type="text"
             className="glass-input"
             placeholder="e.g. Bandara, 1990..., idemp..."
@@ -8723,8 +8745,8 @@ function PaymentHistoryLoader() {
           />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>FROM DATE</label>
-          <input
+          <label htmlFor="f-from-date-8748" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>From Date</label>
+          <input id="f-from-date-8748"
             type="date"
             className="glass-input"
             value={fromDate}
@@ -8733,8 +8755,8 @@ function PaymentHistoryLoader() {
           />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>TO DATE</label>
-          <input
+          <label htmlFor="f-to-date-8758" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>To Date</label>
+          <input id="f-to-date-8758"
             type="date"
             className="glass-input"
             value={toDate}
@@ -8743,8 +8765,8 @@ function PaymentHistoryLoader() {
           />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>PAYMENT METHOD</label>
-          <select className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+          <label htmlFor="f-payment-method-8768" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Payment Method</label>
+          <select id="f-payment-method-8768" className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
             <option value="">All Methods</option>
             <option value="cash">Cash Collection</option>
             <option value="bank_transfer">Bank Transfer</option>
@@ -8753,8 +8775,8 @@ function PaymentHistoryLoader() {
           </select>
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>PAYMENT TYPE</label>
-          <select className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={paymentType} onChange={e => setPaymentType(e.target.value)}>
+          <label htmlFor="f-payment-type-8778" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Payment Type</label>
+          <select id="f-payment-type-8778" className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={paymentType} onChange={e => setPaymentType(e.target.value)}>
             <option value="">All Types</option>
             <option value="interest">Interest Payment</option>
             <option value="principal">Principal Repayment</option>
@@ -8787,7 +8809,7 @@ function PaymentHistoryLoader() {
                     <td>{tx.borrower_name}</td>
                     <td>{tx.agent_name}</td>
                     <td style={{ textTransform: 'capitalize' }}>{tx.payment_type === 'flat_installment' ? 'Daily installment' : tx.payment_type}</td>
-                    <td style={{ fontWeight: 'bold' }}>LKR {parseFloat(tx.amount).toLocaleString()}</td>
+                    <td style={{ fontWeight: 'bold' }}>LKR {parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td style={{ textTransform: 'capitalize' }}>{(tx.payment_method || '').replace('_', ' ')}</td>
                   </tr>
                 ))}
@@ -8800,7 +8822,7 @@ function PaymentHistoryLoader() {
               <div key={tx.id} className="mobile-row-card mobile-row-card-success">
                 <div className="mobile-row-card-header">
                   <span className="mobile-row-card-title">{tx.borrower_name}</span>
-                  <span style={{ fontWeight: 'bold', color: 'var(--accent-emerald)', fontSize: '15px' }}>LKR {parseFloat(tx.amount).toLocaleString()}</span>
+                  <span style={{ fontWeight: 'bold', color: 'var(--accent-emerald)', fontSize: '15px' }}>LKR {parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(tx.payment_date).toLocaleString()}</span>
                 <div className="mobile-row-card-grid">
@@ -9079,9 +9101,9 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
         // note above this component — the exact failure mode this avoids
         // is a stale-looking row getting submitted again as a genuine
         // duplicate because the UI implied it was already done).
-        if (showToast) showToast(`No connection — LKR ${amountVal.toLocaleString()} ${typeLabel} payment for ${loan.borrower_name} saved and will sync automatically once you're back online.`, 'info');
+        if (showToast) showToast(`No connection — LKR ${amountVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${typeLabel} payment for ${loan.borrower_name} saved and will sync automatically once you're back online.`, 'info');
       } else {
-        if (showToast) showToast(`Recorded LKR ${amountVal.toLocaleString()} ${typeLabel} payment for ${loan.borrower_name}!`);
+        if (showToast) showToast(`Recorded LKR ${amountVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${typeLabel} payment for ${loan.borrower_name}!`);
 
         // Clear completed row input
         setSelectedRows(prev => {
@@ -9377,22 +9399,28 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                     </div>
                   </div>
 
+                  {/* These two toggles mark real cash as collected — the exact
+                      controls involved in a real double-payment incident, so
+                      the tap target is deliberately generous: the full-width
+                      flex:1 label (not just the checkbox) is clickable, at
+                      least 44px tall per the usual minimum comfortable
+                      touch-target size, with a visibly larger checkbox. */}
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-light)' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', padding: '9px 10px', borderRadius: '8px', background: row.mode === 'full' ? 'var(--accent-blue-light)' : 'transparent' }}>
+                    <label style={{ flex: 1, minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', padding: '10px 12px', borderRadius: '8px', background: row.mode === 'full' ? 'var(--accent-blue-light)' : 'var(--bg-secondary)', border: '1px solid var(--border-light)' }}>
                       <input
                         type="checkbox"
                         checked={row.mode === 'full'}
                         onChange={e => handleToggleMode(loan, 'full', e.target.checked)}
-                        style={{ width: '18px', height: '18px', accentColor: 'var(--accent-emerald)', cursor: 'pointer' }}
+                        style={{ width: '22px', height: '22px', accentColor: 'var(--accent-emerald)', cursor: 'pointer' }}
                       />
                       Full Due
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', padding: '9px 10px', borderRadius: '8px', background: row.mode === 'partial' ? 'var(--accent-blue-light)' : 'transparent' }}>
+                    <label style={{ flex: 1, minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', padding: '10px 12px', borderRadius: '8px', background: row.mode === 'partial' ? 'var(--accent-blue-light)' : 'var(--bg-secondary)', border: '1px solid var(--border-light)' }}>
                       <input
                         type="checkbox"
                         checked={row.mode === 'partial'}
                         onChange={e => handleToggleMode(loan, 'partial', e.target.checked)}
-                        style={{ width: '18px', height: '18px', accentColor: 'var(--accent-amber)', cursor: 'pointer' }}
+                        style={{ width: '22px', height: '22px', accentColor: 'var(--accent-amber)', cursor: 'pointer' }}
                       />
                       Partial
                     </label>
@@ -9584,23 +9612,23 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
       <div className="responsive-grid-equal-4-col" style={{ marginBottom: '24px' }}>
         <div className="kpi-card kpi-card-emerald">
           <span className="kpi-lbl">Total Expected Tomorrow</span>
-          <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {Math.round(totalExpectedTomorrow).toLocaleString()}</h3>
+          <h3 className="kpi-val" style={{ color: 'var(--accent-emerald)' }}>LKR {Math.round(totalExpectedTomorrow).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Combined collections</span>
         </div>
         <div className="kpi-card kpi-card-blue">
           <span className="kpi-lbl">Daily Route</span>
           <h3 className="kpi-val">{dailyDueTomorrow.length} Loans</h3>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalDailyAmt).toLocaleString()}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalDailyAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div className="kpi-card kpi-card-amber">
           <span className="kpi-lbl">Weekly Route</span>
           <h3 className="kpi-val">{weeklyDueTomorrow.length} Loans</h3>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalWeeklyAmt).toLocaleString()}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalWeeklyAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div className="kpi-card kpi-card-rose">
           <span className="kpi-lbl">Monthly Route</span>
           <h3 className="kpi-val">{monthlyDueTomorrow.length} Loans</h3>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalMonthlyAmt).toLocaleString()}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>LKR {Math.round(totalMonthlyAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       </div>
 
@@ -9693,7 +9721,7 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                         </span>
                       </td>
                       <td style={{ fontWeight: 'bold', color: 'var(--accent-emerald)' }}>
-                        LKR {Math.round(expectedAmt).toLocaleString()}
+                        LKR {Math.round(expectedAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td style={{ fontWeight: 'bold', color: currentBal > 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>
                         LKR {currentBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -9748,7 +9776,7 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                   </span>
                   <div className="mobile-row-card-grid">
                     <span className="mobile-row-card-label">Expected Due</span>
-                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)' }}>LKR {Math.round(expectedAmt).toLocaleString()}</span>
+                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)' }}>LKR {Math.round(expectedAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                     <span className="mobile-row-card-label">Balance</span>
                     <span className="mobile-row-card-value" style={{ color: currentBal > 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>LKR {currentBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
