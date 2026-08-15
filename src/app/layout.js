@@ -1,23 +1,30 @@
-import { Inter, Outfit } from 'next/font/google';
+import localFont from 'next/font/local';
 import db from '@/lib/db.js';
 import './globals.css';
 
-// Self-hosted at build time (no request to fonts.googleapis.com at runtime)
-// — Next.js downloads these once during build and serves them from this
-// app's own domain. Replaces a render-blocking `@import` that used to sit
-// at the top of globals.css and cost every page load an extra network
-// round-trip before anything could paint. Weights match what was
-// previously requested from Google Fonts.
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
+// Self-hosted as actual files checked into the repo (src/fonts/), not
+// fetched from Google at build time via next/font/google. That previous
+// approach still required every single Vercel build to reach
+// fonts.googleapis.com/fonts.gstatic.com during compilation to download
+// and subset the font — when Google's fonts CDN had a transient hiccup
+// (or a build ran from a region with a flaky route to it), the build
+// failed outright with an opaque `next/font` TypeError, blocking every
+// deployment across every organization on this platform until someone
+// happened to retry at the right moment. Vendoring the actual files
+// removes that external dependency from the build entirely: these are the
+// same variable-font files Google would have served (single file per
+// family, covering the whole weight range via next/font/local's `weight`
+// range syntax below), just no longer fetched fresh on every build.
+const inter = localFont({
+  src: '../fonts/inter/Inter-Variable.woff2',
+  weight: '300 700',
   variable: '--font-inter',
   display: 'swap'
 });
 
-const outfit = Outfit({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+const outfit = localFont({
+  src: '../fonts/outfit/Outfit-Variable.woff2',
+  weight: '400 800',
   variable: '--font-outfit',
   display: 'swap'
 });
