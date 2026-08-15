@@ -7460,6 +7460,31 @@ export default function LendApp() {
                 type="button"
                 className="glass-btn glass-btn-secondary"
                 style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <ClipboardList className="icon" /> Check Loans & Payments
+                {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ marginLeft: 'auto', padding: '1px 6px', fontSize: '11px' }}>{adminData.summary.totalOverdue}</span>}
+              </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <Users className="icon" /> Agent Route Progress
+              </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { openAdminTools(); setShowMoreMenu(false); }}
+              >
+                <Landmark className="icon" /> Users & Cash
+              </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
                 onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
               >
                 <Calendar className="icon" /> Next Day Tasklist
@@ -7528,28 +7553,21 @@ export default function LendApp() {
                 <span className="bottom-nav-label">Applications</span>
                 {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{pendingIntakeCount}</span>}
               </button>
-              <button className={`bottom-nav-item ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
-                <span className="bottom-nav-icon"><ClipboardList /></span>
-                <span className="bottom-nav-label">Check Loans</span>
-                {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{adminData.summary.totalOverdue}</span>}
-              </button>
-              <button className={`bottom-nav-item ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}>
-                <span className="bottom-nav-icon"><Users /></span>
-                <span className="bottom-nav-label">Agent Route</span>
-              </button>
-              <button className={`bottom-nav-item ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}>
-                <span className="bottom-nav-icon"><Landmark /></span>
-                <span className="bottom-nav-label">Users & Cash</span>
-              </button>
-              {/* "More" — Next Day Tasklist and Interest Accrual Center are
-                  real, frequently-needed screens that only had a path in
-                  from the dashboard's menu grid (or the desktop-only top
-                  nav, hidden on mobile). This bottom sheet gives them a
-                  permanent, reachable path without crowding 9 items into
-                  one row. */}
-              <button className={`bottom-nav-item ${['next-day-tasklist', 'interest-center', 'payment-history', 'audit-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)}>
+              {/* "More" is deliberately the 5th and last always-visible item
+                  — exactly 5 icons at the 64px min-width below fits down to
+                  a 320px-wide screen, so this row never needs a horizontal
+                  scroll to find it. Check Loans, Agent Route, Users & Cash,
+                  Next Day Tasklist, Interest Accrual Center, Payment
+                  History and Audit Log all live in the sheet this opens —
+                  previously several of those had their own bottom-nav
+                  slot, which pushed the row past 5 items and left "More"
+                  itself scrolled off-screen, undiscoverable to anyone who
+                  doesn't already know to swipe a tab bar sideways (not a
+                  common gesture on this kind of control). */}
+              <button className={`bottom-nav-item ${['loans', 'agents', 'admin-tools', 'next-day-tasklist', 'interest-center', 'payment-history', 'audit-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)} style={{ position: 'relative' }}>
                 <span className="bottom-nav-icon"><LayoutGrid /></span>
                 <span className="bottom-nav-label">More</span>
+                {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{adminData.summary.totalOverdue}</span>}
               </button>
             </>
           )}
