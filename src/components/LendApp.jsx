@@ -2708,6 +2708,7 @@ export default function LendApp() {
               <button className={`nav-link-btn ${view === 'interest-center' ? 'active' : ''}`} onClick={() => { setView('interest-center'); setSelectedLoanId(null); setLoanStatement(null); }}><TrendingUp className="icon" /> Interest Center</button>
               <button className={`nav-link-btn ${view === 'payment-history' ? 'active' : ''}`} onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); }}><Receipt className="icon" /> Payment History</button>
               <button className={`nav-link-btn ${view === 'audit-log' ? 'active' : ''}`} onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); }}><ScrollText className="icon" /> Audit Log</button>
+              <button className={`nav-link-btn ${view === 'sms-log' ? 'active' : ''}`} onClick={() => { setView('sms-log'); setSelectedLoanId(null); setLoanStatement(null); }}><Smartphone className="icon" /> SMS Log</button>
               {user.finance_access !== false && user.ticket_access !== false && (
                 <button className="nav-link-btn" onClick={() => { setView('portal'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ background: 'rgba(37, 84, 232, 0.1)', color: 'var(--accent-blue)', fontWeight: 'bold' }}>
                   Switch Portal &rarr;
@@ -5249,6 +5250,17 @@ export default function LendApp() {
               </div>
             )}
 
+            {view === 'sms-log' && (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button className="glass-btn glass-btn-secondary" style={{ fontSize: '15px', fontWeight: 'bold' }} onClick={() => setView('dashboard')}>
+                    <ArrowLeft className="icon" /> Back to Main Menu
+                  </button>
+                </div>
+                <SmsLogLoader />
+              </div>
+            )}
+
             {view === 'payment-history' && (
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -7567,6 +7579,14 @@ export default function LendApp() {
               >
                 <ScrollText className="icon" /> Audit Log
               </button>
+              <button
+                type="button"
+                className="glass-btn glass-btn-secondary"
+                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
+                onClick={() => { setView('sms-log'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
+              >
+                <Smartphone className="icon" /> SMS Log
+              </button>
             </div>
             <div className="receipt-actions" style={{ gridTemplateColumns: '1fr' }}>
               <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowMoreMenu(false)}>
@@ -7618,7 +7638,7 @@ export default function LendApp() {
                   itself scrolled off-screen, undiscoverable to anyone who
                   doesn't already know to swipe a tab bar sideways (not a
                   common gesture on this kind of control). */}
-              <button className={`bottom-nav-item ${['loans', 'agents', 'admin-tools', 'next-day-tasklist', 'interest-center', 'payment-history', 'audit-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)} style={{ position: 'relative' }}>
+              <button className={`bottom-nav-item ${['loans', 'agents', 'admin-tools', 'next-day-tasklist', 'interest-center', 'payment-history', 'audit-log', 'sms-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)} style={{ position: 'relative' }}>
                 <span className="bottom-nav-icon"><LayoutGrid /></span>
                 <span className="bottom-nav-label">More</span>
                 {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{adminData.summary.totalOverdue}</span>}
@@ -8701,6 +8721,195 @@ function AuditLogLoader() {
                 </div>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{log.actor_name || 'System'}{log.actor_role ? ` (${log.actor_role})` : ''}</span>
                 <p style={{ fontSize: '13px', margin: '4px 0 0', color: 'var(--text-primary)' }}>{log.description}</p>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
+            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={page === 1 || loading} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              ← Prev
+            </button>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Page {data.page} of {data.totalPages} ({data.total} entries)</span>
+            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={page === data.totalPages || loading} onClick={() => setPage(p => Math.min(data.totalPages, p + 1))}>
+              Next →
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Status pill for an sms_logs row — 'sent' (really left the server via
+// Text.lk), 'mocked' (Text.lk isn't configured for this org, nothing was
+// sent), or 'failed' (Text.lk rejected it / the request errored).
+function SmsStatusBadge({ status }) {
+  const styles = {
+    sent: { background: 'var(--accent-emerald-light, #d1fae5)', color: 'var(--accent-emerald)' },
+    mocked: { background: '#fef3c7', color: 'var(--accent-gold)' },
+    failed: { background: '#fee2e2', color: 'var(--accent-rose)' }
+  };
+  const label = { sent: 'Sent', mocked: 'Mocked (not configured)', failed: 'Failed' };
+  return (
+    <span className="badge" style={{ ...(styles[status] || styles.mocked), fontWeight: '700' }}>
+      {label[status] || status}
+    </span>
+  );
+}
+
+// Full, paginated log of every SMS the app has attempted to send (OTP,
+// loan/payment/reminder alerts) with its real delivery status — built so a
+// misconfigured Text.lk account (silently falling back to a console-only
+// mock) is visible here instead of only discoverable after a user reports
+// a missing OTP, which is exactly what happened to Sabesh Capital.
+function SmsLogLoader() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 350);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), limit: '25' });
+    if (debouncedSearch) params.set('search', debouncedSearch);
+    if (status) params.set('status', status);
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
+    api.get(`/sms-logs?${params.toString()}`)
+      .then(res => setData(res))
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false));
+  }, [page, debouncedSearch, status, fromDate, toDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, status, fromDate, toDate]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setStatus('');
+    setFromDate('');
+    setToDate('');
+  };
+
+  const hasActiveFilters = search || status || fromDate || toDate;
+
+  return (
+    <div className="glass-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ fontSize: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Smartphone className="icon" style={{ color: 'var(--accent-blue)' }} /> SMS Delivery Log
+          </h3>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {data ? `Showing page ${data.page} of ${data.totalPages} (${data.total} total messages)` : 'Every OTP and alert this app has tried to send'}
+          </span>
+        </div>
+
+        {hasActiveFilters && (
+          <button type="button" className="glass-btn glass-btn-rose" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={clearFilters}>
+            <RefreshCcw className="icon" /> Reset Filters
+          </button>
+        )}
+      </div>
+
+      {/* The whole point of this screen: surface a misconfigured SMS
+          provider (or a run of real failures) without anyone having to
+          come ask why an OTP never arrived. */}
+      {data?.failedOrMockedLast24h > 0 && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 14px', background: '#fef3c7', border: '1px solid var(--accent-gold)', borderRadius: '10px', marginBottom: '16px' }}>
+          <AlertTriangle style={{ width: '18px', height: '18px', color: 'var(--accent-gold)', flexShrink: 0, marginTop: '2px' }} />
+          <p style={{ fontSize: '13px', color: '#78350f', margin: 0 }}>
+            <strong>{data.failedOrMockedLast24h}</strong> message{data.failedOrMockedLast24h === 1 ? '' : 's'} in the last 24 hours did not actually reach a phone (mocked or failed) — filter by status below to see which, and check the Text.lk API token/sender ID for this org if it's "Mocked".
+          </p>
+        </div>
+      )}
+
+      {/* Filter Toolbar */}
+      <div style={{ padding: '14px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
+        <div>
+          <label htmlFor="f-sms-search" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Search (Name / Phone)</label>
+          <input id="f-sms-search"
+            type="text"
+            className="glass-input"
+            placeholder="e.g. Bandara, 0771234567"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ padding: '7px 10px', fontSize: '13px' }}
+          />
+        </div>
+        <div>
+          <label htmlFor="f-sms-status" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>Status</label>
+          <select id="f-sms-status" className="glass-input" style={{ padding: '7px 10px', fontSize: '13px' }} value={status} onChange={e => setStatus(e.target.value)}>
+            <option value="">All Statuses</option>
+            <option value="sent">Sent</option>
+            <option value="mocked">Mocked (not configured)</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="f-sms-from" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>From Date</label>
+          <input id="f-sms-from" type="date" className="glass-input" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ padding: '7px 10px', fontSize: '13px' }} />
+        </div>
+        <div>
+          <label htmlFor="f-sms-to" style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '4px' }}>To Date</label>
+          <input id="f-sms-to" type="date" className="glass-input" value={toDate} onChange={e => setToDate(e.target.value)} style={{ padding: '7px 10px', fontSize: '13px' }} />
+        </div>
+      </div>
+
+      {loading && !data ? (
+        <SkeletonCards count={5} lines={2} />
+      ) : !data || data.data.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon"><Smartphone style={{ width: '28px', height: '28px' }} /></div>
+          <h4 className="empty-state-title">No SMS Log Entries Found</h4>
+          <p className="empty-state-text">No messages match the current filter selection.</p>
+        </div>
+      ) : (
+        <>
+          <div className="desktop-only" style={{ overflowX: 'auto' }}>
+            <table className="glass-table">
+              <thead>
+                <tr>
+                  <th>Date/Time</th>
+                  <th>Recipient</th>
+                  <th>Phone</th>
+                  <th>Status</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.data.map(log => (
+                  <tr key={log.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString()}</td>
+                    <td>{log.recipient_name || '—'}{log.role ? ` (${log.role})` : ''}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{log.phone}</td>
+                    <td><SmsStatusBadge status={log.status} /></td>
+                    <td style={{ fontSize: '12px', maxWidth: '360px' }} title={log.error || log.message}>
+                      {log.status === 'failed' && log.error ? <span style={{ color: 'var(--accent-rose)' }}>{log.error}</span> : log.message}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mobile-only mobile-card-list">
+            {data.data.map(log => (
+              <div key={log.id} className="mobile-row-card">
+                <div className="mobile-row-card-header">
+                  <SmsStatusBadge status={log.status} />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
+                </div>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{log.recipient_name || '—'}{log.role ? ` (${log.role})` : ''} · {log.phone}</span>
+                <p style={{ fontSize: '13px', margin: '4px 0 0', color: log.status === 'failed' && log.error ? 'var(--accent-rose)' : 'var(--text-primary)' }}>
+                  {log.status === 'failed' && log.error ? log.error : log.message}
+                </p>
               </div>
             ))}
           </div>

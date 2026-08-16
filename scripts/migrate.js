@@ -420,6 +420,32 @@ async function runIncrementalMigrations() {
   // the endpoint to re-send OTPs) and lets the UI restore its countdown on
   // page refresh instead of resetting to 0.
   await addColumnIfMissing('users', 'reset_otp_last_sent_at', (t) => t.timestamp('reset_otp_last_sent_at').nullable());
+
+  // Records every SMS send attempt (OTP, loan/payment/reminder alerts —
+  // everything routed through sendNotification in notification.js), so a
+  // silent delivery failure is visible in the app instead of only
+  // discoverable by reading server logs. This exists because of a real
+  // incident: Sabesh Capital's Text.lk credentials were never configured,
+  // so every "forgot password" OTP silently fell back to a console-only
+  // mock for weeks before anyone noticed — nothing in the UI showed that.
+  if (!(await db.schema.hasTable('sms_logs'))) {
+    await db.schema.createTable('sms_logs', (table) => {
+      table.uuid('id').primary().defaultTo(db.fn.uuid());
+      table.string('recipient_name', 150);
+      table.string('phone', 30).notNullable();
+      table.string('role', 30);
+      // 'sent' = real Text.lk API call succeeded; 'mocked' = TEXTLK_API_TOKEN/
+      // TEXTLK_SENDER_ID aren't configured so nothing left this server at
+      // all; 'failed' = a real send was attempted and Text.lk rejected it
+      // or the request errored.
+      table.string('status', 20).notNullable();
+      table.text('message').notNullable();
+      table.text('error').nullable();
+      table.timestamp('created_at').defaultTo(db.fn.now());
+      table.index(['created_at']);
+      table.index(['status']);
+    });
+  }
 }
 
 async function createSchemaAndSeed() {

@@ -45,6 +45,24 @@ export async function sendNotification({ recipientName, phone, message, role }) 
 
   const smsResult = await sendSms({ to: phone, message });
 
+  // Persist every attempt — see the sms_logs migration comment for why:
+  // this is the only place that would otherwise show whether an SMS
+  // genuinely left the server or silently no-op'd because Text.lk isn't
+  // configured for this org. Best-effort: a logging failure must never
+  // take down the notification flow that triggered it.
+  try {
+    await db('sms_logs').insert({
+      recipient_name: recipientName || null,
+      phone,
+      role: role || null,
+      status: !smsResult.success ? 'failed' : smsResult.mocked ? 'mocked' : 'sent',
+      message,
+      error: smsResult.error || (smsResult.reason ? `reason: ${smsResult.reason}` : null)
+    });
+  } catch (err) {
+    console.error('Failed to write sms_logs entry:', err);
+  }
+
   return { success: smsResult.success, mocked: smsResult.mocked, timestamp };
 }
 
