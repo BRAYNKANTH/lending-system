@@ -323,6 +323,25 @@ export async function notifyLoanReinstated({ borrower, admin }) {
 }
 
 /**
+ * Alerts the borrower when their fixed-term loan is restructured to run
+ * longer — extend-term only, so the message is careful to say the payment
+ * amount itself hasn't changed (only how much more time they have).
+ */
+export async function notifyLoanTermExtended({ borrower, extendBy, periodUnit, newMaturityDate, installmentAmount }) {
+  const unitLabel = `${periodUnit}${extendBy === 1 ? '' : 's'}`;
+  const maturityStr = new Date(newMaturityDate).toLocaleDateString();
+  const amountClause = installmentAmount
+    ? ` Your ${periodUnit === 'day' ? 'daily' : periodUnit === 'week' ? 'weekly' : 'monthly'} payment amount of Rs. ${Number(installmentAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} is unchanged.`
+    : ' Your payment amount is unchanged.';
+  await sendNotification({
+    recipientName: borrower.name,
+    phone: borrower.phone,
+    message: `Your loan term has been extended by ${extendBy} ${unitLabel}. New end date: ${maturityStr}.${amountClause} Please continue payments with your collection agent.`,
+    role: 'borrower'
+  });
+}
+
+/**
  * Alerts the borrower when a penalty/late fee is added to their loan.
  */
 export async function notifyPenaltyApplied({ borrower, admin, amount, reason, newInterestBalance }) {

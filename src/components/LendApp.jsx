@@ -919,6 +919,43 @@ export default function LendApp() {
     }
   };
 
+  // Admin: give a struggling fixed-term loan more calendar time to finish
+  // paying, WITHOUT changing what's collected per period — deliberately
+  // the narrowest form of "restructuring" (see extend-term route.js for
+  // why this specific lever is safe). Only meaningful for a loan that has
+  // a fixed term at all (collection_mode 'fixed_term'); open-ended loans
+  // have nothing to extend.
+  const handleExtendLoanTerm = async () => {
+    if (!loanStatement?.loan) return;
+    const loan = loanStatement.loan;
+    const periodUnit = loan.interest_type === 'daily' ? 'day' : loan.interest_type === 'weekly' ? 'week' : 'month';
+    const extendByStr = window.prompt(`Extend this loan's term by how many more ${periodUnit}s? (Current term: ${loan.duration_periods} ${periodUnit}s. The ${periodUnit === 'day' ? 'daily' : periodUnit === 'week' ? 'weekly' : 'monthly'} payment amount will NOT change — this only gives more time.)`);
+    if (extendByStr === null) return; // cancelled
+    const extendBy = parseInt(extendByStr, 10);
+    if (!Number.isInteger(extendBy) || extendBy <= 0) {
+      setError('Enter a positive whole number of periods to extend by.');
+      return;
+    }
+    const reason = window.prompt('Reason for extending this loan\'s term (required):');
+    if (reason === null) return; // cancelled
+    if (!reason.trim()) {
+      setError('A reason is required to extend a loan term.');
+      return;
+    }
+    if (!window.confirm(`Extend the term by ${extendBy} ${periodUnit}${extendBy === 1 ? '' : 's'}? The borrower will be notified by SMS. This does not change their payment amount.`)) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.post(`/loans/${loan.id}/extend-term`, { additionalPeriods: extendBy, reason });
+      showToast('Loan term extended.');
+      viewStatement(loan.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Admin: write off a loan's remaining balance as unrecoverable bad debt
   const handleWriteOffLoan = async () => {
     if (!selectedLoanId) return;
@@ -7153,6 +7190,24 @@ export default function LendApp() {
                             </div>
                             <button type="submit" className="glass-btn glass-btn-secondary" disabled={loading} style={{ width: '100%' }}>Save Changes</button>
                           </form>
+
+                          {/* Restructuring, deliberately scoped to term
+                              only — the payment amount never changes here,
+                              only how long the borrower has to keep making
+                              it. Only shown for fixed_term loans; an
+                              open-ended loan has no term to extend. */}
+                          {loanStatement.loan.collection_mode === 'fixed_term' && (
+                            <div style={{ marginTop: '20px' }}>
+                              <h4 style={{ fontSize: '15px', marginBottom: '6px' }}>Extend Loan Term</h4>
+                              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>
+                                For a borrower who's fallen behind and needs more time. Gives more calendar days/weeks/months to finish paying — the {loanStatement.loan.is_flat_installment ? 'daily' : loanStatement.loan.interest_type} payment amount stays exactly the same.
+                                {loanStatement.loan.maturity_date && <> Current end date: <strong>{new Date(loanStatement.loan.maturity_date).toLocaleDateString()}</strong>.</>}
+                              </p>
+                              <button type="button" className="glass-btn glass-btn-secondary" disabled={loading} onClick={handleExtendLoanTerm} style={{ width: '100%' }}>
+                                <Calendar className="icon" /> Extend Term
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         <div>
