@@ -39,6 +39,41 @@ function handleCardKeyDown(e, action) {
   }
 }
 
+// Shared CSV download helper — builds a file client-side from a header row
+// and an array of row-arrays, then triggers a browser download via a
+// throwaway object URL (no server round-trip, works from data already in
+// memory). Escapes each cell per RFC 4180: wrap in quotes whenever the
+// value contains a comma, quote, or newline, and double up any internal
+// quotes — several real fields here (agent/borrower names, free-text
+// Notes) can legitimately contain commas, which would otherwise silently
+// shift every column after them in the exported file.
+//
+// This was previously called in three places (Loan Directory, Remittances/
+// Cash Handovers, Payment History) without ever being defined anywhere in
+// the codebase — every "Export CSV" button in the app was throwing
+// `ReferenceError: downloadCsv is not defined` on click and silently
+// failing (browsers don't surface an unhandled click-handler exception to
+// the user, it just does nothing).
+function downloadCsv(filename, headers, rows) {
+  const escapeCell = (value) => {
+    const str = value === null || value === undefined ? '' : String(value);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const csv = [headers, ...rows]
+    .map(row => row.map(escapeCell).join(','))
+    .join('\r\n');
+  // Leading BOM so Excel (still the realistic destination for most of
+  // these files) detects UTF-8 instead of misreading Sinhala/Tamil names
+  // or the "Rs." / non-ASCII characters that show up in notes fields.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Threshold for the manual "Active Loans Overdue" review table in Reminder
 // Settings — a plain "what's overdue right now" display filter (days since
 // last accrual), kept separate from overdueDaysThreshold below, which
@@ -4485,7 +4520,26 @@ export default function LendApp() {
                 </div>
 
                 <div className="glass-card">
-                  <h3 style={{ fontSize: '26px', marginBottom: '20px' }}><TrendingUp className="icon" /> Agent Collections Today</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+                    <h3 style={{ fontSize: '26px', margin: 0 }}><TrendingUp className="icon" /> Agent Collections Today</h3>
+                    <button
+                      type="button"
+                      className="glass-btn glass-btn-secondary"
+                      style={{ padding: '8px 16px', fontSize: '12px' }}
+                      disabled={adminData.agentPerformance.length === 0}
+                      onClick={() => downloadCsv(
+                        `agent-performance-${new Date().toISOString().slice(0, 10)}.csv`,
+                        ['Agent', 'Total Collected (LKR)', 'Cash Deposits'],
+                        adminData.agentPerformance.map(perf => [
+                          perf.agent_name,
+                          parseFloat(perf.total_collected).toFixed(2),
+                          perf.collections_count
+                        ])
+                      )}
+                    >
+                      <Download className="icon" /> Export CSV
+                    </button>
+                  </div>
                   {adminData.agentPerformance.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>No collections posted by agents today.</p>
                   ) : (
@@ -8676,6 +8730,8 @@ function PaymentHistoryLoader() {
   const [toDate, setToDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [paymentType, setPaymentType] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const debouncedSearch = useDebouncedValue(search, 350);
 
   useEffect(() => {
@@ -8707,22 +8763,56 @@ function PaymentHistoryLoader() {
 
   const hasActiveFilters = search || fromDate || toDate || paymentMethod || paymentType;
 
-  const handleExportCsv = () => {
-    if (!data) return;
-    downloadCsv(
-      `payment-history-page-${data.page}-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Date', 'Borrower', 'Agent', 'Type', 'Amount', 'Method', 'Security Code', 'Notes'],
-      data.data.map(tx => [
-        new Date(tx.payment_date).toLocaleString(),
-        tx.borrower_name,
-        tx.agent_name,
-        tx.payment_type,
-        parseFloat(tx.amount).toFixed(2),
-        tx.payment_method,
-        tx.idempotency_key || '',
-        tx.notes || ''
-      ])
-    );
+  // Was exporting only the current 25-row page (the button even said so:
+  // "Export CSV (25)") — useless for the actual use case of handing a
+  // date range to an accountant. Re-fetches every matching page at the
+  // server's own 100-row cap and combines them into one file, honoring
+  // whatever search/date/method/type filters are currently set. Capped
+  // at 50 pages (5,000 rows) so a completely unfiltered export on a huge
+  // history can't hang the browser fetching forever — tell the admin to
+  // narrow the range if they hit it.
+  const EXPORT_PAGE_SIZE = 100;
+  const EXPORT_MAX_PAGES = 50;
+  const handleExportCsv = async () => {
+    if (!data || !data.total) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      const totalPages = Math.ceil(data.total / EXPORT_PAGE_SIZE);
+      const pagesToFetch = Math.min(totalPages, EXPORT_MAX_PAGES);
+      const allRows = [];
+      for (let p = 1; p <= pagesToFetch; p++) {
+        const params = new URLSearchParams({ page: String(p), limit: String(EXPORT_PAGE_SIZE) });
+        if (debouncedSearch) params.set('search', debouncedSearch);
+        if (fromDate) params.set('from', fromDate);
+        if (toDate) params.set('to', toDate);
+        if (paymentMethod) params.set('paymentMethod', paymentMethod);
+        if (paymentType) params.set('paymentType', paymentType);
+        const res = await api.get(`/payments/history?${params.toString()}`);
+        allRows.push(...res.data);
+      }
+      downloadCsv(
+        `payment-history-${new Date().toISOString().slice(0, 10)}.csv`,
+        ['Date', 'Borrower', 'Agent', 'Type', 'Amount', 'Method', 'Security Code', 'Notes'],
+        allRows.map(tx => [
+          new Date(tx.payment_date).toLocaleString(),
+          tx.borrower_name,
+          tx.agent_name,
+          tx.payment_type,
+          parseFloat(tx.amount).toFixed(2),
+          tx.payment_method,
+          tx.idempotency_key || '',
+          tx.notes || ''
+        ])
+      );
+      if (totalPages > EXPORT_MAX_PAGES) {
+        setExportError(`Exported the first ${pagesToFetch * EXPORT_PAGE_SIZE} of ${data.total} matching payments — narrow the date range to get the rest.`);
+      }
+    } catch (err) {
+      setExportError('Export failed: ' + err.message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -8738,8 +8828,8 @@ function PaymentHistoryLoader() {
         </div>
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="glass-btn glass-btn-secondary" style={{ padding: '8px 14px', fontSize: '12px' }} onClick={handleExportCsv} disabled={!data || data.data.length === 0}>
-            <Download className="icon" /> Export CSV ({data?.data?.length || 0})
+          <button className="glass-btn glass-btn-secondary" style={{ padding: '8px 14px', fontSize: '12px' }} onClick={handleExportCsv} disabled={!data || data.total === 0 || exporting}>
+            <Download className="icon" /> {exporting ? 'Exporting…' : `Export CSV (${data?.total || 0})`}
           </button>
           {hasActiveFilters && (
             <button type="button" className="glass-btn glass-btn-rose" style={{ padding: '8px 14px', fontSize: '12px' }} onClick={clearFilters}>
@@ -8748,6 +8838,10 @@ function PaymentHistoryLoader() {
           )}
         </div>
       </div>
+
+      {exportError && (
+        <p style={{ fontSize: '12px', color: 'var(--accent-amber)', marginTop: '-12px', marginBottom: '16px' }}>{exportError}</p>
+      )}
 
       {/* Advanced Filter Toolbar */}
       <div style={{ padding: '14px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '10px', marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
