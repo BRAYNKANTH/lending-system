@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/apiClient.js';
 import { submitPaymentOrQueue, syncQueuedPayments, getQueueCount, onQueueChanged } from '@/lib/offlineQueue.js';
 import {
@@ -37,6 +37,67 @@ function handleCardKeyDown(e, action) {
     e.preventDefault();
     action();
   }
+}
+
+// A native <input type="date"> forces scrolling its built-in year dropdown
+// back however many decades to reach a date of birth or an old backdated
+// date — slow and fiddly, especially on a phone. This drop-in replacement
+// takes plain typed Day/Month/Year instead, shown as three small boxes
+// separated by "/", but still reads and writes the exact same ISO
+// "YYYY-MM-DD" string every existing onChange handler already expects (via
+// a synthetic {target:{value}} event) — swap the <input> for this and
+// nothing else at the call site needs to change. Auto-advances focus to
+// the next box once a box is filled, so typing a full date is one
+// continuous motion instead of three separate taps.
+function TypedDateInput({ id, value, onChange, required, error, style }) {
+  const [yyyy = '', mm = '', dd = ''] = (value || '').split('-');
+  const dayRef = useRef(null);
+  const monthRef = useRef(null);
+  const yearRef = useRef(null);
+
+  const emit = (d, m, y) => {
+    const valid = d.length === 2 && m.length === 2 && y.length === 4 &&
+      Number(d) >= 1 && Number(d) <= 31 && Number(m) >= 1 && Number(m) <= 12;
+    onChange({ target: { value: valid ? `${y}-${m}-${d}` : '' } });
+  };
+
+  const boxStyle = {
+    width: '48px', textAlign: 'center', padding: '10px 4px',
+    ...(error ? { borderColor: 'var(--accent-rose)', borderWidth: '2px' } : {})
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', ...style }}>
+      <input
+        ref={dayRef} id={id} type="text" inputMode="numeric" placeholder="DD" maxLength={2}
+        className="glass-input" style={boxStyle} value={dd} required={required}
+        onChange={(e) => {
+          const v = e.target.value.replace(/\D/g, '').slice(0, 2);
+          emit(v, mm, yyyy);
+          if (v.length === 2) monthRef.current?.focus();
+        }}
+      />
+      <span style={{ color: 'var(--text-muted)', fontWeight: 'bold' }}>/</span>
+      <input
+        ref={monthRef} type="text" inputMode="numeric" placeholder="MM" maxLength={2}
+        className="glass-input" style={boxStyle} value={mm} required={required}
+        onChange={(e) => {
+          const v = e.target.value.replace(/\D/g, '').slice(0, 2);
+          emit(dd, v, yyyy);
+          if (v.length === 2) yearRef.current?.focus();
+        }}
+      />
+      <span style={{ color: 'var(--text-muted)', fontWeight: 'bold' }}>/</span>
+      <input
+        ref={yearRef} type="text" inputMode="numeric" placeholder="YYYY" maxLength={4}
+        className="glass-input" style={{ ...boxStyle, width: '64px' }} value={yyyy} required={required}
+        onChange={(e) => {
+          const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+          emit(dd, mm, v);
+        }}
+      />
+    </div>
+  );
 }
 
 // Shared CSV download helper — builds a file client-side from a header row
@@ -5474,7 +5535,7 @@ export default function LendApp() {
                                 </div>
                                 <div>
                                   <label htmlFor="date_of_birth" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Date of Birth *</label>
-                                  <input id="date_of_birth" type="date" max={new Date().toISOString().slice(0, 10)} className="glass-input" style={{ borderColor: validationErrors.date_of_birth ? 'var(--accent-rose)' : '', borderWidth: validationErrors.date_of_birth ? '2px' : '' }} value={newLoan.date_of_birth} onChange={e => { setNewLoan(prev => ({ ...prev, date_of_birth: e.target.value })); clearFieldError('date_of_birth'); }} />
+                                  <TypedDateInput id="date_of_birth" required error={!!validationErrors.date_of_birth} value={newLoan.date_of_birth} onChange={e => { setNewLoan(prev => ({ ...prev, date_of_birth: e.target.value })); clearFieldError('date_of_birth'); }} />
                                   {validationErrors.date_of_birth && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.date_of_birth}</span>}
                                 </div>
                               </div>
@@ -5614,11 +5675,8 @@ export default function LendApp() {
 
                               {user.role !== 'agent' && (
                                 <div>
-                                  <label htmlFor="f-disbursement-date-5514" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Disbursement Date</label>
-                                  <input id="f-disbursement-date-5514"
-                                    type="date"
-                                    max={todayLocalDateStr()}
-                                    className="glass-input"
+                                  <label htmlFor="f-disbursement-date-5514" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Issued Date (Disbursement Date)</label>
+                                  <TypedDateInput id="f-disbursement-date-5514"
                                     value={newLoan.disbursement_date || todayLocalDateStr()}
                                     onChange={e => setNewLoan(prev => ({ ...prev, disbursement_date: e.target.value }))}
                                   />
