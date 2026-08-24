@@ -33,27 +33,22 @@ export async function POST(request) {
       collection_mode, duration_periods, borrower_email, borrower_gender, source_intake_id, disbursement_date
     } = body;
 
+    // Matches Skyloan's bar — Name, Phone, NIC, principal, rate, interest
+    // type. Address, DOB, KYC photos, and the profile step (loan purpose/
+    // monthly income) below are all optional here too, unlike Skyloan
+    // they're still shown and collected on the form, just no longer
+    // required to disburse.
     if (!borrower_name || !borrower_phone || !principal_amount || !interest_rate || !interest_type) {
       return NextResponse.json({ message: 'Borrower name, phone number, principal amount, interest rate, and interest type are required.' }, { status: 400 });
     }
     if (!nic_number) {
       return NextResponse.json({ message: 'NIC number is required for loan disbursement.' }, { status: 400 });
     }
-    if (!borrower_address || !borrower_address.trim()) {
-      return NextResponse.json({ message: "Borrower's address is required." }, { status: 400 });
-    }
-    if (!nic_photos || !Array.isArray(nic_photos) || nic_photos.length === 0) {
-      return NextResponse.json({ message: "Borrower's NIC photo (at least 1 photo) is required." }, { status: 400 });
-    }
-    if (!photo_proofs || !Array.isArray(photo_proofs) || photo_proofs.length === 0) {
-      return NextResponse.json({ message: "Borrower's photo proof (at least 1 photo) is required." }, { status: 400 });
-    }
-    if (!borrower_date_of_birth) {
-      return NextResponse.json({ message: "Borrower's date of birth is required." }, { status: 400 });
-    }
-    const dob = new Date(borrower_date_of_birth);
-    if (isNaN(dob.getTime()) || dob > new Date()) {
-      return NextResponse.json({ message: "Borrower's date of birth is invalid." }, { status: 400 });
+    if (borrower_date_of_birth) {
+      const dob = new Date(borrower_date_of_birth);
+      if (isNaN(dob.getTime()) || dob > new Date()) {
+        return NextResponse.json({ message: "Borrower's date of birth is invalid." }, { status: 400 });
+      }
     }
 
     // Backdated disbursement — lets an admin register a loan that was
@@ -77,16 +72,6 @@ export async function POST(request) {
       }
       disbursementDateOverride = parsedDisbursement;
     }
-    if (!borrower_profile) {
-      return NextResponse.json({ message: 'Borrower profile details (loan purpose, monthly income) are required.' }, { status: 400 });
-    }
-    if (!borrower_profile.loan_purpose || !borrower_profile.loan_purpose.trim()) {
-      return NextResponse.json({ message: 'Purpose of loan is required.' }, { status: 400 });
-    }
-    if (borrower_profile.monthly_income === undefined || borrower_profile.monthly_income === '' || borrower_profile.monthly_income === null) {
-      return NextResponse.json({ message: 'Monthly income is required.' }, { status: 400 });
-    }
-
     const cleanNIC = nic_number.trim().toUpperCase();
     if (!isValidSriLankanNIC(cleanNIC)) {
       return NextResponse.json({ message: 'Invalid Sri Lankan NIC number format. Use 9 digits with V/X (e.g. 123456789V) or 12 digits (e.g. 199012345678).' }, { status: 400 });
@@ -187,17 +172,13 @@ export async function POST(request) {
       if (parseInt(activeGuaranteeCount, 10) >= MAX_ACTIVE_GUARANTEED_LOANS) {
         return NextResponse.json({ message: `Guarantor '${g.full_name}' (NIC ${cleanGuarantorNIC}) is already backing ${activeGuaranteeCount} active/pending loans — the maximum of ${MAX_ACTIVE_GUARANTEED_LOANS} at a time has been reached.` }, { status: 400 });
       }
-      if (!g.address || !g.address.trim()) {
-        return NextResponse.json({ message: `Guarantor '${g.full_name}'s address is required.` }, { status: 400 });
-      }
       if (!g.phone || !g.phone.trim()) {
         return NextResponse.json({ message: `Guarantor '${g.full_name}'s phone number is required.` }, { status: 400 });
       }
-      if (!g.nic_photos || !Array.isArray(g.nic_photos) || g.nic_photos.length === 0) {
-        return NextResponse.json({ message: `A NIC photo (at least 1) is required for guarantor '${g.full_name}'.` }, { status: 400 });
-      }
-      const guarantorNicPhotoUrls = validateImageDataUrlArray(g.nic_photos);
-      if (!guarantorNicPhotoUrls) {
+      // Address and NIC photo are optional here now — same Name/Phone/NIC
+      // bar as Skyloan, just with the fields still shown on this form.
+      const guarantorNicPhotoUrls = (Array.isArray(g.nic_photos) && g.nic_photos.length > 0) ? validateImageDataUrlArray(g.nic_photos) : [];
+      if (g.nic_photos && g.nic_photos.length > 0 && !guarantorNicPhotoUrls) {
         return NextResponse.json({ message: `Failed to process the NIC photo(s) for guarantor '${g.full_name}'. Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.` }, { status: 400 });
       }
       // Photo proof is not a concept for guarantors at all — NIC photo
@@ -213,7 +194,7 @@ export async function POST(request) {
         gender: g.gender || null,
         ethnicity: null,
         date_of_birth: null,
-        address: g.address.trim(),
+        address: g.address ? g.address.trim() : null,
         phone: g.phone.trim().replace(/\s+/g, ''),
         email: null,
         nic_photo_url: guarantorNicPhotoUrls[0],
@@ -250,17 +231,18 @@ export async function POST(request) {
 
     // NIC photo(s) — up to 4, stored directly as base64 data URLs in the
     // database (Vercel's serverless filesystem can't persist uploaded
-    // files). Required for the borrower now (checked above), same as
-    // Photo Proof below — both are must-have KYC before a loan disburses.
-    const nic_photo_urls = validateImageDataUrlArray(nic_photos);
-    if (!nic_photo_urls) {
+    // files). Optional now — an empty/absent list is fine; the "Failed to
+    // process" error below only fires when photos WERE sent but didn't
+    // pass validation (bad format/too big), not simply because none exist.
+    const nic_photo_urls = (Array.isArray(nic_photos) && nic_photos.length > 0) ? validateImageDataUrlArray(nic_photos) : [];
+    if (nic_photos && nic_photos.length > 0 && !nic_photo_urls) {
       return NextResponse.json({ message: 'Failed to process the NIC photo(s). Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB.' }, { status: 400 });
     }
 
     // Photo proof (e.g. a utility bill or any other ID/photo evidence) —
-    // required (checked above), same base64-in-DB storage as the NIC photos.
-    const photo_proof_urls = validateImageDataUrlArray(photo_proofs);
-    if (!photo_proof_urls) {
+    // optional here too, same as NIC photos above.
+    const photo_proof_urls = (Array.isArray(photo_proofs) && photo_proofs.length > 0) ? validateImageDataUrlArray(photo_proofs) : [];
+    if (photo_proofs && photo_proofs.length > 0 && !photo_proof_urls) {
       return NextResponse.json({ message: "Failed to process the borrower's photo proof image(s). Upload 1-4 valid JPEG/PNG/WebP images, each under 4MB." }, { status: 400 });
     }
 
@@ -441,8 +423,8 @@ export async function POST(request) {
             address_proof_url: photo_proof_urls[0],
             nic_photo_urls: JSON.stringify(nic_photo_urls),
             photo_proof_urls: JSON.stringify(photo_proof_urls),
-            date_of_birth: borrower_date_of_birth,
-            borrower_address: borrower_address.trim(),
+            date_of_birth: borrower_date_of_birth || null,
+            borrower_address: borrower_address ? borrower_address.trim() : null,
             collection_mode: colMode,
             duration_periods: periods,
             maturity_date: calculatedMaturityDate,

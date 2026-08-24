@@ -1696,6 +1696,10 @@ export default function LendApp() {
     window.open(url, '_blank');
   };
 
+  // Only Name, Phone, NIC actually block moving on — matching the bar
+  // Skyloan uses. Address, date of birth, and the KYC photos are still
+  // collected here (unlike Skyloan, which dropped the fields from the form
+  // entirely) — they're just no longer required to disburse.
   const runKYCValidation = () => {
     const errors = {};
     let firstErrorField = null;
@@ -1708,26 +1712,10 @@ export default function LendApp() {
       errors.borrower_phone = "Borrower phone number is required.";
       if (!firstErrorField) firstErrorField = "borrower_phone";
     }
-    if (!newLoan.borrower_address || !newLoan.borrower_address.trim()) {
-      errors.borrower_address = "Borrower address is required.";
-      if (!firstErrorField) firstErrorField = "borrower_address";
-    }
     if (!newLoan.nic_number || !isValidNIC(newLoan.nic_number)) {
       errors.nic_number = "A valid Sri Lankan NIC number is required (9 digits + V/X, or 12 digits).";
       if (!firstErrorField) firstErrorField = "nic_number";
     }
-    if (!newLoan.date_of_birth) {
-      errors.date_of_birth = "Borrower's date of birth is required.";
-      if (!firstErrorField) firstErrorField = "date_of_birth";
-    }
-    if (!newLoan.nic_photos || newLoan.nic_photos.length === 0) {
-      errors.nic_photos = "At least 1 NIC photo is required for the borrower.";
-      if (!firstErrorField) firstErrorField = "nic_photos";
-    }
-    if (!newLoan.photo_proofs || newLoan.photo_proofs.length === 0) {
-      errors.photo_proofs = "At least 1 photo proof is required for the borrower.";
-      if (!firstErrorField) firstErrorField = "photo_proofs";
-    }
 
     setValidationErrors(prev => ({ ...prev, ...errors }));
 
@@ -1744,33 +1732,9 @@ export default function LendApp() {
     return true;
   };
 
-  const runFinancialValidation = () => {
-    const errors = {};
-    let firstErrorField = null;
-
-    if (!borrowerProfileForm.loan_purpose || !borrowerProfileForm.loan_purpose.trim()) {
-      errors.loan_purpose = "Purpose of loan is required.";
-      if (!firstErrorField) firstErrorField = "loan_purpose";
-    }
-    if (borrowerProfileForm.monthly_income === undefined || borrowerProfileForm.monthly_income === '' || borrowerProfileForm.monthly_income === null) {
-      errors.monthly_income = "Monthly income is required.";
-      if (!firstErrorField) firstErrorField = "monthly_income";
-    }
-
-    setValidationErrors(prev => ({ ...prev, ...errors }));
-
-    if (firstErrorField) {
-      setTimeout(() => {
-        const element = document.getElementById(firstErrorField);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          element.focus();
-        }
-      }, 50);
-      return false;
-    }
-    return true;
-  };
+  // Loan purpose / monthly income are still collected here, just optional
+  // now — nothing on this step blocks moving on.
+  const runFinancialValidation = () => true;
 
   const runTermsValidation = () => {
     const errors = {};
@@ -1807,6 +1771,8 @@ export default function LendApp() {
     return true;
   };
 
+  // Same minimal bar as the borrower — Name, Phone, NIC. NIC photo and
+  // address are still collected here, just no longer required.
   const runGuarantorValidation = () => {
     const errors = {};
     let firstErrorField = null;
@@ -1820,21 +1786,9 @@ export default function LendApp() {
         errors[`guarantor_${i}_nic_number`] = "A valid Sri Lankan NIC number is required for the guarantor.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_number`;
       }
-      if (!g.nic_photos || g.nic_photos.length === 0) {
-        errors[`guarantor_${i}_nic_photo`] = "At least 1 NIC photo is required for the guarantor.";
-        if (!firstErrorField) firstErrorField = `guarantor_${i}_nic_photo`;
-      }
-      // No Photo Proof requirement for a guarantor — NIC photo alone is
-      // enough to identify them, and the public /apply form's guarantor
-      // section doesn't collect one at all, so requiring it here would
-      // block converting an application that never had it to collect.
       if (!g.phone || !g.phone.trim()) {
         errors[`guarantor_${i}_phone`] = "Guarantor phone number is required.";
         if (!firstErrorField) firstErrorField = `guarantor_${i}_phone`;
-      }
-      if (!g.address || !g.address.trim()) {
-        errors[`guarantor_${i}_address`] = "Guarantor address is required.";
-        if (!firstErrorField) firstErrorField = `guarantor_${i}_address`;
       }
     });
 
@@ -5523,7 +5477,7 @@ export default function LendApp() {
                               </div>
 
                               <div>
-                                <label htmlFor="borrower_address" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Borrower Address *</label>
+                                <label htmlFor="borrower_address" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Borrower Address (Optional)</label>
                                 <input id="borrower_address" type="text" className="glass-input" style={{ borderColor: validationErrors.borrower_address ? 'var(--accent-rose)' : '', borderWidth: validationErrors.borrower_address ? '2px' : '' }} placeholder="e.g. No. 12, Temple Road, Kandy" value={newLoan.borrower_address} onChange={e => { setNewLoan(prev => ({ ...prev, borrower_address: e.target.value })); clearFieldError('borrower_address'); }} />
                                 {validationErrors.borrower_address && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.borrower_address}</span>}
                               </div>
@@ -5534,8 +5488,8 @@ export default function LendApp() {
                                   <input id="f-borrower-email-optional-5369" type="email" className="glass-input" placeholder="e.g. name@example.com" value={newLoan.borrower_email || ''} onChange={e => setNewLoan(prev => ({ ...prev, borrower_email: e.target.value }))} />
                                 </div>
                                 <div>
-                                  <label htmlFor="date_of_birth" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Date of Birth *</label>
-                                  <TypedDateInput id="date_of_birth" required error={!!validationErrors.date_of_birth} value={newLoan.date_of_birth} onChange={e => { setNewLoan(prev => ({ ...prev, date_of_birth: e.target.value })); clearFieldError('date_of_birth'); }} />
+                                  <label htmlFor="date_of_birth" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Date of Birth (Optional)</label>
+                                  <TypedDateInput id="date_of_birth" error={!!validationErrors.date_of_birth} value={newLoan.date_of_birth} onChange={e => { setNewLoan(prev => ({ ...prev, date_of_birth: e.target.value })); clearFieldError('date_of_birth'); }} />
                                   {validationErrors.date_of_birth && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.date_of_birth}</span>}
                                 </div>
                               </div>
@@ -5549,7 +5503,7 @@ export default function LendApp() {
                                   {renderNicLookupWarning('borrower')}
                                 </div>
                                 <div>
-                                  <label htmlFor="f-nic-photo-newloan-nic-photos-length-0-0--5388" id="nic_photos" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC PHOTO * {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
+                                  <label htmlFor="f-nic-photo-newloan-nic-photos-length-0-0--5388" id="nic_photos" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>NIC Photo (Optional) {(newLoan.nic_photos?.length || 0) > 0 && `(${newLoan.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
                                   <input id="f-nic-photo-newloan-nic-photos-length-0-0--5388" type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.nic_photos ? 'var(--accent-rose)' : '', borderWidth: validationErrors.nic_photos ? '2px' : '' }} onChange={e => { handleNICPhotoChange(e); clearFieldError('nic_photos'); }} disabled={(newLoan.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
                                   <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
                                   {(newLoan.nic_photos?.length || 0) > 0 && (
@@ -5567,7 +5521,7 @@ export default function LendApp() {
                               </div>
 
                               <div>
-                                <label htmlFor="f-photo-proof-e-g-utility-bill-or-other-id-5406" id="photo_proofs" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>PHOTO PROOF (e.g. utility bill or other ID evidence) * {(newLoan.photo_proofs?.length || 0) > 0 && `(${newLoan.photo_proofs.length}/${MAX_KYC_PHOTOS})`}</label>
+                                <label htmlFor="f-photo-proof-e-g-utility-bill-or-other-id-5406" id="photo_proofs" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Photo Proof (Optional — e.g. utility bill or other ID evidence) {(newLoan.photo_proofs?.length || 0) > 0 && `(${newLoan.photo_proofs.length}/${MAX_KYC_PHOTOS})`}</label>
                                 <input id="f-photo-proof-e-g-utility-bill-or-other-id-5406" type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors.photo_proofs ? 'var(--accent-rose)' : '', borderWidth: validationErrors.photo_proofs ? '2px' : '' }} onChange={e => { handleAddressProofChange(e); clearFieldError('photo_proofs'); }} disabled={(newLoan.photo_proofs?.length || 0) >= MAX_KYC_PHOTOS} />
                                 <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
                                 {(newLoan.photo_proofs?.length || 0) > 0 && (
@@ -5605,13 +5559,13 @@ export default function LendApp() {
 
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 <div>
-                                  <label htmlFor="loan_purpose" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan *</label>
+                                  <label htmlFor="loan_purpose" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Purpose of Loan (Optional)</label>
                                   <input id="loan_purpose" type="text" className="glass-input" style={{ borderColor: validationErrors.loan_purpose ? 'var(--accent-rose)' : '', borderWidth: validationErrors.loan_purpose ? '2px' : '' }} placeholder="e.g. Business working capital, home repair" value={borrowerProfileForm.loan_purpose} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, loan_purpose: e.target.value })); clearFieldError('loan_purpose'); }} />
                                   {validationErrors.loan_purpose && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.loan_purpose}</span>}
                                 </div>
 
                                 <div>
-                                  <label htmlFor="monthly_income" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) *</label>
+                                  <label htmlFor="monthly_income" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Monthly Income (LKR) (Optional)</label>
                                   <input id="monthly_income" type="number" min="0" className="glass-input" style={{ borderColor: validationErrors.monthly_income ? 'var(--accent-rose)' : '', borderWidth: validationErrors.monthly_income ? '2px' : '' }} value={borrowerProfileForm.monthly_income} onChange={e => { setBorrowerProfileForm(prev => ({ ...prev, monthly_income: e.target.value })); clearFieldError('monthly_income'); }} />
                                   {validationErrors.monthly_income && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors.monthly_income}</span>}
                                 </div>
@@ -5820,7 +5774,7 @@ export default function LendApp() {
                                   </div>
 
                                   <div>
-                                    <label htmlFor="f-nic-photo-g-nic-photos-length-0-0-g-nic--5662" id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo * {(g.nic_photos?.length || 0) > 0 && `(${g.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
+                                    <label htmlFor="f-nic-photo-g-nic-photos-length-0-0-g-nic--5662" id={`guarantor_${i}_nic_photo`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NIC Photo (Optional) {(g.nic_photos?.length || 0) > 0 && `(${g.nic_photos.length}/${MAX_KYC_PHOTOS})`}</label>
                                     <input id="f-nic-photo-g-nic-photos-length-0-0-g-nic--5662" type="file" accept="image/*" multiple className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_nic_photo`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_nic_photo`] ? '2px' : '' }} onChange={e => { handleGuarantorPhotoChange(i, e); clearFieldError(`guarantor_${i}_nic_photo`); }} disabled={(g.nic_photos?.length || 0) >= MAX_KYC_PHOTOS} />
                                     <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>Up to {MAX_KYC_PHOTOS} photos.</p>
                                     {(g.nic_photos?.length || 0) > 0 && (
@@ -5846,7 +5800,7 @@ export default function LendApp() {
                                   </div>
 
                                   <div>
-                                    <label htmlFor={`guarantor_${i}_address`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
+                                    <label htmlFor={`guarantor_${i}_address`} style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address (Optional)</label>
                                     <input id={`guarantor_${i}_address`} type="text" className="glass-input" style={{ borderColor: validationErrors[`guarantor_${i}_address`] ? 'var(--accent-rose)' : '', borderWidth: validationErrors[`guarantor_${i}_address`] ? '2px' : '' }} value={g.address} onChange={e => { updateGuarantorField(i, 'address', e.target.value); clearFieldError(`guarantor_${i}_address`); }} />
                                     {validationErrors[`guarantor_${i}_address`] && <span style={{ color: 'var(--accent-rose)', fontSize: '12px', marginTop: '4px', display: 'block', fontWeight: '500' }}>{validationErrors[`guarantor_${i}_address`]}</span>}
                                   </div>
@@ -7187,8 +7141,8 @@ export default function LendApp() {
                           <input id="f-phone-7025" required type="tel" className="glass-input" value={guarantorEditForm.phone} onChange={e => setGuarantorEditForm(prev => ({ ...prev, phone: e.target.value }))} />
                         </div>
                         <div>
-                          <label htmlFor="f-address-7029" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address *</label>
-                          <input id="f-address-7029" required type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
+                          <label htmlFor="f-address-7029" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Address (Optional)</label>
+                          <input id="f-address-7029" type="text" className="glass-input" value={guarantorEditForm.address} onChange={e => setGuarantorEditForm(prev => ({ ...prev, address: e.target.value }))} />
                         </div>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
                           <input type="checkbox" checked={guarantorEditForm.protected_under_debt_act} onChange={e => setGuarantorEditForm(prev => ({ ...prev, protected_under_debt_act: e.target.checked }))} />

@@ -115,7 +115,7 @@ async function runIncrementalMigrations() {
       table.string('gender', 10);
       table.string('ethnicity', 100);
       table.date('date_of_birth');
-      table.text('address').notNullable();
+      table.text('address').nullable();
       table.string('phone', 20).notNullable();
       table.string('email', 100);
       table.boolean('protected_under_debt_act').defaultTo(false);
@@ -201,6 +201,19 @@ async function runIncrementalMigrations() {
   // storage pattern as the NIC photos.
   await addColumnIfMissing('loans', 'address_proof_url', (t) => t.text('address_proof_url').nullable());
   await addColumnIfMissing('guarantors', 'address_proof_url', (t) => t.text('address_proof_url').nullable());
+
+  // Guarantor address was made optional at the app layer (matching
+  // Skyloan's Name/Phone/NIC bar), but the column itself was still NOT
+  // NULL from when the table was first created — addColumnIfMissing only
+  // adds columns that don't exist yet, it can't loosen a constraint on one
+  // that already does. Left as-is, a guarantor saved with no address
+  // crashes loan creation with a raw Postgres constraint-violation 500
+  // (this is the exact production incident that surfaced it on Skyloan).
+  // Safe to run repeatedly — dropping a constraint that's already gone is
+  // a no-op in Postgres.
+  await db.schema.alterTable('guarantors', (table) => {
+    table.text('address').nullable().alter();
+  });
 
   // Ticket (Chit Fund) system columns
   await addColumnIfMissing('users', 'finance_access', (t) => t.boolean('finance_access').notNullable().defaultTo(true));
@@ -591,7 +604,7 @@ async function createSchemaAndSeed() {
     table.string('gender', 10);
     table.string('ethnicity', 100);
     table.date('date_of_birth');
-    table.text('address').notNullable();
+    table.text('address').nullable();
     table.string('phone', 20).notNullable();
     table.string('email', 100);
     table.text('nic_photo_url');

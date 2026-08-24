@@ -43,9 +43,7 @@ export async function PUT(request, { params }) {
     if (parseInt(activeGuaranteeCount, 10) >= MAX_ACTIVE_GUARANTEED_LOANS) {
       return NextResponse.json({ message: `Guarantor '${guarantor.full_name}' (NIC ${cleanGuarantorNIC}) is already backing ${activeGuaranteeCount} other active/pending loans — the maximum of ${MAX_ACTIVE_GUARANTEED_LOANS} at a time has been reached.` }, { status: 400 });
     }
-    if (!guarantor.address || !guarantor.address.trim()) {
-      return NextResponse.json({ message: "Guarantor's address is required." }, { status: 400 });
-    }
+    // Address is optional here now — same Name/Phone/NIC bar as Skyloan.
     if (!guarantor.phone || !guarantor.phone.trim()) {
       return NextResponse.json({ message: "Guarantor's phone number is required." }, { status: 400 });
     }
@@ -57,7 +55,7 @@ export async function PUT(request, { params }) {
       gender: guarantor.gender || null,
       ethnicity: null,
       date_of_birth: null,
-      address: guarantor.address.trim(),
+      address: guarantor.address ? guarantor.address.trim() : null,
       phone: guarantor.phone.trim().replace(/\s+/g, ''),
       email: null,
       protected_under_debt_act: !!guarantor.protected_under_debt_act,
