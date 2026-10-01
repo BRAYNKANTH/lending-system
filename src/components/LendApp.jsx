@@ -25,6 +25,23 @@ function useDebouncedValue(value, delayMs = 350) {
   return debounced;
 }
 
+// Closes a modal/popup on the Escape key — the one dismiss gesture users
+// reach for by habit that none of this app's dialogs supported (closing
+// otherwise needed a click on the backdrop or an explicit Cancel button).
+// `isOpen` gates whether the listener is even attached, so closed modals
+// don't all compete to handle the same keypress; call this once per modal,
+// unconditionally on every render, same as any other hook.
+function useEscapeToClose(isOpen, onClose) {
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+}
+
 // Lets a clickable <div> (the dashboard's menu-card tiles, styled as big
 // touch-friendly buttons but not actual <button> elements) respond to the
 // keyboard the same way a real button would — Enter or Space activates it.
@@ -322,6 +339,63 @@ export default function LendApp() {
   // password re-entry is the confirmation, not another window.confirm.
   const [showDeleteLoanModal, setShowDeleteLoanModal] = useState(false);
   const [deleteLoanForm, setDeleteLoanForm] = useState({ reason: '', password: '' });
+
+  // Generic replacement for window.prompt/window.confirm — one reusable
+  // modal for every "confirm this", "give me a reason", or "enter an
+  // amount" action in the app (reinstate, extend term, write off, reject,
+  // approve, mark daily collection, record principal payment, remove
+  // guarantor, delete ticket group, delete user, reject a cash handover).
+  // A dozen near-identical bespoke modals would just be noise; one dialog
+  // styled like the rest of the app, driven by a small field spec, covers
+  // all of them — and unlike window.prompt/confirm, it's actually usable
+  // on mobile (no native browser chrome) and closes on Escape.
+  const [actionModal, setActionModal] = useState(null); // { title, message, danger, fields, confirmLabel, onConfirm }
+  const [actionModalValues, setActionModalValues] = useState({});
+  const [actionModalError, setActionModalError] = useState('');
+  const [actionModalSubmitting, setActionModalSubmitting] = useState(false);
+
+  const openActionModal = (config) => {
+    setActionModal(config);
+    const initial = {};
+    (config.fields || []).forEach(f => { initial[f.key] = f.initialValue ?? ''; });
+    setActionModalValues(initial);
+    setActionModalError('');
+  };
+  const closeActionModal = () => {
+    setActionModal(null);
+    setActionModalValues({});
+    setActionModalError('');
+  };
+  const handleActionModalConfirm = async () => {
+    if (!actionModal) return;
+    for (const f of actionModal.fields || []) {
+      const val = actionModalValues[f.key];
+      if (f.required && (val === undefined || val === null || String(val).trim() === '')) {
+        setActionModalError(`${f.label} is required.`);
+        return;
+      }
+      if (f.type === 'number' && String(val).trim() !== '' && (isNaN(parseFloat(val)) || parseFloat(val) <= 0)) {
+        setActionModalError(`${f.label} must be a positive number.`);
+        return;
+      }
+      if (f.matchValue !== undefined && String(val).trim() !== f.matchValue) {
+        setActionModalError('That didn\'t match — check and try again.');
+        return;
+      }
+    }
+    setActionModalSubmitting(true);
+    setActionModalError('');
+    try {
+      await actionModal.onConfirm(actionModalValues);
+      closeActionModal();
+    } catch (err) {
+      // Shown inside the modal itself, same reasoning as Delete Loan's own
+      // error handling — a wrong value or server rejection shouldn't close
+      // the dialog out from under the admin.
+      setActionModalError(err.message || 'Something went wrong.');
+      setActionModalSubmitting(false);
+    }
+  };
 
   // Configurable Overdue Reminder Days Threshold (default 3 days). Loaded
   // from and saved to org_settings (see the /settings fetch effect below
@@ -671,24 +745,18 @@ export default function LendApp() {
     }
   };
 
-  const handleRejectRemittance = async (id) => {
-    const reason = window.prompt('Reason for rejecting this cash handover (e.g. cash never arrived):');
-    if (reason === null) return; // cancelled
-    if (!reason.trim()) {
-      setError('A reason is required to reject a cash handover.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      await api.patch(`/remittances/${id}/reject`, { reason });
-      showToast('Cash handover rejected — reversed onto the agent\'s outstanding cash-in-hand.');
-      refreshAdminTools();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleRejectRemittance = (id) => {
+    openActionModal({
+      title: 'Reject Cash Handover',
+      fields: [{ key: 'reason', label: 'Reason', type: 'text', required: true, placeholder: 'e.g. cash never arrived' }],
+      confirmLabel: 'Reject Handover',
+      danger: true,
+      onConfirm: async (values) => {
+        await api.patch(`/remittances/${id}/reject`, { reason: values.reason });
+        showToast('Cash handover rejected — reversed onto the agent\'s outstanding cash-in-hand.');
+        refreshAdminTools();
+      },
+    });
   };
 
   const handleToggleUserStatus = async (targetUser) => {
@@ -783,27 +851,21 @@ export default function LendApp() {
     }
   };
 
-  const handleDeleteUser = async (targetUser) => {
-    if (!window.confirm(`Permanently delete ${targetUser.name}? This can't be undone. Users with loan/payment history can't be deleted — deactivate them instead.`)) {
-      return;
-    }
-    const password = window.prompt(`Please enter your admin password to authorize deleting ${targetUser.name}:`);
-    if (password === null) return;
-    if (!password) {
-      showToast('Password is required to delete a user.', 'error');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      await api.delete(`/users/${targetUser.id}?password=${encodeURIComponent(password)}`);
-      showToast(`${targetUser.name} deleted.`);
-      refreshAdminTools();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleDeleteUser = (targetUser) => {
+    openActionModal({
+      title: `Delete ${targetUser.name}`,
+      message: 'This permanently removes this account and cannot be undone. Users with loan/payment history can\'t be deleted this way — deactivate them instead to preserve the audit trail.',
+      fields: [{ key: 'password', label: 'Confirm Your Password', type: 'password', required: true }],
+      confirmLabel: 'Delete Permanently',
+      danger: true,
+      onConfirm: async (values) => {
+        // Password travels in the request body, not a URL query string —
+        // a query string can end up in server access logs.
+        await api.delete(`/users/${targetUser.id}`, { password: values.password });
+        showToast(`${targetUser.name} deleted.`);
+        refreshAdminTools();
+      },
+    });
   };
 
   const downloadLedgerCsv = () => {
@@ -964,20 +1026,18 @@ export default function LendApp() {
   };
 
   // Admin: reinstate a defaulted loan back to active so payments can be collected again
-  const handleReinstateLoan = async () => {
+  const handleReinstateLoan = () => {
     if (!selectedLoanId) return;
-    if (!window.confirm('Reinstate this loan to active? Payments can be collected on it again.')) return;
-    setLoading(true);
-    setError('');
-    try {
-      await api.post(`/loans/${selectedLoanId}/reinstate`, {});
-      showToast('Loan reinstated to active.');
-      viewStatement(selectedLoanId);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    openActionModal({
+      title: 'Reinstate Loan',
+      message: 'Reinstate this loan to active? Payments can be collected on it again.',
+      confirmLabel: 'Reinstate',
+      onConfirm: async () => {
+        await api.post(`/loans/${selectedLoanId}/reinstate`, {});
+        showToast('Loan reinstated to active.');
+        viewStatement(selectedLoanId);
+      },
+    });
   };
 
   // Admin: give a struggling fixed-term loan more calendar time to finish
@@ -986,58 +1046,46 @@ export default function LendApp() {
   // why this specific lever is safe). Only meaningful for a loan that has
   // a fixed term at all (collection_mode 'fixed_term'); open-ended loans
   // have nothing to extend.
-  const handleExtendLoanTerm = async () => {
+  const handleExtendLoanTerm = () => {
     if (!loanStatement?.loan) return;
     const loan = loanStatement.loan;
     const periodUnit = loan.interest_type === 'daily' ? 'day' : loan.interest_type === 'weekly' ? 'week' : 'month';
-    const extendByStr = window.prompt(`Extend this loan's term by how many more ${periodUnit}s? (Current term: ${loan.duration_periods} ${periodUnit}s. The ${periodUnit === 'day' ? 'daily' : periodUnit === 'week' ? 'weekly' : 'monthly'} payment amount will NOT change — this only gives more time.)`);
-    if (extendByStr === null) return; // cancelled
-    const extendBy = parseInt(extendByStr, 10);
-    if (!Number.isInteger(extendBy) || extendBy <= 0) {
-      setError('Enter a positive whole number of periods to extend by.');
-      return;
-    }
-    const reason = window.prompt('Reason for extending this loan\'s term (required):');
-    if (reason === null) return; // cancelled
-    if (!reason.trim()) {
-      setError('A reason is required to extend a loan term.');
-      return;
-    }
-    if (!window.confirm(`Extend the term by ${extendBy} ${periodUnit}${extendBy === 1 ? '' : 's'}? The borrower will be notified by SMS. This does not change their payment amount.`)) return;
-    setLoading(true);
-    setError('');
-    try {
-      await api.post(`/loans/${loan.id}/extend-term`, { additionalPeriods: extendBy, reason });
-      showToast('Loan term extended.');
-      viewStatement(loan.id);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    const periodAdj = periodUnit === 'day' ? 'daily' : periodUnit === 'week' ? 'weekly' : 'monthly';
+    openActionModal({
+      title: 'Extend Loan Term',
+      message: `Current term: ${loan.duration_periods} ${periodUnit}s. The ${periodAdj} payment amount will NOT change — this only gives more time. The borrower will be notified by SMS.`,
+      fields: [
+        { key: 'extendBy', label: `Extend by how many more ${periodUnit}s?`, type: 'number', required: true },
+        { key: 'reason', label: 'Reason', type: 'text', required: true },
+      ],
+      confirmLabel: 'Extend Term',
+      onConfirm: async (values) => {
+        const extendBy = parseInt(values.extendBy, 10);
+        if (!Number.isInteger(extendBy) || extendBy <= 0) {
+          throw new Error('Enter a positive whole number of periods to extend by.');
+        }
+        await api.post(`/loans/${loan.id}/extend-term`, { additionalPeriods: extendBy, reason: values.reason });
+        showToast('Loan term extended.');
+        viewStatement(loan.id);
+      },
+    });
   };
 
   // Admin: write off a loan's remaining balance as unrecoverable bad debt
-  const handleWriteOffLoan = async () => {
+  const handleWriteOffLoan = () => {
     if (!selectedLoanId) return;
-    const reason = window.prompt('Reason for writing off this loan as bad debt:');
-    if (reason === null) return; // cancelled
-    if (!reason.trim()) {
-      setError('A reason is required to write off a loan.');
-      return;
-    }
-    if (!window.confirm('This permanently zeroes the loan\'s outstanding balance and posts it to the ledger as bad debt. Continue?')) return;
-    setLoading(true);
-    setError('');
-    try {
-      await api.post(`/loans/${selectedLoanId}/write-off`, { reason });
-      showToast('Loan written off as bad debt.');
-      viewStatement(selectedLoanId);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    openActionModal({
+      title: 'Write Off Loan',
+      message: 'This permanently zeroes the loan\'s outstanding balance and posts it to the ledger as bad debt.',
+      fields: [{ key: 'reason', label: 'Reason', type: 'text', required: true }],
+      confirmLabel: 'Write Off',
+      danger: true,
+      onConfirm: async (values) => {
+        await api.post(`/loans/${selectedLoanId}/write-off`, { reason: values.reason });
+        showToast('Loan written off as bad debt.');
+        viewStatement(selectedLoanId);
+      },
+    });
   };
 
   // Admin: permanently delete a mistaken/test loan. Only ever succeeds for
@@ -1100,43 +1148,35 @@ export default function LendApp() {
 
   // Admin: approve an agent-submitted loan application — this is the moment
   // it actually disburses.
-  const handleApproveLoan = async () => {
+  const handleApproveLoan = () => {
     if (!selectedLoanId) return;
-    if (!window.confirm('Approve this loan application? This disburses the cash and starts interest accruing.')) return;
-    setLoading(true);
-    setError('');
-    try {
-      await api.post(`/loans/${selectedLoanId}/approve`, {});
-      showToast('Loan application approved and disbursed.');
-      viewStatement(selectedLoanId);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    openActionModal({
+      title: 'Approve Loan Application',
+      message: 'This disburses the cash and starts interest accruing.',
+      confirmLabel: 'Approve & Disburse',
+      onConfirm: async () => {
+        await api.post(`/loans/${selectedLoanId}/approve`, {});
+        showToast('Loan application approved and disbursed.');
+        viewStatement(selectedLoanId);
+      },
+    });
   };
 
   // Admin: reject an agent-submitted loan application — nothing was ever
   // disbursed, so this just closes out the application.
-  const handleRejectLoan = async () => {
+  const handleRejectLoan = () => {
     if (!selectedLoanId) return;
-    const reason = window.prompt('Reason for rejecting this loan application:');
-    if (reason === null) return; // cancelled
-    if (!reason.trim()) {
-      setError('A reason is required to reject a loan application.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      await api.post(`/loans/${selectedLoanId}/reject`, { reason });
-      showToast('Loan application rejected.');
-      viewStatement(selectedLoanId);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    openActionModal({
+      title: 'Reject Loan Application',
+      fields: [{ key: 'reason', label: 'Reason', type: 'text', required: true }],
+      confirmLabel: 'Reject Application',
+      danger: true,
+      onConfirm: async (values) => {
+        await api.post(`/loans/${selectedLoanId}/reject`, { reason: values.reason });
+        showToast('Loan application rejected.');
+        viewStatement(selectedLoanId);
+      },
+    });
   };
 
   // Admin: apply a manual penalty / late fee
@@ -1167,22 +1207,12 @@ export default function LendApp() {
   // Quick daily collection mark — mirrors the physical passbook's per-day
   // paid/not-paid checkbox. 'paid'/'partial' actually records a real
   // interest payment (asks for the amount); 'not_paid' is just a log entry.
-  const handleMarkDailyCollection = async (loanId, status, date = null) => {
-    let amount = null;
-    if (status === 'paid' || status === 'partial') {
-      const input = window.prompt(`Enter the amount collected (${status === 'partial' ? 'partial payment' : 'full payment'}):`);
-      if (input === null) return; // cancelled
-      amount = parseFloat(input);
-      if (isNaN(amount) || amount <= 0) {
-        setError('Please enter a valid positive amount.');
-        return;
-      }
-    }
+  const markDailyCollectionDirect = async (loanId, status, date) => {
     setLoading(true);
     setError('');
     try {
-      await api.post(`/loans/${loanId}/daily-collection`, { date, status, amount });
-      showToast(status === 'not_paid' ? 'Marked as not paid today.' : `Marked as ${status} — LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded.`);
+      await api.post(`/loans/${loanId}/daily-collection`, { date, status, amount: null });
+      showToast('Marked as not paid today.');
       fetchDashboardData();
       if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
     } catch (err) {
@@ -1192,41 +1222,55 @@ export default function LendApp() {
     }
   };
 
+  const handleMarkDailyCollection = (loanId, status, date = null) => {
+    if (status === 'paid' || status === 'partial') {
+      openActionModal({
+        title: status === 'partial' ? 'Mark Partial Payment' : 'Mark Full Payment',
+        fields: [{ key: 'amount', label: 'Amount Collected (LKR)', type: 'number', required: true }],
+        confirmLabel: 'Save',
+        onConfirm: async (values) => {
+          const amount = parseFloat(values.amount);
+          await api.post(`/loans/${loanId}/daily-collection`, { date, status, amount });
+          showToast(`Marked as ${status} — LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded.`);
+          fetchDashboardData();
+          if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
+        },
+      });
+      return;
+    }
+    // 'not_paid' needs no amount — just a log entry, so it skips the modal
+    // entirely and records directly, same as before.
+    markDailyCollectionDirect(loanId, status, date);
+  };
+
   // Admin-only quick action: record a principal payment directly against a
   // loan (e.g. self-collected loans with no assigned agent). Interest
   // payments already have a dedicated flow via the Daily Collection Tracker
   // above; this covers the one gap that's left now that borrowers no longer
   // have self-service login to submit their own principal payments.
-  const handleRecordPrincipalPayment = async (loanId) => {
-    const input = window.prompt('Enter the principal amount received from the borrower (LKR):');
-    if (input === null) return; // cancelled
-    const amount = parseFloat(input);
-    if (isNaN(amount) || amount <= 0) {
-      setError('Please enter a valid positive amount.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const result = await submitPaymentOrQueue('/payments', {
-        loan_id: loanId,
-        amount,
-        payment_type: 'principal',
-        payment_method: 'cash',
-        idempotency_key: 'idemp_principal_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now()
-      }, { amount, kind: 'Principal' });
+  const handleRecordPrincipalPayment = (loanId) => {
+    openActionModal({
+      title: 'Record Principal Payment',
+      fields: [{ key: 'amount', label: 'Principal Amount Received (LKR)', type: 'number', required: true }],
+      confirmLabel: 'Record Payment',
+      onConfirm: async (values) => {
+        const amount = parseFloat(values.amount);
+        const result = await submitPaymentOrQueue('/payments', {
+          loan_id: loanId,
+          amount,
+          payment_type: 'principal',
+          payment_method: 'cash',
+          idempotency_key: 'idemp_principal_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now()
+        }, { amount, kind: 'Principal' });
 
-      if (result.queued) {
-        showToast(`No connection — principal payment of LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} saved and will sync automatically once you're back online.`, 'info');
-      } else {
-        showToast(`Principal payment of LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded.`);
-        if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+        if (result.queued) {
+          showToast(`No connection — principal payment of LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} saved and will sync automatically once you're back online.`, 'info');
+        } else {
+          showToast(`Principal payment of LKR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded.`);
+          if (loanStatement?.loan?.id === loanId) viewStatement(loanId);
+        }
+      },
+    });
   };
 
   const resetPaymentForm = (loanId) => {
@@ -1461,21 +1505,20 @@ export default function LendApp() {
   // round, all payment tracking — see the DELETE route's comment). Typing
   // the exact name is a higher bar than a plain confirm dialog on purpose,
   // given how much gets wiped in one action.
-  const handleDeleteTicket = async (ticket, e) => {
+  const handleDeleteTicket = (ticket, e) => {
     if (e) e.stopPropagation();
-    const typed = window.prompt(`This permanently deletes '${ticket.name}' — every member, every round's auction record, and all payment tracking. This cannot be undone.\n\nType the group's name exactly to confirm:`);
-    if (typed === null) return;
-    if (typed.trim() !== ticket.name) {
-      showToast('Name did not match — deletion cancelled.', 'error');
-      return;
-    }
-    try {
-      await api.delete(`/tickets/${ticket.id}`);
-      showToast(`'${ticket.name}' deleted.`);
-      fetchTickets();
-    } catch (err) {
-      showToast(err.message || 'Could not delete this group.', 'error');
-    }
+    openActionModal({
+      title: `Delete '${ticket.name}'`,
+      message: 'This permanently deletes every member, every round\'s auction record, and all payment tracking for this group. This cannot be undone.',
+      fields: [{ key: 'confirmName', label: `Type "${ticket.name}" exactly to confirm`, type: 'text', required: true, matchValue: ticket.name }],
+      confirmLabel: 'Delete Group',
+      danger: true,
+      onConfirm: async () => {
+        await api.delete(`/tickets/${ticket.id}`);
+        showToast(`'${ticket.name}' deleted.`);
+        fetchTickets();
+      },
+    });
   };
 
   const handleUpdateMemberCount = async () => {
@@ -2156,19 +2199,18 @@ export default function LendApp() {
     }
   };
 
-  const handleRemoveGuarantor = async () => {
-    if (!window.confirm('Remove the guarantor from this loan?')) return;
-    setLoading(true);
-    setError('');
-    try {
-      await api.delete(`/loans/${loanStatement.loan.id}/guarantor`);
-      showToast('Guarantor removed.');
-      viewStatement(loanStatement.loan.id);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleRemoveGuarantor = () => {
+    openActionModal({
+      title: 'Remove Guarantor',
+      message: 'Remove the guarantor from this loan?',
+      confirmLabel: 'Remove',
+      danger: true,
+      onConfirm: async () => {
+        await api.delete(`/loans/${loanStatement.loan.id}/guarantor`);
+        showToast('Guarantor removed.');
+        viewStatement(loanStatement.loan.id);
+      },
+    });
   };
 
   // File to base64 converter for proof of payment
@@ -2334,6 +2376,19 @@ export default function LendApp() {
       loan_interest_balance: tx.loan_interest_balance !== undefined ? tx.loan_interest_balance : (context.loanInterestBalance !== undefined ? context.loanInterestBalance : null)
     });
   };
+
+  // Escape closes whichever modal/popup is currently open — see
+  // useEscapeToClose's own comment for why. Each one mirrors exactly what
+  // that modal's own backdrop-click/Cancel handler already does.
+  useEscapeToClose(!!selectedReceipt, () => setSelectedReceipt(null));
+  useEscapeToClose(showLoanAgreement, () => setShowLoanAgreement(false));
+  useEscapeToClose(showChangePassword, () => setShowChangePassword(false));
+  useEscapeToClose(showDeleteLoanModal, () => { setShowDeleteLoanModal(false); setDeleteLoanForm({ reason: '', password: '' }); });
+  useEscapeToClose(showSettings, () => setShowSettings(false));
+  useEscapeToClose(showCreateTicket, () => setShowCreateTicket(false));
+  useEscapeToClose(!!editingUser, () => setEditingUser(null));
+  useEscapeToClose(showMoreMenu, () => setShowMoreMenu(false));
+  useEscapeToClose(!!actionModal, closeActionModal);
 
   return (
     <div>
@@ -2881,6 +2936,49 @@ export default function LendApp() {
                 <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={() => { setShowDeleteLoanModal(false); setDeleteLoanForm({ reason: '', password: '' }); }}>Cancel</button>
                 <button type="submit" className="glass-btn glass-btn-rose" style={{ flex: 1 }} disabled={loading}>
                   <Trash2 className="icon" /> {loading ? 'Deleting...' : 'Delete Permanently'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Generic action modal — replaces window.prompt/window.confirm
+          everywhere in the app (see openActionModal's own comment). Closing
+          it (Cancel, backdrop click, Escape) discards whatever was typed. */}
+      {actionModal && (
+        <div className="receipt-modal-overlay" onClick={closeActionModal}>
+          <div className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '20px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', color: actionModal.danger ? 'var(--accent-rose)' : 'var(--text-primary)' }}>
+              {actionModal.danger && <Ban className="icon" />} {actionModal.title}
+            </h3>
+            {actionModal.message && (
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', whiteSpace: 'pre-line' }}>{actionModal.message}</p>
+            )}
+            <form onSubmit={e => { e.preventDefault(); handleActionModalConfirm(); }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {(actionModal.fields || []).map((f, i) => (
+                <div key={f.key}>
+                  <label htmlFor={`am-${f.key}`} style={{ fontSize: '13px', fontWeight: 'bold' }}>{f.label}</label>
+                  <input
+                    id={`am-${f.key}`}
+                    type={f.type === 'password' ? 'password' : f.type === 'number' ? 'number' : 'text'}
+                    required={f.required}
+                    autoFocus={i === 0}
+                    min={f.type === 'number' ? '0.01' : undefined}
+                    step={f.type === 'number' ? '0.01' : undefined}
+                    placeholder={f.placeholder}
+                    className="glass-input"
+                    style={{ width: '100%' }}
+                    value={actionModalValues[f.key] ?? ''}
+                    onChange={e => setActionModalValues(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+              {actionModalError && <p style={{ color: 'var(--accent-rose)', fontSize: '13px', margin: 0 }}>{actionModalError}</p>}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button type="button" className="glass-btn glass-btn-secondary" style={{ flex: 1 }} onClick={closeActionModal}>Cancel</button>
+                <button type="submit" className={`glass-btn ${actionModal.danger ? 'glass-btn-rose' : 'glass-btn-emerald'}`} style={{ flex: 1 }} disabled={actionModalSubmitting}>
+                  {actionModalSubmitting ? 'Working...' : (actionModal.confirmLabel || 'Confirm')}
                 </button>
               </div>
             </form>
@@ -7240,9 +7338,13 @@ export default function LendApp() {
                               value={defaultReason}
                               onChange={e => setDefaultReason(e.target.value)} />
                             <button type="button" className="glass-btn glass-btn-rose" disabled={loading} onClick={() => {
-                              if (window.confirm('Mark this loan as defaulted? This will block further payment collection.')) {
-                                handleMarkDefaulted();
-                              }
+                              openActionModal({
+                                title: 'Mark Loan as Defaulted',
+                                message: 'This will block further payment collection.',
+                                confirmLabel: 'Mark Defaulted',
+                                danger: true,
+                                onConfirm: async () => { await handleMarkDefaulted(); },
+                              });
                             }}>
                               <Ban className="icon" /> Mark Defaulted
                             </button>

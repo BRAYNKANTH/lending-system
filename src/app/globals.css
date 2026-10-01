@@ -20,9 +20,25 @@
   --accent-blue: #2554e8; /* Vivid modern primary blue */
   --accent-blue-dark: #1739ad;
   --accent-blue-light: #e6edfd;
-  --accent-emerald: #059669; /* Success green (money-positive actions) */
+  /* Was #059669 (~3.8:1 on white — fails WCAG AA's 4.5:1 text minimum).
+     This color is used as small bold text in dozens of places — KPI
+     values, menu card titles — not just as a button/badge fill. Darkened
+     to the same shade .badge-active already used for readable emerald
+     text (~5.5:1) rather than inventing a new one. */
+  --accent-emerald: #047857; /* Success green (money-positive actions) */
   --accent-rose: #dc2626; /* Danger red */
-  --accent-gold: #d97706; /* Warning amber */
+  /* Was #d97706 (~3.2:1 on white, same problem as emerald above).
+     Darkened to the shade already used for readable gold text elsewhere
+     (gradient end-stops, .badge-pending's darker sibling) — ~5:1. */
+  --accent-gold: #b45309; /* Warning amber */
+  /* --accent-amber was referenced throughout LendApp.jsx (Pending
+     Approvals card, toast "info" backgrounds, warning icons,
+     .glass-btn-amber) but never actually defined here — every one of
+     those was silently rendering with no color at all (an unset custom
+     property makes the whole declaration invalid) instead of amber.
+     Same color as --accent-gold; they were clearly meant to be the same
+     "warning" token. */
+  --accent-amber: #b45309;
 
   /* Self-hosted via next/font/google (see layout.js) instead of a
      render-blocking @import from fonts.googleapis.com — that import added
@@ -308,8 +324,14 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
   filter: none;
 }
 
+/* Both gradients' end-stops were the exact same shade --accent-emerald/
+   --accent-gold (and therefore --accent-amber) were just darkened to for
+   text contrast (see :root) — without adjusting these too, the
+   "gradient" would render as one flat color top to bottom. Darkened the
+   end-stop one step further so the button keeps a visible two-tone
+   effect. */
 .glass-btn-emerald {
-  background: linear-gradient(180deg, var(--accent-emerald) 0%, #047857 100%);
+  background: linear-gradient(180deg, var(--accent-emerald) 0%, #065f46 100%);
 }
 
 .glass-btn-rose {
@@ -317,7 +339,7 @@ h1 svg.icon, h2 svg.icon, h3 svg.icon {
 }
 
 .glass-btn-amber {
-  background: linear-gradient(180deg, var(--accent-amber) 0%, #b45309 100%);
+  background: linear-gradient(180deg, var(--accent-amber) 0%, #92400e 100%);
 }
 
 /* Badges */

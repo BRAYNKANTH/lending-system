@@ -3,6 +3,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { normalizePhone } from '@/lib/phone.js';
 import bcrypt from 'bcryptjs';
+import { checkRateLimit } from '@/lib/rateLimit.js';
 import { logError } from '@/lib/logger.js';
 
 // Permanently delete a user (Admin only). Blocked if the user has any
@@ -10,19 +11,34 @@ import { logError } from '@/lib/logger.js';
 // trail and the ledger, so it can't be deleted out from under it. Use
 // deactivate (PATCH /status) for users who've been active in the system;
 // this is only for removing accounts that were never really used.
+//
+// Requires the admin to re-enter their own password, same idea as a
+// destructive-action re-auth prompt elsewhere: being logged in proves who
+// you are for browsing, not that you specifically mean to do this one
+// irreversible thing right now. The password travels in the request body,
+// not the URL — a query string can end up in server access logs.
 export async function DELETE(request, { params }) {
   try {
     const authUser = await requireAuth(request, ['admin']);
     const { id } = params;
+    const { password } = await request.json();
 
-    const url = new URL(request.url);
-    const password = url.searchParams.get('password');
     if (!password) {
       return NextResponse.json({ message: 'Password confirmation is required to delete a user.' }, { status: 400 });
     }
 
+    // Same per-account limiter shape as login — this endpoint lets someone
+    // repeatedly guess the admin's password if left unthrottled.
+    const { limited, retryAfterMs } = checkRateLimit(`delete-user-auth:${authUser.id}`, { windowMs: 15 * 60 * 1000, max: 10 });
+    if (limited) {
+      return NextResponse.json(
+        { message: 'Too many attempts. Please wait 15 minutes and try again.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+      );
+    }
+
     const adminUser = await db('users').where({ id: authUser.id }).first();
-    const isMatch = await bcrypt.compare(password, adminUser.password_hash);
+    const isMatch = adminUser && await bcrypt.compare(password, adminUser.password_hash);
     if (!isMatch) {
       return NextResponse.json({ message: 'Invalid password. Deletion denied.' }, { status: 401 });
     }
