@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/apiClient.js';
 import { submitPaymentOrQueue, syncQueuedPayments, getQueueCount, onQueueChanged } from '@/lib/offlineQueue.js';
+import { TypedDateInput } from './TypedDateInput.jsx';
 import {
   Home, Banknote, ClipboardList, Users, Landmark, KeyRound, LogOut,
   ArrowLeft, ArrowRight, ScrollText, Check, X, Phone, IdCard, ShieldCheck,
@@ -42,6 +43,57 @@ function useEscapeToClose(isOpen, onClose) {
   }, [isOpen, onClose]);
 }
 
+// Traps Tab/Shift+Tab focus within a dialog while it's open, moves focus
+// into it as soon as it opens, and restores focus to whatever triggered it
+// once it closes — the three behaviors the ARIA Authoring Practices Dialog
+// pattern expects. None of this app's modals did any of it before:
+// Escape closed them (see useEscapeToClose above), but Tab could still
+// reach controls visually hidden behind the overlay, and closing one
+// silently dropped focus to <body>.
+//
+// `containerRef` must point at the dialog's outermost element, which also
+// needs tabIndex={-1} so it's a valid focus target on the rare dialog with
+// no focusable children of its own. Call this once per modal,
+// unconditionally on every render, same as useEscapeToClose.
+function useFocusTrap(isOpen, containerRef) {
+  useEffect(() => {
+    if (!isOpen || !containerRef.current) return;
+    const container = containerRef.current;
+    const previouslyFocused = document.activeElement;
+    const focusableSelector = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => Array.from(container.querySelectorAll(focusableSelector)).filter((el) => el.offsetParent !== null);
+
+    const focusable = getFocusable();
+    (focusable[0] || container).focus({ preventScroll: true });
+
+    function handleKeyDown(e) {
+      if (e.key !== 'Tab') return;
+      const items = getFocusable();
+      if (items.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    container.addEventListener('keydown', handleKeyDown);
+    return () => {
+      container.removeEventListener('keydown', handleKeyDown);
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+        previouslyFocused.focus({ preventScroll: true });
+      }
+    };
+  }, [isOpen, containerRef]);
+}
+
 // Lets a clickable <div> (the dashboard's menu-card tiles, styled as big
 // touch-friendly buttons but not actual <button> elements) respond to the
 // keyboard the same way a real button would — Enter or Space activates it.
@@ -54,67 +106,6 @@ function handleCardKeyDown(e, action) {
     e.preventDefault();
     action();
   }
-}
-
-// A native <input type="date"> forces scrolling its built-in year dropdown
-// back however many decades to reach a date of birth or an old backdated
-// date — slow and fiddly, especially on a phone. This drop-in replacement
-// takes plain typed Day/Month/Year instead, shown as three small boxes
-// separated by "/", but still reads and writes the exact same ISO
-// "YYYY-MM-DD" string every existing onChange handler already expects (via
-// a synthetic {target:{value}} event) — swap the <input> for this and
-// nothing else at the call site needs to change. Auto-advances focus to
-// the next box once a box is filled, so typing a full date is one
-// continuous motion instead of three separate taps.
-function TypedDateInput({ id, value, onChange, required, error, style }) {
-  const [yyyy = '', mm = '', dd = ''] = (value || '').split('-');
-  const dayRef = useRef(null);
-  const monthRef = useRef(null);
-  const yearRef = useRef(null);
-
-  const emit = (d, m, y) => {
-    const valid = d.length === 2 && m.length === 2 && y.length === 4 &&
-      Number(d) >= 1 && Number(d) <= 31 && Number(m) >= 1 && Number(m) <= 12;
-    onChange({ target: { value: valid ? `${y}-${m}-${d}` : '' } });
-  };
-
-  const boxStyle = {
-    width: '48px', textAlign: 'center', padding: '10px 4px',
-    ...(error ? { borderColor: 'var(--accent-rose)', borderWidth: '2px' } : {})
-  };
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', ...style }}>
-      <input
-        ref={dayRef} id={id} type="text" inputMode="numeric" placeholder="DD" maxLength={2}
-        className="glass-input" style={boxStyle} value={dd} required={required}
-        onChange={(e) => {
-          const v = e.target.value.replace(/\D/g, '').slice(0, 2);
-          emit(v, mm, yyyy);
-          if (v.length === 2) monthRef.current?.focus();
-        }}
-      />
-      <span style={{ color: 'var(--text-muted)', fontWeight: 'bold' }}>/</span>
-      <input
-        ref={monthRef} type="text" inputMode="numeric" placeholder="MM" maxLength={2}
-        className="glass-input" style={boxStyle} value={mm} required={required}
-        onChange={(e) => {
-          const v = e.target.value.replace(/\D/g, '').slice(0, 2);
-          emit(dd, v, yyyy);
-          if (v.length === 2) yearRef.current?.focus();
-        }}
-      />
-      <span style={{ color: 'var(--text-muted)', fontWeight: 'bold' }}>/</span>
-      <input
-        ref={yearRef} type="text" inputMode="numeric" placeholder="YYYY" maxLength={4}
-        className="glass-input" style={{ ...boxStyle, width: '64px' }} value={yyyy} required={required}
-        onChange={(e) => {
-          const v = e.target.value.replace(/\D/g, '').slice(0, 4);
-          emit(dd, mm, v);
-        }}
-      />
-    </div>
-  );
 }
 
 // Shared CSV download helper — builds a file client-side from a header row
@@ -2390,12 +2381,34 @@ export default function LendApp() {
   useEscapeToClose(showMoreMenu, () => setShowMoreMenu(false));
   useEscapeToClose(!!actionModal, closeActionModal);
 
+  // Keyboard focus is trapped inside whichever modal is open and restored
+  // to the triggering element on close — see useFocusTrap's own comment.
+  // One ref per modal, attached to that modal's outermost dialog element.
+  const receiptModalRef = useRef(null);
+  const loanAgreementModalRef = useRef(null);
+  const changePasswordModalRef = useRef(null);
+  const deleteLoanModalRef = useRef(null);
+  const settingsModalRef = useRef(null);
+  const createTicketModalRef = useRef(null);
+  const editingUserModalRef = useRef(null);
+  const moreMenuModalRef = useRef(null);
+  const actionModalRef = useRef(null);
+  useFocusTrap(!!selectedReceipt, receiptModalRef);
+  useFocusTrap(showLoanAgreement, loanAgreementModalRef);
+  useFocusTrap(showChangePassword, changePasswordModalRef);
+  useFocusTrap(showDeleteLoanModal, deleteLoanModalRef);
+  useFocusTrap(showSettings, settingsModalRef);
+  useFocusTrap(showCreateTicket, createTicketModalRef);
+  useFocusTrap(!!editingUser, editingUserModalRef);
+  useFocusTrap(showMoreMenu, moreMenuModalRef);
+  useFocusTrap(!!actionModal, actionModalRef);
+
   return (
     <div>
       {/* Digital Receipt Modal (Screen View) */}
       {selectedReceipt && (
         <div className="receipt-modal-overlay" onClick={() => setSelectedReceipt(null)}>
-          <div className="receipt-modal-card" onClick={e => e.stopPropagation()}>
+          <div ref={receiptModalRef} tabIndex={-1} className="receipt-modal-card" onClick={e => e.stopPropagation()}>
             <div className="receipt-header">
               <div className="receipt-header-icon"><Banknote /></div>
               <div className="receipt-title">{orgSettings.org_name || 'Loan Receipt'}</div>
@@ -2608,7 +2621,7 @@ export default function LendApp() {
       {/* Loan Agreement Modal (Screen View) */}
       {showLoanAgreement && loanStatement && (
         <div className="agreement-modal-overlay receipt-modal-overlay" onClick={() => setShowLoanAgreement(false)}>
-          <div className="receipt-modal-card" style={{ maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div ref={loanAgreementModalRef} tabIndex={-1} className="receipt-modal-card" style={{ maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div className="receipt-header">
               <div className="receipt-header-icon"><FileText /></div>
               <div className="receipt-title">Loan Agreement</div>
@@ -2752,10 +2765,17 @@ export default function LendApp() {
       )}
 
       {/* Toast Alert overlay — a local UI confirmation, not a claim that an
-          SMS was actually sent (see showToast above). */}
-      <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '380px' }}>
+          SMS was actually sent (see showToast above). role="status" on the
+          container + aria-live="polite" announces success/info toasts to
+          screen readers without interrupting whatever the user is doing;
+          each error-type toast additionally gets its own role="alert"
+          (implicitly assertive) so a failure is announced immediately
+          instead of waiting to be polite — previously these were plain
+          divs with no live region at all, so every save/error in the app
+          was silent to assistive tech. */}
+      <div role="status" aria-live="polite" aria-atomic="false" style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '380px' }}>
         {toastAlerts.map(toast => (
-          <div key={toast.id} className="animate-fade-in" style={{ padding: '16px', background: toast.type === 'error' ? 'var(--accent-rose, #dc2626)' : toast.type === 'info' ? 'var(--accent-amber, #d97706)' : 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
+          <div key={toast.id} role={toast.type === 'error' ? 'alert' : undefined} className="animate-fade-in" style={{ padding: '16px', background: toast.type === 'error' ? 'var(--accent-rose, #dc2626)' : toast.type === 'info' ? 'var(--accent-amber, #d97706)' : 'var(--accent-emerald)', border: 'none', color: '#ffffff', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
             <div style={{ fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {toast.type === 'error' ? <CircleAlert className="icon" /> : toast.type === 'info' ? <Clock className="icon" /> : <CircleCheck className="icon" />}
@@ -2779,7 +2799,11 @@ export default function LendApp() {
                   <Landmark style={{ width: '22px', height: '22px', color: 'var(--accent-blue)' }} />
                 </div>
               )}
-              <span style={{ fontWeight: '800', letterSpacing: '0.5px' }}>{(orgSettings.org_name || 'Loading...').toUpperCase()}</span>
+              {orgSettings.org_name ? (
+                <span style={{ fontWeight: '800', letterSpacing: '0.5px' }}>{orgSettings.org_name.toUpperCase()}</span>
+              ) : (
+                <span className="skeleton skeleton-line" style={{ height: '20px', width: '140px' }} aria-hidden="true" />
+              )}
             </h1>
             <span className="badge badge-active">{user.role}</span>
             {pendingSyncCount > 0 && (
@@ -2870,7 +2894,7 @@ export default function LendApp() {
       {/* Change Password Modal (all roles) */}
       {showChangePassword && (
         <div className="receipt-modal-overlay" onClick={() => setShowChangePassword(false)}>
-          <div className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
+          <div ref={changePasswordModalRef} tabIndex={-1} className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ fontSize: '20px', marginBottom: '16px' }}><KeyRound className="icon" /> Change Password</h3>
             {user?.mustChangePassword && (
               <p style={{ fontSize: '13px', color: 'var(--accent-rose)', marginBottom: '12px' }}>
@@ -2913,7 +2937,7 @@ export default function LendApp() {
           deliberately not persisted in state beyond this modal's lifetime. */}
       {showDeleteLoanModal && (
         <div className="receipt-modal-overlay" onClick={() => { setShowDeleteLoanModal(false); setDeleteLoanForm({ reason: '', password: '' }); }}>
-          <div className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
+          <div ref={deleteLoanModalRef} tabIndex={-1} className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ fontSize: '20px', marginBottom: '8px', color: 'var(--accent-rose)' }}><Trash2 className="icon" /> Delete This Loan</h3>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
               This permanently removes the loan and cannot be undone. Only use this for a mistaken entry or test data — a real closed-out loan should be Written Off instead, which keeps it in the audit trail.
@@ -2948,7 +2972,7 @@ export default function LendApp() {
           it (Cancel, backdrop click, Escape) discards whatever was typed. */}
       {actionModal && (
         <div className="receipt-modal-overlay" onClick={closeActionModal}>
-          <div className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
+          <div ref={actionModalRef} tabIndex={-1} className="glass-card" style={{ maxWidth: '420px', width: '100%' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ fontSize: '20px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', color: actionModal.danger ? 'var(--accent-rose)' : 'var(--text-primary)' }}>
               {actionModal.danger && <Ban className="icon" />} {actionModal.title}
             </h3>
@@ -2989,7 +3013,7 @@ export default function LendApp() {
       {/* Settings Modal (Profile & Security) */}
       {showSettings && (
         <div className="receipt-modal-overlay" onClick={() => setShowSettings(false)}>
-          <div className="glass-card" style={{ maxWidth: '480px', width: '100%', padding: '24px' }} onClick={e => e.stopPropagation()}>
+          <div ref={settingsModalRef} tabIndex={-1} className="glass-card" style={{ maxWidth: '480px', width: '100%', padding: '24px' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
               <Settings className="icon" style={{ color: 'var(--accent-blue)', width: '24px', height: '24px' }} />
               <h3 style={{ fontSize: '22px', margin: 0 }}>Account Settings</h3>
@@ -3216,7 +3240,7 @@ export default function LendApp() {
         
         {/* Error panel */}
         {error && (
-          <div className="glass-card" style={{ borderLeft: '4px solid var(--accent-rose)', margin: '0 0 24px 0', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div role="alert" className="glass-card" style={{ borderLeft: '4px solid var(--accent-rose)', margin: '0 0 24px 0', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h4 style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>Error</h4>
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px' }}>{error}</p>
@@ -3237,7 +3261,16 @@ export default function LendApp() {
                     <Landmark style={{ width: '48px', height: '48px', color: 'var(--accent-blue)' }} />
                   </div>
                 )}
-                <h2 style={{ fontSize: '26px', margin: '0 0 4px 0', fontWeight: '800', color: 'var(--text-primary)' }}>{(orgSettings.org_name || 'Loading...').toUpperCase()}</h2>
+                {orgSettings.org_name ? (
+                  <h2 style={{ fontSize: '26px', margin: '0 0 4px 0', fontWeight: '800', color: 'var(--text-primary)' }}>{orgSettings.org_name.toUpperCase()}</h2>
+                ) : (
+                  // Org settings haven't loaded yet — a shimmering placeholder
+                  // reads as "still loading" the way the rest of the app
+                  // already does elsewhere (see .skeleton-line), rather than
+                  // showing the literal word "LOADING..." as if it were the
+                  // organization's real name.
+                  <span className="skeleton skeleton-line" style={{ height: '26px', width: '70%', margin: '0 auto 8px auto' }} aria-hidden="true" />
+                )}
                 <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--accent-gold)', textTransform: 'uppercase', letterSpacing: '1.5px', display: 'block' }}>Cash Lending & Micro Credit</span>
               </div>
 
@@ -3387,7 +3420,7 @@ export default function LendApp() {
                 {/* Create Ticket Group Modal */}
                 {showCreateTicket && (
                   <div className="receipt-modal-overlay" onClick={() => setShowCreateTicket(false)}>
-                    <div className="glass-card" style={{ maxWidth: '540px', width: '90%', padding: '24px' }} onClick={e => e.stopPropagation()}>
+                    <div ref={createTicketModalRef} tabIndex={-1} className="glass-card" style={{ maxWidth: '540px', width: '90%', padding: '24px' }} onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                         <h3 style={{ fontSize: '20px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><PiggyBank className="icon" /> Create New Chit Group</h3>
                         <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setShowCreateTicket(false)}>Close</button>
@@ -5338,7 +5371,7 @@ export default function LendApp() {
                 {/* Edit User Modal (Admin only) */}
                 {editingUser && (
                   <div className="receipt-modal-overlay" onClick={() => setEditingUser(null)}>
-                    <div className="receipt-modal-card" style={{ maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
+                    <div ref={editingUserModalRef} tabIndex={-1} className="receipt-modal-card" style={{ maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                         <h3 style={{ fontSize: '20px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><User className="icon" /> Edit User Details</h3>
                         <button className="glass-btn glass-btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setEditingUser(null)}>
@@ -6585,7 +6618,7 @@ export default function LendApp() {
                             e.preventDefault();
                             const photos = loanStatement.loan.nic_photo_urls?.length > 0 ? loanStatement.loan.nic_photo_urls : [loanStatement.loan.nic_photo_url];
                             const win = window.open();
-                            win.document.write(photos.map(url => `<img src="${url}" style="max-width:100%; height:auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 8px; display:block; margin-bottom: 16px;" />`).join(''));
+                            win.document.write(photos.map((url, i) => `<img src="${url}" alt="NIC photo ${i + 1} of ${photos.length} for ${loanStatement.loan.borrower_name || 'this borrower'}" style="max-width:100%; height:auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 8px; display:block; margin-bottom: 16px;" />`).join(''));
                           }}
                         >
                           View NIC Photo{loanStatement.loan.nic_photo_urls?.length > 1 ? `s (${loanStatement.loan.nic_photo_urls.length})` : ''}
@@ -7684,7 +7717,7 @@ export default function LendApp() {
           before this — the desktop top nav was their only link. */}
       {showMoreMenu && (
         <div className="receipt-modal-overlay" onClick={() => setShowMoreMenu(false)}>
-          <div className="receipt-modal-card" style={{ maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+          <div ref={moreMenuModalRef} tabIndex={-1} className="receipt-modal-card" style={{ maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
             <div className="receipt-header">
               <div className="receipt-header-icon"><LayoutGrid /></div>
               <div className="receipt-title">More</div>

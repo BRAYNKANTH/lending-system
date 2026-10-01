@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { CircleCheck, Landmark } from 'lucide-react';
 import { MAX_KYC_PHOTOS, appendCompressedPhotos } from '@/lib/clientImageCompress.js';
+import { TypedDateInput } from './TypedDateInput.jsx';
 
 // Bilingual labels — English/Tamil toggle, since this form is meant to be
 // filled in by whoever's literate and available (the borrower, a family
@@ -278,7 +279,7 @@ export default function BorrowerIntakeForm() {
           <button
             type="button"
             onClick={() => setLang(l => (l === 'en' ? 'ta' : 'en'))}
-            style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #d8dde6', background: '#fff', fontSize: '13px', fontWeight: '700', color: '#2554e8', cursor: 'pointer' }}
+            style={{ padding: '8px 14px', minHeight: '44px', display: 'inline-flex', alignItems: 'center', borderRadius: '8px', border: '1px solid #d8dde6', background: '#fff', fontSize: '13px', fontWeight: '700', color: '#2554e8', cursor: 'pointer' }}
           >
             {t.langToggle}
           </button>
@@ -311,7 +312,15 @@ export default function BorrowerIntakeForm() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '18px' }}>
               <div>
                 <label style={labelStyle}>{t.dob}</label>
-                <input style={inputStyle} type="date" max={new Date().toISOString().slice(0, 10)} value={form.date_of_birth} onChange={e => update('date_of_birth', e.target.value)} />
+                {/* A native date input renders in the browser/OS locale
+                    format (mm/dd/yyyy on some setups) — confusing for a
+                    Sri Lankan borrower filling this in on their own phone.
+                    Same typed DD/MM/YYYY control the authenticated side of
+                    the app already uses for this exact reason. The server
+                    still rejects a future date on submit either way, so
+                    dropping the native input's own max= constraint here
+                    doesn't remove any real protection. */}
+                <TypedDateInput value={form.date_of_birth} onChange={e => update('date_of_birth', e.target.value)} />
               </div>
               <div>
                 <label style={labelStyle}>{t.nic}</label>
@@ -369,7 +378,7 @@ export default function BorrowerIntakeForm() {
                       key={idx}
                       type="button"
                       onClick={() => addGuarantorSlot(idx)}
-                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px dashed #b7c2d6', background: '#f7f9fc', color: '#2554e8', fontWeight: '700', fontSize: '13px', cursor: 'pointer', marginBottom: '14px' }}
+                      style={{ width: '100%', padding: '12px', minHeight: '44px', borderRadius: '10px', border: '1px dashed #b7c2d6', background: '#f7f9fc', color: '#2554e8', fontWeight: '700', fontSize: '13px', cursor: 'pointer', marginBottom: '14px' }}
                     >
                       {t.addGuarantor(idx + 1)}
                     </button>

@@ -63,6 +63,23 @@
   box-sizing: border-box;
 }
 
+/* Respects the OS "reduce motion" preference — none of this app's ~13
+   animations/transitions (modal fade-ins, card slide-ups, loading
+   spinners, skeleton shimmer) were gated behind it before. A single
+   blanket override here covers every current animation and any future
+   one too, rather than tracking each keyframe individually — the
+   standard pattern for this. Spinners/shimmer going static rather than
+   staying in motion is deliberate: prefers-reduced-motion means no
+   non-essential motion, full stop, not just the decorative kind. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 body {
   background:
     radial-gradient(1200px 420px at 100% -10%, rgba(37, 84, 232, 0.07), transparent 60%),
