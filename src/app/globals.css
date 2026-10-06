@@ -1211,16 +1211,25 @@ table.desktop-only {
 }
 
 .receipt-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 24px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 20px;
 }
 
 .receipt-actions .glass-btn {
-  padding: 12px 20px;
-  font-size: 15px;
+  flex: 1 1 calc(33.333% - 10px);
+  min-width: 95px;
+  padding: 10px 14px;
+  font-size: 13.5px;
   height: auto;
+  justify-content: center;
+}
+
+@media (max-width: 480px) {
+  .receipt-actions .glass-btn {
+    flex: 1 1 100%;
+  }
 }
 
 /* Print Specific Rules */
@@ -2213,7 +2222,78 @@ table.desktop-only {
   .kpi-summary-strip > *:nth-child(odd):last-child {
     grid-column: 1 / -1;
   }
+
+  /* Mobile bottom-sheet modals: transform centered dialogs into smooth mobile bottom sheets */
+  .receipt-modal-overlay {
+    padding: 0 !important;
+    justify-content: flex-end !important;
+  }
+  .receipt-modal-overlay > * {
+    margin-top: auto !important;
+    margin-bottom: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+  }
+  .receipt-modal-card {
+    border-radius: 20px 20px 0 0 !important;
+    max-height: 90dvh !important;
+    overflow-y: auto !important;
+    padding: 24px 18px calc(24px + env(safe-area-inset-bottom, 0px)) 18px !important;
+    animation: slideUpSheet 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
 }
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Virtual keyboard collision avoidance: hide sticky bottom nav when virtual keyboard shrinks viewport height */
+@media (max-width: 768px) and (max-height: 500px) {
+  .bottom-nav-bar {
+    display: none !important;
+  }
+  .dashboard-container {
+    padding-bottom: 24px !important;
+  }
+}
+
+/* 1-Tap Quick Amount Presets Chip */
+.quick-amt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 34px;
+}
+.quick-amt-chip:hover {
+  background: var(--accent-blue-light);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+.quick-amt-chip:active {
+  transform: scale(0.96);
+}
+.quick-amt-chip.emerald {
+  background: rgba(4, 120, 87, 0.08);
+  border-color: rgba(4, 120, 87, 0.25);
+  color: var(--accent-emerald);
+}
+.quick-amt-chip.emerald:hover {
+  background: rgba(4, 120, 87, 0.15);
+  border-color: var(--accent-emerald);
+}
+
 
 /* Unified Portal Selector */
 .portal-card {
@@ -2344,3 +2424,24 @@ table.desktop-only {
 
 
 
+
+/* --- MOBILE FRICTION FLOOR (tap size + text size) ---
+   Plenty of buttons and labels set tiny inline font-size / padding values
+   (9-11px text, ~28px tall pills) that are hard to read and hit on a phone.
+   Inline styles outrank normal rules, so the font floor uses attribute
+   selectors with !important; badges are excluded so count pills stay
+   compact. Desktop is untouched. */
+@media (max-width: 768px) {
+  .glass-btn,
+  .nav-link-btn {
+    min-height: 44px;
+  }
+  .bottom-nav-label {
+    font-size: 12px;
+  }
+  [style*="font-size: 9px"]:not(.badge),
+  [style*="font-size: 10px"]:not(.badge),
+  [style*="font-size: 11px"]:not(.badge) {
+    font-size: 12px !important;
+  }
+}

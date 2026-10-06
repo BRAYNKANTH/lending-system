@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/apiClient.js';
@@ -231,10 +231,11 @@ export default function LendApp() {
         return saved;
       }
     }
-    return 'collect';
-  }); // 'collect', 'next-day-tasklist', 'record-payment', 'history', 'remit'
+    return 'record-payment';
+  }); // 'collect' (single payment), 'next-day-tasklist', 'record-payment' (route sheet — the agent's default, fastest daily tool), 'history', 'remit'
   const [agentCustomerTab, setAgentCustomerTab] = useState('active'); // 'active', 'defaulted', 'closed'
   const [agentCollectMobileTab, setAgentCollectMobileTab] = useState('form'); // mobile-only: 'form', 'customers'
+  const [agentCustomerSearch, setAgentCustomerSearch] = useState('');
   const [passbookMobileTab, setPassbookMobileTab] = useState('record'); // mobile-only: 'record', 'activity', 'receipts', 'accruals'
   const [showMoreMenu, setShowMoreMenu] = useState(false); // mobile-only: bottom-sheet for admin destinations that don't have their own bottom-nav slot
   // Pending Borrower Intake submissions (see /apply) awaiting review — just
@@ -2040,6 +2041,7 @@ export default function LendApp() {
     // Find which loan was updated
     const loan = agentData.assignedLoans.find(l => l.id === paymentForm.loan_id);
     const kind = paymentForm.payment_type === 'interest' ? 'Interest' : 'Principal';
+    const submitKey = paymentForm.idempotency_key || ('idemp_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now());
     try {
       const result = await submitPaymentOrQueue('/payments', {
         loan_id: paymentForm.loan_id,
@@ -2048,16 +2050,26 @@ export default function LendApp() {
         notes: paymentForm.notes,
         proof_image_url: paymentForm.proof_image || null,
         payment_method: paymentForm.payment_method,
-        idempotency_key: paymentForm.idempotency_key
+        idempotency_key: submitKey
       }, { borrowerName: loan?.borrower_name, amount: paymentForm.amount, kind });
+
+      const changeDue = result.data?.change_due || 0;
 
       if (result.queued) {
         showToast(`No connection — ${kind.toLowerCase()} collection of LKR ${parseFloat(paymentForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} from ${loan?.borrower_name || 'Borrower'} saved and will sync automatically once you're back online.`, 'info');
       } else {
-        showToast(`${kind} collection recorded successfully! LKR ${parseFloat(paymentForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} collected from ${loan?.borrower_name || 'Borrower'}.`);
+        if (changeDue > 0) {
+          showToast(`${kind} payment cleared! Loan payoff capped — change to return to borrower: LKR ${changeDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`, 'info');
+        } else {
+          showToast(`${kind} collection recorded successfully! LKR ${parseFloat(paymentForm.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} collected from ${loan?.borrower_name || 'Borrower'}.`);
+        }
         // Update data
         fetchDashboardData();
       }
+
+      // Reset payment form with a fresh idempotency key immediately so any subsequent
+      // offline or online payment for this or other loans gets a unique key with zero collision.
+      resetPaymentForm(paymentForm.loan_id);
 
       // Deliberately NOT auto-opening the receipt here — forcing a full
       // receipt screen after every single collection is unnecessary
@@ -2513,6 +2525,13 @@ export default function LendApp() {
               <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setSelectedReceipt(null)}>
                 Close
               </button>
+              <button
+                type="button"
+                className="glass-btn btn-whatsapp"
+                onClick={() => handleShareWhatsAppReceipt(selectedReceipt)}
+              >
+                <MessageSquare className="icon" /> WhatsApp
+              </button>
               <button type="button" className="glass-btn glass-btn-emerald" onClick={() => window.print()}>
                 <Printer className="icon" /> Print
               </button>
@@ -2828,18 +2847,13 @@ export default function LendApp() {
                 <ClipboardCheck className="icon" /> Applications
                 {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ marginLeft: '6px', padding: '1px 6px', fontSize: '10px' }}>{pendingIntakeCount}</span>}
               </button>
-              <button className={`nav-link-btn ${view === 'next-day-tasklist' ? 'active' : ''}`} onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); }}><Calendar className="icon" /> Next Day Tasklist</button>
               <button className={`nav-link-btn ${view === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); }}><CreditCard className="icon" /> Record Payment</button>
               <button className={`nav-link-btn ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }}>
                 <ClipboardList className="icon" /> Check Loans
                 {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ marginLeft: '6px', padding: '1px 6px', fontSize: '10px' }}>{adminData.summary.totalOverdue}</span>}
               </button>
               <button className={`nav-link-btn ${view === 'agents' ? 'active' : ''}`} onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); }}><Users className="icon" /> Agent Route</button>
-              <button className={`nav-link-btn ${view === 'admin-tools' ? 'active' : ''}`} onClick={openAdminTools}><Landmark className="icon" /> Users & Cash Tools</button>
-              <button className={`nav-link-btn ${view === 'interest-center' ? 'active' : ''}`} onClick={() => { setView('interest-center'); setSelectedLoanId(null); setLoanStatement(null); }}><TrendingUp className="icon" /> Interest Center</button>
-              <button className={`nav-link-btn ${view === 'payment-history' ? 'active' : ''}`} onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); }}><Receipt className="icon" /> Payment History</button>
-              <button className={`nav-link-btn ${view === 'audit-log' ? 'active' : ''}`} onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); }}><ScrollText className="icon" /> Audit Log</button>
-              <button className={`nav-link-btn ${view === 'sms-log' ? 'active' : ''}`} onClick={() => { setView('sms-log'); setSelectedLoanId(null); setLoanStatement(null); }}><Smartphone className="icon" /> SMS Log</button>
+              <button className={`nav-link-btn ${['admin-tools', 'next-day-tasklist', 'interest-center', 'payment-history', 'audit-log', 'sms-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)}><LayoutGrid className="icon" /> More</button>
               {user.finance_access !== false && user.ticket_access !== false && (
                 <button className="nav-link-btn" onClick={() => { setView('portal'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ background: 'rgba(37, 84, 232, 0.1)', color: 'var(--accent-blue)', fontWeight: 'bold' }}>
                   Switch Portal &rarr;
@@ -2854,9 +2868,9 @@ export default function LendApp() {
                 <ClipboardCheck className="icon" /> Applications
                 {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ marginLeft: '6px', padding: '1px 6px', fontSize: '10px' }}>{pendingIntakeCount}</span>}
               </button>
-              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}><CreditCard className="icon" /> Collect Payments</button>
+              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}><Calendar className="icon" /> Route Sheet</button>
+              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}><CreditCard className="icon" /> Single Payment</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'next-day-tasklist' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('next-day-tasklist'); }}><Calendar className="icon" /> Next Day Tasklist</button>
-              <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}><CreditCard className="icon" /> Record Payment</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'history' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('history'); }}><ScrollText className="icon" /> Collection History</button>
               <button className={`nav-link-btn ${view === 'dashboard' && agentSubView === 'remit' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('remit'); }}><Landmark className="icon" /> Remit Cash</button>
               {user.finance_access !== false && user.ticket_access !== false && (
@@ -5669,14 +5683,24 @@ export default function LendApp() {
                               </div>
                             </div>
 
-                            <button 
-                              type="button" 
-                              className="glass-btn glass-btn-emerald" 
-                              onClick={() => handleWizardNext(1)}
-                              style={{ width: '100%', marginTop: '10px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px' }}
-                            >
-                              Continue to Financials <ArrowRight className="icon" />
-                            </button>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap' }}>
+                              <button 
+                                type="button" 
+                                className="glass-btn glass-btn-secondary" 
+                                onClick={() => { if (runKYCValidation()) setGiveLoanStep(3); }}
+                                style={{ flex: '1 1 140px', padding: '14px', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                              >
+                                <Zap className="icon" style={{ color: 'var(--accent-amber)' }} /> Fast Terms (Skip Step 2)
+                              </button>
+                              <button 
+                                type="button" 
+                                className="glass-btn glass-btn-emerald" 
+                                onClick={() => handleWizardNext(1)}
+                                style={{ flex: '1 1 180px', padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px' }}
+                              >
+                                Continue to Step 2 <ArrowRight className="icon" />
+                              </button>
+                            </div>
                           </div>
                         )}
 
@@ -5991,8 +6015,58 @@ export default function LendApp() {
 
         {/* ----------------- AGENT DASHBOARD ----------------- */}
         {token && user && user.role === 'agent' && view === 'dashboard' && agentData && (
-          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             
+            {/* Sticky / Quick Shift Summary Pill for Agent */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'linear-gradient(135deg, rgba(4, 120, 87, 0.1) 0%, rgba(37, 84, 232, 0.06) 100%)',
+              border: '1px solid var(--accent-emerald)', borderRadius: '12px', padding: '10px 14px',
+              gap: '10px', flexWrap: 'wrap'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--accent-emerald)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Banknote style={{ width: '20px', height: '20px' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)' }}>Cash In Hand (Today)</div>
+                  <div style={{ fontSize: '18px', fontWeight: '800', color: 'var(--accent-emerald)' }}>
+                    LKR {(agentData.summary.collectionsToday || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div role="group" aria-label="Payment entry mode" style={{ display: 'flex', gap: '4px', background: 'var(--bg-tertiary)', padding: '3px', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
+                  <button
+                    type="button"
+                    aria-pressed={agentSubView === 'record-payment'}
+                    className={`glass-btn ${agentSubView === 'record-payment' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                    style={{ padding: '8px 12px', fontSize: '13px', minHeight: '44px', borderRadius: '8px', border: 'none' }}
+                    onClick={() => setAgentSubView('record-payment')}
+                  >
+                    <Calendar className="icon" /> Route sheet
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={agentSubView === 'collect'}
+                    className={`glass-btn ${agentSubView === 'collect' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
+                    style={{ padding: '8px 12px', fontSize: '13px', minHeight: '44px', borderRadius: '8px', border: 'none' }}
+                    onClick={() => setAgentSubView('collect')}
+                  >
+                    <CreditCard className="icon" /> Single payment
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="glass-btn glass-btn-emerald"
+                  style={{ padding: '8px 14px', fontSize: '13px', minHeight: '44px', borderRadius: '8px' }}
+                  onClick={() => setAgentSubView('remit')}
+                >
+                  <Landmark className="icon" /> Remit
+                </button>
+              </div>
+            </div>
+
             {agentSubView === 'next-day-tasklist' && (
               <NextDayTasklistTab loans={agentData.assignedLoans} onNavigateRecordPayment={() => setAgentSubView('record-payment')} />
             )}
@@ -6027,7 +6101,7 @@ export default function LendApp() {
                     className={`glass-btn ${agentCollectMobileTab === 'form' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
                     style={{ flex: 1, padding: '8px', fontSize: '13px', border: 'none' }}
                     onClick={() => setAgentCollectMobileTab('form')}>
-                    <Banknote className="icon" /> Record Payment
+                    <Banknote className="icon" /> Enter Payment
                   </button>
                   <button type="button"
                     className={`glass-btn ${agentCollectMobileTab === 'customers' ? 'glass-btn-emerald' : 'glass-btn-secondary'}`}
@@ -6042,16 +6116,30 @@ export default function LendApp() {
 
                   {/* Collection Submission Form */}
                   <div className={`glass-card agent-collect-panel ${agentCollectMobileTab === 'form' ? 'active' : ''}`}>
-                    <h3 style={{ fontSize: '26px', marginBottom: '8px' }}><Banknote className="icon" /> Record Payment</h3>
+                    <h3 style={{ fontSize: '26px', marginBottom: '8px' }}><Banknote className="icon" /> Single Payment</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }}>Select a customer and enter the cash collected from them.</p>
                     
                     <form onSubmit={handleCollectPayment} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                       
                       <div>
                         <label htmlFor="f-choose-customer-5805" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Choose Customer</label>
+                        <input
+                          type="search"
+                          className="glass-input"
+                          aria-label="Search customers by name or phone"
+                          placeholder="Type a name or phone to find a customer…"
+                          value={agentCustomerSearch}
+                          onChange={e => setAgentCustomerSearch(e.target.value)}
+                          style={{ marginBottom: '8px' }}
+                        />
                         <select id="f-choose-customer-5805" required className="glass-input" value={paymentForm.loan_id} onChange={e => resetPaymentForm(e.target.value)}>
                           <option value="">-- Select Customer --</option>
-                          {agentData.assignedLoans.filter(l => l.status === 'active').map(loan => (
+                          {agentData.assignedLoans.filter(l => {
+                            if (l.status !== 'active') return false;
+                            const q = agentCustomerSearch.trim().toLowerCase();
+                            if (!q || l.id === paymentForm.loan_id) return true;
+                            return (l.borrower_name || '').toLowerCase().includes(q) || (l.borrower_phone || '').includes(q);
+                          }).map(loan => (
                             <option key={loan.id} value={loan.id}>
                               {loan.interest_type === 'daily'
                                 ? `${loan.borrower_name} (Total Outstanding: LKR ${(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
@@ -6090,19 +6178,41 @@ export default function LendApp() {
                         {paymentForm.loan_id && (() => {
                           const loan = agentData.assignedLoans.find(l => l.id === paymentForm.loan_id);
                           if (!loan) return null;
-                          const due = paymentForm.payment_type === 'interest' ? parseFloat(loan.interest_balance) : parseFloat(loan.principal_outstanding);
-                          if (!(due > 0)) return null;
+                          const interestDue = parseFloat(loan.interest_balance) || 0;
+                          const principalOutstanding = parseFloat(loan.principal_outstanding) || 0;
+                          const calcPeriodDue = () => {
+                            if (loan.is_flat_installment) return flatInstallmentDueToday(loan);
+                            const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
+                            if (loan.interest_type === 'daily') return Math.round(monthlyInterest / 30);
+                            if (loan.interest_type === 'weekly') return Math.round(monthlyInterest / 4);
+                            return Math.round(monthlyInterest);
+                          };
+                          const pDue = calcPeriodDue();
                           return (
-                            <button type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', borderRadius: '6px', marginBottom: '8px' }} onClick={() => setPaymentForm(prev => ({ ...prev, amount: due.toString() }))}>
-                              Pay full {paymentForm.payment_type === 'interest' ? 'interest' : 'principal'} due (LKR {due.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                            </button>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                              {pDue > 0 && (
+                                <button type="button" className="quick-amt-chip emerald" onClick={() => setPaymentForm(prev => ({ ...prev, amount: pDue.toString(), payment_type: loan.is_flat_installment ? 'principal' : 'interest' }))}>
+                                  ⚡ Cycle Due (LKR {pDue.toLocaleString()})
+                                </button>
+                              )}
+                              {interestDue > 0 && (
+                                <button type="button" className="quick-amt-chip" onClick={() => setPaymentForm(prev => ({ ...prev, amount: interestDue.toString(), payment_type: 'interest' }))}>
+                                  Interest Due (LKR {interestDue.toLocaleString()})
+                                </button>
+                              )}
+                              {principalOutstanding > 0 && (
+                                <button type="button" className="quick-amt-chip" onClick={() => setPaymentForm(prev => ({ ...prev, amount: principalOutstanding.toString(), payment_type: 'principal' }))}>
+                                  Full Principal (LKR {principalOutstanding.toLocaleString()})
+                                </button>
+                              )}
+                            </div>
                           );
                         })()}
                         {/* Quick increment buttons */}
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          {[500, 1000, 5000, 10000].map(val => (
-                            <button key={val} type="button" className="glass-btn glass-btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', borderRadius: '6px' }} onClick={() => setPaymentForm(prev => ({ ...prev, amount: val.toString() }))}>
-                              +LKR {val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {[500, 1000, 2000, 5000].map(val => (
+                            <button key={val} type="button" className="quick-amt-chip" onClick={() => setPaymentForm(prev => ({ ...prev, amount: val.toString() }))}>
+                              LKR {val.toLocaleString()}
                             </button>
                           ))}
                         </div>
@@ -6119,8 +6229,8 @@ export default function LendApp() {
                       </div>
 
                       <div>
-                        <label htmlFor="f-receipt-photo-optional-5876" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Receipt Photo (Optional)</label>
-                        <input id="f-receipt-photo-optional-5876" type="file" accept="image/*" className="glass-input" onChange={handleFileChange} />
+                        <label htmlFor="f-receipt-photo-optional-5876" style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 'bold' }}>Receipt Photo (Optional — Camera / File)</label>
+                        <input id="f-receipt-photo-optional-5876" type="file" accept="image/*" capture="environment" className="glass-input" onChange={handleFileChange} />
                         {paymentForm.proof_image && (
                           <div style={{ marginTop: '10px' }}>
                             <span style={{ fontSize: '11px', color: 'var(--accent-emerald)' }}><CircleCheck className="icon" /> Photo attached.</span>
@@ -6176,12 +6286,28 @@ export default function LendApp() {
                                 : status === 'not_paid'
                                   ? <span className="badge badge-defaulted">Missed</span>
                                   : <span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>Not Marked</span>;
+                            const cleanPhone = (loan.borrower_phone || '').replace(/[^0-9+]/g, '');
+                            const waDigits = cleanPhone.replace(/[^0-9]/g, '');
+                            const waNumber = waDigits.startsWith('0') ? '94' + waDigits.slice(1) : waDigits;
+
                             return (
                               <div key={loan.id} style={{ padding: '16px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
                                   <div>
                                     <strong style={{ display: 'block', fontSize: '15px' }}>{loan.borrower_name}</strong>
-                                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" style={{ width: '12px', height: '12px' }} /> {loan.borrower_phone || 'No phone'}</span>
+                                      {cleanPhone && (
+                                        <span className="quick-contact-actions" onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '4px' }}>
+                                          <a href={`tel:${cleanPhone}`} className="quick-contact-btn phone" title="Direct Dial" style={{ color: 'var(--accent-blue)' }}>
+                                            <Phone style={{ width: '11px', height: '11px' }} />
+                                          </a>
+                                          <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" className="quick-contact-btn whatsapp" title="Chat on WhatsApp" style={{ color: '#25D366' }}>
+                                            <MessageSquare style={{ width: '11px', height: '11px' }} />
+                                          </a>
+                                        </span>
+                                      )}
+                                    </div>
                                     <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
                                       Type: <span style={{ textTransform: 'capitalize' }}>{loan.interest_type} ({loan.interest_rate}%)</span>
                                       {loan.status !== 'active' && <span> • Status: <span style={{ textTransform: 'capitalize' }}>{loan.status.replace('_', ' ')}</span></span>}
@@ -6200,6 +6326,27 @@ export default function LendApp() {
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border-light)' }}>
                                     {statusBadge}
                                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                      {cleanPhone && (
+                                        <a
+                                          href={`tel:${cleanPhone}`}
+                                          className="glass-btn"
+                                          style={{
+                                            padding: '6px 12px',
+                                            fontSize: '12px',
+                                            borderRadius: '4px',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            textDecoration: 'none',
+                                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                            color: '#ffffff',
+                                            fontWeight: '600'
+                                          }}
+                                          title={`Direct dial ${loan.borrower_phone}`}
+                                        >
+                                          <Phone style={{ width: '12px', height: '12px' }} /> Call
+                                        </a>
+                                      )}
                                       <button className="glass-btn glass-btn-emerald" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '4px' }} onClick={() => handleMarkDailyCollection(loan.id, 'paid')} disabled={loading}>
                                         <Check className="icon" /> Paid
                                       </button>
@@ -7016,6 +7163,24 @@ export default function LendApp() {
                                 value={ledgerPaymentForm.amount}
                                 onChange={e => setLedgerPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
                                 style={{ padding: '10px 12px', fontSize: '16px', fontWeight: 'bold' }} />
+                              {/* Quick-fill chips */}
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                                {loanStatement.loan.is_flat_installment && parseFloat(loanStatement.loan.daily_installment_amount) > 0 && (
+                                  <button type="button" className="quick-amt-chip emerald" onClick={() => setLedgerPaymentForm(prev => ({ ...prev, amount: parseFloat(loanStatement.loan.daily_installment_amount).toString() }))}>
+                                    ⚡ Installment (LKR {parseFloat(loanStatement.loan.daily_installment_amount).toLocaleString()})
+                                  </button>
+                                )}
+                                {!loanStatement.loan.is_flat_installment && parseFloat(loanStatement.loan.interest_balance) > 0 && (
+                                  <button type="button" className="quick-amt-chip emerald" onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'interest', amount: parseFloat(loanStatement.loan.interest_balance).toString() }))}>
+                                    Interest Due (LKR {parseFloat(loanStatement.loan.interest_balance).toLocaleString()})
+                                  </button>
+                                )}
+                                {!loanStatement.loan.is_flat_installment && parseFloat(loanStatement.loan.principal_outstanding) > 0 && (
+                                  <button type="button" className="quick-amt-chip" onClick={() => setLedgerPaymentForm(prev => ({ ...prev, payment_type: 'principal', amount: parseFloat(loanStatement.loan.principal_outstanding).toString() }))}>
+                                    Full Principal (LKR {parseFloat(loanStatement.loan.principal_outstanding).toLocaleString()})
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             <div>
@@ -7027,8 +7192,8 @@ export default function LendApp() {
                             </div>
 
                             <div>
-                              <label htmlFor="f-receipt-photo-proof-6784" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Receipt Photo / Proof</label>
-                              <input id="f-receipt-photo-proof-6784" type="file" accept="image/*" className="glass-input"
+                              <label htmlFor="f-receipt-photo-proof-6784" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>Receipt Photo / Proof (Optional — Camera / File)</label>
+                              <input id="f-receipt-photo-proof-6784" type="file" accept="image/*" capture="environment" className="glass-input"
                                 onChange={async (e) => {
                                   const file = e.target.files[0];
                                   if (file) {
@@ -7723,73 +7888,52 @@ export default function LendApp() {
               <div className="receipt-title">More</div>
               <div className="receipt-subtitle">Jump to another screen</div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <ClipboardList className="icon" /> Check Loans & Payments
-                {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ marginLeft: 'auto', padding: '1px 6px', fontSize: '11px' }}>{adminData.summary.totalOverdue}</span>}
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('agents'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <Users className="icon" /> Agent Route Progress
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { openAdminTools(); setShowMoreMenu(false); }}
-              >
-                <Landmark className="icon" /> Users & Cash
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('next-day-tasklist'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <Calendar className="icon" /> Next Day Tasklist
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('interest-center'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <TrendingUp className="icon" /> Interest Accrual Center
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('payment-history'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <Receipt className="icon" /> Payment History
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('audit-log'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <ScrollText className="icon" /> Audit Log
-              </button>
-              <button
-                type="button"
-                className="glass-btn glass-btn-secondary"
-                style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px' }}
-                onClick={() => { setView('sms-log'); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); }}
-              >
-                <Smartphone className="icon" /> SMS Log
-              </button>
-            </div>
+            {(() => {
+              const go = (v) => () => { setView(v); setSelectedLoanId(null); setLoanStatement(null); setShowMoreMenu(false); };
+              const goAgent = (sub) => () => { setView('dashboard'); setAgentSubView(sub); setShowMoreMenu(false); };
+              const groups = user?.role === 'agent' ? [
+                { title: 'My round', items: [
+                  { label: 'Next Day Tasklist', Icon: Calendar, onClick: goAgent('next-day-tasklist') },
+                  { label: 'Collection History', Icon: ScrollText, onClick: goAgent('history') },
+                ] },
+              ] : [
+                { title: 'Daily work', items: [
+                  { label: 'Borrower Applications', Icon: ClipboardCheck, badge: pendingIntakeCount, badgeClass: 'badge-pending', onClick: go('borrower-intakes') },
+                  { label: 'Agent Route Progress', Icon: Users, onClick: go('agents') },
+                  { label: 'Next Day Tasklist', Icon: Calendar, onClick: go('next-day-tasklist') },
+                ] },
+                { title: 'Money', items: [
+                  { label: 'Users & Cash', Icon: Landmark, onClick: () => { openAdminTools(); setShowMoreMenu(false); } },
+                  { label: 'Interest Accrual Center', Icon: TrendingUp, onClick: go('interest-center') },
+                  { label: 'Payment History', Icon: Receipt, onClick: go('payment-history') },
+                ] },
+                { title: 'Records', items: [
+                  { label: 'Audit Log', Icon: ScrollText, onClick: go('audit-log') },
+                  { label: 'SMS Log', Icon: Smartphone, onClick: go('sms-log') },
+                ] },
+              ];
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {groups.map(group => (
+                    <div key={group.title} role="group" aria-label={group.title} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)' }}>{group.title}</div>
+                      {group.items.map(item => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          className="glass-btn glass-btn-secondary"
+                          style={{ justifyContent: 'flex-start', padding: '14px 16px', fontSize: '15px', minHeight: '48px' }}
+                          onClick={item.onClick}
+                        >
+                          <item.Icon className="icon" /> {item.label}
+                          {item.badge > 0 && <span className={`badge ${item.badgeClass}`} style={{ marginLeft: 'auto', padding: '1px 6px', fontSize: '12px' }}>{item.badge}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <div className="receipt-actions" style={{ gridTemplateColumns: '1fr' }}>
               <button type="button" className="glass-btn glass-btn-secondary" onClick={() => setShowMoreMenu(false)}>
                 Close
@@ -7800,7 +7944,7 @@ export default function LendApp() {
       )}
 
       {/* Sticky Bottom Navigation Bar */}
-      {token && user && view !== 'portal' && view !== 'ticket-dashboard' && (
+      {token && user && view !== 'portal' && (
         <nav className="bottom-nav-bar animate-fade-in">
           {user.role === 'admin' && (
             <>
@@ -7808,71 +7952,56 @@ export default function LendApp() {
                 <span className="bottom-nav-icon"><Home /></span>
                 <span className="bottom-nav-label">Home</span>
               </button>
+              <button className={`bottom-nav-item ${view === 'loans' ? 'active' : ''}`} onClick={() => { setView('loans'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
+                <span className="bottom-nav-icon"><Search /></span>
+                <span className="bottom-nav-label">Loans</span>
+                {adminData?.summary?.totalOverdue > 0 && (
+                  <span className="badge badge-defaulted" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '10px' }} aria-label={`${adminData.summary.totalOverdue} overdue`}>
+                    {adminData.summary.totalOverdue}
+                  </span>
+                )}
+              </button>
               <button className={`bottom-nav-item ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setSelectedLoanId(null); setLoanStatement(null); }}>
                 <span className="bottom-nav-icon"><Banknote /></span>
                 <span className="bottom-nav-label">Give Loan</span>
               </button>
-              {/* Record Payment gets its own always-reachable icon (used
-                  every collection round, not just occasionally) rather than
-                  being buried inside "More" — on a real ~375px phone only
-                  about 5 icons fit before the row has to scroll, so the
-                  order here is deliberately "how often is this actually
-                  tapped", not the order features shipped in. It's still
-                  also reachable from the More sheet below for anyone used to
-                  finding it there. */}
               <button className={`bottom-nav-item ${view === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('record-payment'); setSelectedLoanId(null); setLoanStatement(null); }}>
                 <span className="bottom-nav-icon"><CreditCard /></span>
                 <span className="bottom-nav-label">Record</span>
               </button>
-              <button className={`bottom-nav-item ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
-                <span className="bottom-nav-icon"><ClipboardCheck /></span>
-                <span className="bottom-nav-label">Applications</span>
-                {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{pendingIntakeCount}</span>}
-              </button>
-              {/* "More" is deliberately the 5th and last always-visible item
-                  — exactly 5 icons at the 64px min-width below fits down to
-                  a 320px-wide screen, so this row never needs a horizontal
-                  scroll to find it. Check Loans, Agent Route, Users & Cash,
-                  Next Day Tasklist, Interest Accrual Center, Payment
-                  History and Audit Log all live in the sheet this opens —
-                  previously several of those had their own bottom-nav
-                  slot, which pushed the row past 5 items and left "More"
-                  itself scrolled off-screen, undiscoverable to anyone who
-                  doesn't already know to swipe a tab bar sideways (not a
-                  common gesture on this kind of control). */}
-              <button className={`bottom-nav-item ${['loans', 'agents', 'admin-tools', 'next-day-tasklist', 'interest-center', 'payment-history', 'audit-log', 'sms-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)} style={{ position: 'relative' }}>
+              <button className={`bottom-nav-item ${['agents', 'admin-tools', 'borrower-intakes', 'next-day-tasklist', 'interest-center', 'payment-history', 'audit-log', 'sms-log'].includes(view) ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)} style={{ position: 'relative' }}>
                 <span className="bottom-nav-icon"><LayoutGrid /></span>
                 <span className="bottom-nav-label">More</span>
-                {adminData?.summary?.totalOverdue > 0 && <span className="badge badge-defaulted" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{adminData.summary.totalOverdue}</span>}
+                {pendingIntakeCount > 0 && (
+                  <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '10px' }} aria-label={`${pendingIntakeCount} pending applications`}>
+                    {pendingIntakeCount}
+                  </span>
+                )}
               </button>
             </>
           )}
           {user.role === 'agent' && (
             <>
+              <button className={`bottom-nav-item ${view === 'dashboard' && (agentSubView === 'collect' || agentSubView === 'record-payment') ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}>
+                <span className="bottom-nav-icon"><Banknote /></span>
+                <span className="bottom-nav-label">Route</span>
+              </button>
               <button className={`bottom-nav-item ${view === 'create-loan' ? 'active' : ''}`} onClick={() => { setView('create-loan'); setGiveLoanStep(1); }}>
                 <span className="bottom-nav-icon"><Plus /></span>
                 <span className="bottom-nav-label">Give Loan</span>
               </button>
-              <button className={`bottom-nav-item ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
-                <span className="bottom-nav-icon"><ClipboardCheck /></span>
-                <span className="bottom-nav-label">Applications</span>
-                {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '9px' }}>{pendingIntakeCount}</span>}
-              </button>
-              <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'collect' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('collect'); }}>
-                <span className="bottom-nav-icon"><Banknote /></span>
-                <span className="bottom-nav-label">Collect</span>
-              </button>
-              <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'record-payment' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('record-payment'); }}>
-                <span className="bottom-nav-icon"><CreditCard /></span>
-                <span className="bottom-nav-label">Record</span>
-              </button>
-              <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'history' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('history'); }}>
-                <span className="bottom-nav-icon"><ScrollText /></span>
-                <span className="bottom-nav-label">History</span>
-              </button>
               <button className={`bottom-nav-item ${view === 'dashboard' && agentSubView === 'remit' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setAgentSubView('remit'); }}>
                 <span className="bottom-nav-icon"><Landmark /></span>
                 <span className="bottom-nav-label">Remit</span>
+              </button>
+              <button className={`bottom-nav-item ${view === 'borrower-intakes' ? 'active' : ''}`} onClick={() => { setView('borrower-intakes'); setSelectedLoanId(null); setLoanStatement(null); }} style={{ position: 'relative' }}>
+                <span className="bottom-nav-icon"><ClipboardCheck /></span>
+                <span className="bottom-nav-label">Applications</span>
+                {pendingIntakeCount > 0 && <span className="badge badge-pending" style={{ position: 'absolute', top: '2px', right: '6px', padding: '1px 5px', fontSize: '10px' }}>{pendingIntakeCount}</span>}
+              </button>
+              <button className={`bottom-nav-item ${view === 'dashboard' && (agentSubView === 'next-day-tasklist' || agentSubView === 'history') ? 'active' : ''}`} onClick={() => setShowMoreMenu(true)}>
+                <span className="bottom-nav-icon"><LayoutGrid /></span>
+                <span className="bottom-nav-label">More</span>
               </button>
             </>
           )}
@@ -9537,15 +9666,6 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     );
   });
 
-  // Today's task-list split — paid_today comes from the API (checked
-  // against real transactions, not just this screen's own in-memory
-  // state), so it stays correct even for payments recorded elsewhere or
-  // before this screen was last loaded. Remaining is what actually needs
-  // action; Done is just a quick "already collected today" reference.
-  const remainingLoans = filteredLoans.filter(l => !l.paid_today);
-  const doneLoans = filteredLoans.filter(l => l.paid_today);
-  const [showDoneToday, setShowDoneToday] = useState(false);
-
   const periodDue = (loan) => {
     if (loan.is_flat_installment) return flatInstallmentDueToday(loan);
     const monthlyInterest = (parseFloat(loan.principal_amount) || 0) * ((parseFloat(loan.interest_rate) || 0) / 100);
@@ -9554,6 +9674,20 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
     return monthlyInterest;
   };
   const periodLabel = { daily: '/day', weekly: '/week', monthly: '/month' }[collectionType];
+
+  // Today's task-list split — paid_today comes from the API (checked against real transactions).
+  // Critical fix: A loan is only fully settled for today if it had a payment recorded AND its remaining
+  // due balance for today is zero. If a borrower made only a partial payment, they still have an active
+  // shortfall/arrears due and must stay in remainingLoans so agents can follow up and collect the rest!
+  const isFullySettledToday = (l) => {
+    if (!l.paid_today) return false;
+    const due = periodDue(l);
+    return due <= 0;
+  };
+
+  const remainingLoans = filteredLoans.filter(l => !isFullySettledToday(l));
+  const doneLoans = filteredLoans.filter(l => isFullySettledToday(l));
+  const [showDoneToday, setShowDoneToday] = useState(false);
 
   const updateRowField = (loanId, field, value) => {
     setSelectedRows(prev => {
@@ -9746,10 +9880,15 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
       </div>
 
       {!loadingLoans && filteredLoans.length > 0 && (
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', fontSize: '13px', fontWeight: '600' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', fontSize: '13px', fontWeight: '600', flexWrap: 'wrap' }}>
           <span style={{ color: 'var(--accent-rose)' }}>{remainingLoans.length} Remaining</span>
           <span style={{ color: 'var(--text-muted)' }}>·</span>
           <span style={{ color: 'var(--accent-emerald)' }}>{doneLoans.length} Done Today</span>
+          {remainingLoans.length > 0 && (
+            <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+              <Phone style={{ width: '13px', height: '13px', color: 'var(--accent-emerald)' }} /> Evening Follow-up: Click Call to directly dial uncollected borrowers
+            </span>
+          )}
         </div>
       )}
 
@@ -9779,8 +9918,8 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
               <thead>
                 <tr>
                   <th style={{ whiteSpace: 'nowrap' }}>Loan ID</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>Name</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>Due</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Name & Contact</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Due Today</th>
                   <th style={{ whiteSpace: 'nowrap' }}>Full Due</th>
                   <th style={{ whiteSpace: 'nowrap' }}>Partial</th>
                   <th style={{ whiteSpace: 'nowrap' }}>Type</th>
@@ -9801,6 +9940,9 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                     : parseFloat(loan.interest_balance) || 0;
                   const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
                   const isSubmitting = submittingIds[loan.id];
+                  const cleanPhone = (loan.borrower_phone || '').replace(/[^0-9+]/g, '');
+                  const waDigits = cleanPhone.replace(/[^0-9]/g, '');
+                  const waNumber = waDigits.startsWith('0') ? '94' + waDigits.slice(1) : waDigits;
 
                   return (
                     <tr key={loan.id} style={{ transition: 'background-color 0.15s ease' }}>
@@ -9810,8 +9952,46 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                         </span>
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <strong style={{ display: 'block', fontSize: '14px' }}>{loan.borrower_name}</strong>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                        <strong style={{ display: 'block', fontSize: '14px' }}>
+                          {loan.borrower_name}
+                          {loan.paid_today && <span className="badge badge-pending" style={{ fontSize: '10px', marginLeft: '6px' }}>Partial Paid</span>}
+                        </strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                          {cleanPhone ? (
+                            <a
+                              href={`tel:${cleanPhone}`}
+                              className="glass-btn"
+                              style={{
+                                padding: '2px 8px',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                textDecoration: 'none',
+                                color: '#ffffff',
+                                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                borderRadius: '5px'
+                              }}
+                              title={`Directly dial ${loan.borrower_phone}`}
+                            >
+                              <Phone style={{ width: '11px', height: '11px' }} /> Call {loan.borrower_phone}
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone || 'No phone'}</span>
+                          )}
+                          {cleanPhone && (
+                            <a
+                              href={`https://wa.me/${waNumber}?text=${encodeURIComponent(`Hello ${loan.borrower_name}, this is a reminder regarding your loan payment of LKR ${totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })} due today (${loan.reference_number || `STN-${loan.id}`}). Thank you.`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: '#25D366', display: 'inline-flex', alignItems: 'center', padding: '2px 4px' }}
+                              title="WhatsApp Reminder"
+                            >
+                              <MessageSquare style={{ width: '13px', height: '13px' }} />
+                            </a>
+                          )}
+                        </div>
                         {loan.last5Days && <div style={{ marginTop: '4px' }}><Last5DaysStreak last5Days={loan.last5Days} /></div>}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
@@ -9898,6 +10078,10 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                 : parseFloat(loan.interest_balance) || 0;
               const row = selectedRows[loan.id] || { mode: null, amount: '', paymentType: 'interest' };
               const isSubmitting = submittingIds[loan.id];
+              const cleanPhone = (loan.borrower_phone || '').replace(/[^0-9+]/g, '');
+              const waDigits = cleanPhone.replace(/[^0-9]/g, '');
+              const waNumber = waDigits.startsWith('0') ? '94' + waDigits.slice(1) : waDigits;
+              const remainingBal = (parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0));
 
               return (
                 <div key={loan.id} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '12px 14px' }}>
@@ -9906,21 +10090,82 @@ function RecordDailyPaymentsTab({ loans = [], onRefresh, showToast }) {
                       <span style={{ color: 'var(--accent-blue)', background: 'rgba(37, 84, 232, 0.08)', padding: '2px 7px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
                         {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
                       </span>
-                      <strong style={{ display: 'block', fontSize: '14px', marginTop: '4px' }}>{loan.borrower_name}</strong>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                      <strong style={{ display: 'block', fontSize: '15px', marginTop: '4px' }}>
+                        {loan.borrower_name}
+                        {loan.paid_today && <span className="badge badge-pending" style={{ fontSize: '10px', marginLeft: '6px' }}>Partial Paid</span>}
+                      </strong>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" style={{ width: '12px', height: '12px' }} /> {loan.borrower_phone || 'No phone'}</span>
                       {loan.last5Days && <div style={{ marginTop: '4px' }}><Last5DaysStreak last5Days={loan.last5Days} /></div>}
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontWeight: 'bold', fontSize: '15px', color: totalDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '700' }}>Due Today</span>
+                      <span style={{ fontWeight: '800', fontSize: '17px', color: totalDue > 0 ? 'var(--accent-rose)' : 'var(--text-primary)', display: 'block' }}>
                         LKR {totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </span>
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                         {loan.is_flat_installment
-                          ? `Flat installment · LKR ${(parseFloat(loan.principal_outstanding || 0) + parseFloat(loan.interest_balance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} remaining`
-                          : `LKR ${periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}${periodLabel}`}
+                          ? `Flat · LKR ${remainingBal.toLocaleString(undefined, { minimumFractionDigits: 2 })} bal`
+                          : `LKR ${periodDue(loan).toLocaleString(undefined, { minimumFractionDigits: 2 })}${periodLabel} · Bal LKR ${remainingBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                       </span>
                     </div>
                   </div>
+
+                  {/* Evening Follow-up: 1-tap direct dial phone call button */}
+                  {cleanPhone ? (
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                      <a
+                        href={`tel:${cleanPhone}`}
+                        className="glass-btn"
+                        style={{
+                          flex: 1,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          minHeight: '42px',
+                          padding: '8px 12px',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textDecoration: 'none',
+                          borderRadius: '8px',
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          color: '#ffffff',
+                          boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)'
+                        }}
+                        title={`Direct dial ${loan.borrower_phone}`}
+                      >
+                        <Phone style={{ width: '15px', height: '15px' }} /> Call Now ({loan.borrower_phone})
+                      </a>
+                      <a
+                        href={`https://wa.me/${waNumber}?text=${encodeURIComponent(`Hello ${loan.borrower_name}, this is a reminder regarding your loan payment of LKR ${totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })} due today (${loan.reference_number || `STN-${loan.id}`}). Please arrange payment at your earliest convenience.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="glass-btn"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          minHeight: '42px',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          textDecoration: 'none',
+                          borderRadius: '8px',
+                          background: 'rgba(37, 211, 102, 0.12)',
+                          color: '#25D366',
+                          border: '1px solid rgba(37, 211, 102, 0.35)'
+                        }}
+                        title="Send WhatsApp Reminder"
+                      >
+                        <MessageSquare style={{ width: '14px', height: '14px' }} /> WhatsApp
+                      </a>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      No phone number recorded for this borrower.
+                    </div>
+                  )}
 
                   {/* These two toggles mark real cash as collected — the exact
                       controls involved in a real double-payment incident, so
@@ -10074,10 +10319,11 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
   });
 
   const calcExpectedAmount = (l) => {
-    // Flat Daily Installment loans (Daily + Fixed Term) collect a fixed
-    // principal+interest bundle each day, set once at loan creation — not
-    // the old interest-only-per-period formula every other loan type uses.
-    if (l.is_flat_installment) return parseFloat(l.daily_installment_amount) || 0;
+    // Flat Daily Installment loans: include today's flat installment PLUS any accumulated arrears/shortfall from prior days
+    if (l.is_flat_installment) {
+      const dueWithArrears = flatInstallmentDueToday(l);
+      return dueWithArrears > 0 ? dueWithArrears : (parseFloat(l.daily_installment_amount) || 0);
+    }
 
     const principal = parseFloat(l.principal_amount) || 0;
     const rate = parseFloat(l.interest_rate) || 0;
@@ -10225,6 +10471,9 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                   const currentBal = loan.is_flat_installment
                     ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
                     : parseFloat(loan.interest_balance) || 0;
+                  const cleanPhone = (loan.borrower_phone || '').replace(/[^0-9+]/g, '');
+                  const waDigits = cleanPhone.replace(/[^0-9]/g, '');
+                  const waNumber = waDigits.startsWith('0') ? '94' + waDigits.slice(1) : waDigits;
 
                   return (
                     <tr key={loan.id}>
@@ -10235,8 +10484,21 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                       </td>
                       <td>
                         <strong style={{ display: 'block' }}>{loan.borrower_name}</strong>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
-                        {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>NIC: {loan.nic_number}</span>}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                          {cleanPhone ? (
+                            <a href={`tel:${cleanPhone}`} className="glass-btn" style={{ padding: '2px 8px', fontSize: '11px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none', color: '#fff', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', borderRadius: '5px' }} title={`Direct dial ${loan.borrower_phone}`}>
+                              <Phone style={{ width: '11px', height: '11px' }} /> {loan.borrower_phone}
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone || 'No phone'}</span>
+                          )}
+                          {cleanPhone && (
+                            <a href={`https://wa.me/${waNumber}?text=${encodeURIComponent(`Hello ${loan.borrower_name}, reminder regarding your loan payment of LKR ${Math.round(expectedAmt).toLocaleString(undefined, { minimumFractionDigits: 2 })} due (${loan.reference_number || `STN-${loan.id}`}).`)}`} target="_blank" rel="noopener noreferrer" style={{ color: '#25D366', display: 'inline-flex', alignItems: 'center' }} title="WhatsApp Reminder">
+                              <MessageSquare style={{ width: '12px', height: '12px' }} />
+                            </a>
+                          )}
+                        </div>
+                        {loan.nic_number && <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>NIC: {loan.nic_number}</span>}
                       </td>
                       <td style={{ textTransform: 'capitalize' }}>
                         <span className={`badge ${loan.interest_type === 'daily' ? 'badge-active' : 'badge-pending'}`}>
@@ -10270,20 +10532,16 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
             </table>
           </div>
 
-          {/* Mobile card view — the 7-column table above was previously the
-              ONLY rendering on every screen size: on a 375px phone it forced
-              923px of table into a ~305px-wide scroll container (618px of
-              required horizontal scroll), pushing the Category, Balance,
-              Agent, and — critically — the "Record Payment" action button
-              off-screen by default for this field-agent route-planning
-              screen. Mirrors the .mobile-row-card pattern used everywhere
-              else lists appear in the app. */}
+          {/* Mobile card view */}
           <div className="mobile-only mobile-card-list">
             {displayedList.map(loan => {
               const expectedAmt = calcExpectedAmount(loan);
               const currentBal = loan.is_flat_installment
                 ? (parseFloat(loan.principal_outstanding) || 0) + (parseFloat(loan.interest_balance) || 0)
                 : parseFloat(loan.interest_balance) || 0;
+              const cleanPhone = (loan.borrower_phone || '').replace(/[^0-9+]/g, '');
+              const waDigits = cleanPhone.replace(/[^0-9]/g, '');
+              const waNumber = waDigits.startsWith('0') ? '94' + waDigits.slice(1) : waDigits;
 
               return (
                 <div key={loan.id} className="mobile-row-card">
@@ -10293,13 +10551,13 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                       {loan.reference_number || `STN-${String(loan.id).padStart(3, '0')}`}
                     </span>
                   </div>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" /> {loan.borrower_phone}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}><Phone className="icon" style={{ width: '12px', height: '12px' }} /> {loan.borrower_phone || 'No phone'}</span>
                   <span className={`badge ${loan.interest_type === 'daily' ? 'badge-active' : 'badge-pending'}`} style={{ textTransform: 'capitalize', alignSelf: 'flex-start' }}>
                     {loan.interest_type} collection{loan.is_flat_installment ? ' (flat)' : ''}
                   </span>
                   <div className="mobile-row-card-grid">
                     <span className="mobile-row-card-label">Expected Due</span>
-                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)' }}>LKR {Math.round(expectedAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="mobile-row-card-value" style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>LKR {Math.round(expectedAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
                     <span className="mobile-row-card-label">Balance</span>
                     <span className="mobile-row-card-value" style={{ color: currentBal > 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>LKR {currentBal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -10307,11 +10565,34 @@ function NextDayTasklistTab({ loans = [], onSelectLoan, onNavigateRecordPayment 
                     <span className="mobile-row-card-label">Agent</span>
                     <span className="mobile-row-card-value">{loan.agent_name || 'Office Collector'}</span>
                   </div>
-                  <div className="mobile-row-card-actions">
+                  <div className="mobile-row-card-actions" style={{ display: 'flex', gap: '8px' }}>
+                    {cleanPhone && (
+                      <a
+                        href={`tel:${cleanPhone}`}
+                        className="glass-btn"
+                        style={{
+                          flex: '1 1 auto',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          padding: '10px 14px',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textDecoration: 'none',
+                          borderRadius: '8px',
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          color: '#ffffff'
+                        }}
+                        title={`Direct dial ${loan.borrower_phone}`}
+                      >
+                        <Phone style={{ width: '14px', height: '14px' }} /> Call
+                      </a>
+                    )}
                     <button
                       type="button"
-                      className="glass-btn glass-btn-emerald"
-                      style={{ flex: '1 1 100%' }}
+                      className="glass-btn glass-btn-primary"
+                      style={{ flex: '1 1 auto' }}
                       onClick={() => {
                         if (onNavigateRecordPayment) onNavigateRecordPayment(loan);
                         else if (onSelectLoan) onSelectLoan(loan.id);

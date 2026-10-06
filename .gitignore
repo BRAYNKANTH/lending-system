@@ -44,3 +44,6 @@ test-results/
 # Ad-hoc local debugging scripts — never meant to be shared/committed
 .scratch/
 
+
+# Loan-purge backups contain borrower PII — never commit
+backups/
