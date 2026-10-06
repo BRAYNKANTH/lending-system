@@ -17,7 +17,7 @@ export async function GET(request) {
     const [collectionsTodayResult, assignedLoansRaw, collectionHistoryRaw, cashInHand] = await Promise.all([
       db('transactions')
         .where({ agent_id: agentId })
-        .andWhere('payment_date', '>=', todayStart)
+        .andWhere('payment_date', '>=', slTodayStart)
         .sum('amount as total'),
       // All statuses, not just active — the UI toggles between Active,
       // Defaulted, and Closed (fully_paid/written_off) tabs. Previously this
