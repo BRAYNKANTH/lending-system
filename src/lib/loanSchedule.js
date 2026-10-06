@@ -19,6 +19,16 @@ export function getSriLankaTodayRange(now = new Date()) {
   return { start, end };
 }
 
+/**
+ * Returns today's YYYY-MM-DD date string in Sri Lanka time (UTC+5:30).
+ * Prevents UTC server drift (e.g. 00:00-05:30 AM local time being evaluated as yesterday).
+ */
+export function getSriLankaDateString(now = new Date()) {
+  const dateObj = typeof now === 'string' ? new Date(now) : now;
+  const slTime = new Date(dateObj.getTime() + SRI_LANKA_OFFSET_MS);
+  return slTime.toISOString().slice(0, 10);
+}
+
 export function addInterval(date, interestType, count = 1) {
   // "Midnight" here means Sri Lanka midnight, not the server's own local
   // time — setHours()/setDate() operate on whatever timezone the Node

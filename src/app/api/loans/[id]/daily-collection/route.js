@@ -4,6 +4,7 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { recordPaymentCollection } from '@/lib/services/ledger.js';
 import { notifyPaymentReceived, notifyMissedPayment } from '@/lib/services/notification.js';
+import { getSriLankaDateString } from '@/lib/loanSchedule.js';
 import { logError } from '@/lib/logger.js';
 
 // Mark a single day's collection status for a loan — mirrors the physical
@@ -21,16 +22,25 @@ export async function POST(request, { params }) {
       return NextResponse.json({ message: "Status must be 'paid', 'partial', or 'not_paid'." }, { status: 400 });
     }
 
-    const collectionDate = date ? new Date(date) : new Date();
-    if (isNaN(collectionDate.getTime())) {
-      return NextResponse.json({ message: 'Invalid date.' }, { status: 400 });
+    const slTodayStr = getSriLankaDateString();
+    let dateStr;
+    if (date) {
+      if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        dateStr = date;
+      } else {
+        const candidate = new Date(date);
+        if (isNaN(candidate.getTime())) {
+          return NextResponse.json({ message: 'Invalid date.' }, { status: 400 });
+        }
+        dateStr = getSriLankaDateString(candidate);
+      }
+    } else {
+      dateStr = slTodayStr;
     }
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    if (collectionDate > today) {
+
+    if (dateStr > slTodayStr) {
       return NextResponse.json({ message: 'Cannot mark a future date.' }, { status: 400 });
     }
-    const dateStr = collectionDate.toISOString().slice(0, 10);
 
     const loan = await db('loans').where({ id: loanId }).first();
     if (!loan) {

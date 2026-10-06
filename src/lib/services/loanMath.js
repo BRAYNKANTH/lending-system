@@ -135,22 +135,42 @@ export function assertLoanIsPayable(status) {
  * amount or payment type instead of returning an error, matching the
  * original inline checks in recordPaymentCollection.
  */
-export function computeStandardPayment({ paymentType, payAmount, principalOutstanding, interestBalance }) {
+export function computeStandardPayment({ paymentType, payAmount, principalOutstanding, interestBalance, autoCap = false }) {
   if (paymentType === 'interest') {
     if (payAmount > interestBalance) {
-      throw new Error(`Interest payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding interest due (LKR ${interestBalance.toLocaleString()}).`);
+      if (!autoCap) {
+        throw new Error(`Interest payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding interest due (LKR ${interestBalance.toLocaleString()}).`);
+      }
+      const cappedAmount = Math.max(0, interestBalance);
+      const changeDue = Math.max(0, payAmount - interestBalance);
+      return { newPrincipalOutstanding: principalOutstanding, newInterestBalance: 0, newStatus: null, cappedAmount, changeDue };
     }
     const newInterestBalance = interestBalance - payAmount;
-    return { newPrincipalOutstanding: principalOutstanding, newInterestBalance, newStatus: null };
+    const res = { newPrincipalOutstanding: principalOutstanding, newInterestBalance, newStatus: null };
+    if (autoCap) {
+      res.cappedAmount = payAmount;
+      res.changeDue = 0;
+    }
+    return res;
   }
 
   if (paymentType === 'principal') {
     if (payAmount > principalOutstanding) {
-      throw new Error(`Principal payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding principal (LKR ${principalOutstanding.toLocaleString()}).`);
+      if (!autoCap) {
+        throw new Error(`Principal payment (LKR ${payAmount.toLocaleString()}) exceeds outstanding principal (LKR ${principalOutstanding.toLocaleString()}).`);
+      }
+      const cappedAmount = Math.max(0, principalOutstanding);
+      const changeDue = Math.max(0, payAmount - principalOutstanding);
+      return { newPrincipalOutstanding: 0, newInterestBalance: interestBalance, newStatus: 'fully_paid', cappedAmount, changeDue };
     }
     const newPrincipalOutstanding = principalOutstanding - payAmount;
     const newStatus = newPrincipalOutstanding <= 0 ? 'fully_paid' : null;
-    return { newPrincipalOutstanding, newInterestBalance: interestBalance, newStatus };
+    const res = { newPrincipalOutstanding, newInterestBalance: interestBalance, newStatus };
+    if (autoCap) {
+      res.cappedAmount = payAmount;
+      res.changeDue = 0;
+    }
+    return res;
   }
 
   throw new Error("Payment type must be 'interest' or 'principal'.");

@@ -115,12 +115,16 @@ export async function POST(request) {
       .where('transactions.id', result.transactionId)
       .first();
 
+    const hasChange = result.changeDue && result.changeDue > 0;
     return NextResponse.json({
-      message: 'Payment collection recorded and posted to ledger.',
+      message: hasChange
+        ? `Payment recorded! Overpayment capped at LKR ${result.amount.toLocaleString()} — Change to return to borrower: LKR ${result.changeDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`
+        : 'Payment collection recorded and posted to ledger.',
       transactionId: result.transactionId,
       newPrincipalOutstanding: result.newPrincipalOutstanding,
       newInterestBalance: result.newInterestBalance,
       status: result.status,
+      change_due: result.changeDue || 0,
       transaction: detailedTx
     }, { status: 201 });
   } catch (error) {

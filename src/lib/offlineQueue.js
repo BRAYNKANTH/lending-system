@@ -71,6 +71,10 @@ export function onQueueChanged(handler) {
  * @returns {Promise<{queued: boolean, data?: any}>}
  */
 export async function submitPaymentOrQueue(endpoint, payload, queueMeta = {}) {
+  // Guarantee a fresh, unique idempotency_key for every distinct payment submission
+  if (endpoint.startsWith('/payments') && !payload.idempotency_key) {
+    payload.idempotency_key = `idemp_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  }
   try {
     const data = await api.post(endpoint, payload);
     return { queued: false, data };

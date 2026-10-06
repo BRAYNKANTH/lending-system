@@ -24,13 +24,18 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
 
     assertLoanIsPayable(loan.status);
 
-    const payAmount = parseFloat(amount);
+    const rawPayAmount = parseFloat(amount);
     const principalOutstanding = parseFloat(loan.principal_outstanding);
     const interestBalance = parseFloat(loan.interest_balance);
 
-    // Validation + the resulting balances are computed by a pure, unit
-    // tested function in loanMath.js — this just persists what it returns.
-    const computed = computeStandardPayment({ paymentType, payAmount, principalOutstanding, interestBalance });
+    // Validation + resulting balances computed with autoCap: true so an overpayment
+    // safely caps at remaining balance without failing or driving balances negative.
+    const computed = computeStandardPayment({ paymentType, payAmount: rawPayAmount, principalOutstanding, interestBalance, autoCap: true });
+    const payAmount = computed.cappedAmount;
+    const changeDue = computed.changeDue || 0;
+    const finalNotes = changeDue > 0
+      ? (notes ? `${notes} (Overpayment capped: LKR ${changeDue.toLocaleString()} change returned)` : `Overpayment capped: LKR ${changeDue.toLocaleString()} change returned`)
+      : (notes || '');
 
     // 2. Insert transaction entry
     const [transaction] = await trx('transactions')
@@ -40,7 +45,7 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
         borrower_id: loan.borrower_id,
         amount: payAmount,
         payment_type: paymentType,
-        notes: notes || '',
+        notes: finalNotes,
         proof_image_url: proofImageUrl || null,
         payment_method: paymentMethod || 'cash',
         idempotency_key: idempotencyKey,
@@ -107,6 +112,7 @@ export async function recordPaymentCollection({ loanId, agentId, amount, payment
       admin,
       agent,
       amount: payAmount,
+      changeDue,
       paymentType,
       interestType: loan.interest_type,
       newPrincipalOutstanding,
@@ -145,14 +151,21 @@ export async function recordFlatInstallmentCollection({ loanId, agentId, amount,
 
     assertLoanIsPayable(loan.status);
 
-    const payAmount = parseFloat(amount);
+    const rawPayAmount = parseFloat(amount);
     const principalOutstanding = parseFloat(loan.principal_outstanding);
     const interestBalance = parseFloat(loan.interest_balance);
     const totalOutstanding = principalOutstanding + interestBalance;
 
-    if (payAmount > totalOutstanding) {
-      throw new Error(`Payment (LKR ${payAmount.toLocaleString()}) exceeds the total outstanding balance (LKR ${totalOutstanding.toLocaleString()}).`);
+    const changeDue = Math.max(0, rawPayAmount - totalOutstanding);
+    const payAmount = Math.min(rawPayAmount, totalOutstanding);
+
+    if (payAmount <= 0) {
+      throw new Error('This loan has already been fully paid.');
     }
+
+    const finalNotes = changeDue > 0
+      ? (notes ? `${notes} (Overpayment capped: LKR ${changeDue.toLocaleString()} change returned)` : `Overpayment capped: LKR ${changeDue.toLocaleString()} change returned`)
+      : (notes || '');
 
     // Split proportionally using the fixed per-day ratio set at creation.
     // Capping/rounding-safety logic lives in loanMath.js, unit tested there.
@@ -171,7 +184,7 @@ export async function recordFlatInstallmentCollection({ loanId, agentId, amount,
         payment_type: 'flat_installment',
         principal_component: principalPortion,
         interest_component: interestPortion,
-        notes: notes || '',
+        notes: finalNotes,
         proof_image_url: proofImageUrl || null,
         payment_method: paymentMethod || 'cash',
         idempotency_key: idempotencyKey,
@@ -226,6 +239,7 @@ export async function recordFlatInstallmentCollection({ loanId, agentId, amount,
       admin,
       agent,
       amount: payAmount,
+      changeDue,
       paymentType: 'flat_installment',
       principalComponent: principalPortion,
       interestComponent: interestPortion,

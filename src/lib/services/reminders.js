@@ -1,5 +1,6 @@
 import db from '../db.js';
 import { notifyPaymentReminder, notifyMissedDailyCollection } from './notification.js';
+import { getSriLankaTodayRange } from '../loanSchedule.js';
 import { logError } from '../logger.js';
 
 /**
@@ -49,8 +50,7 @@ export async function runPaymentReminders() {
 
   console.log(`Found ${loans.length} active non-daily loans to check for upcoming due dates.`);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = getSriLankaTodayRange().start;
 
   const results = [];
   for (const loan of loans) {
@@ -114,8 +114,7 @@ export async function runMissedDailyCollectionAlerts() {
 
   console.log(`Found ${loans.length} active flat-installment loans to check.`);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = getSriLankaTodayRange().start;
 
   const results = [];
   for (const loan of loans) {

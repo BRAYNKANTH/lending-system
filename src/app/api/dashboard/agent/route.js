@@ -3,15 +3,13 @@ import db from '@/lib/db.js';
 import { requireAuth, AuthError } from '@/lib/auth.js';
 import { getAgentCashInHand } from '@/lib/services/remittance.js';
 import { stripLoanMediaList, stripTransactionMediaList } from '@/lib/stripMedia.js';
-import { getSriLankaTodayRange } from '@/lib/loanSchedule.js';
+import { getSriLankaTodayRange, getSriLankaDateString } from '@/lib/loanSchedule.js';
 import { logError } from '@/lib/logger.js';
 
 export async function GET(request) {
   try {
     const authUser = await requireAuth(request, ['agent']);
     const agentId = authUser.id;
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
     const { start: slTodayStart, end: slTodayEnd } = getSriLankaTodayRange();
 
     // These four don't depend on each other — run concurrently instead of
@@ -65,7 +63,7 @@ export async function GET(request) {
 
     // Today's collection-tracker status per loan, for the daily checklist —
     // depends on assignedLoans' IDs, so this one has to come after.
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getSriLankaDateString();
     const todayMarks = assignedLoans.length
       ? await db('daily_collections')
         .whereIn('loan_id', assignedLoans.map((l) => l.id))

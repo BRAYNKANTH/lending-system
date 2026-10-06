@@ -213,10 +213,29 @@ describe('computeStandardPayment', () => {
     expect(result.newStatus).toBe('fully_paid');
   });
 
-  it('rejects a principal payment larger than what is outstanding', () => {
+  it('rejects a principal payment larger than what is outstanding when autoCap is false', () => {
     expect(() => computeStandardPayment({
       paymentType: 'principal', payAmount: 150000, principalOutstanding: 100000, interestBalance: 0,
     })).toThrow(/exceeds outstanding principal/);
+  });
+
+  it('safely caps overpayment and calculates changeDue when autoCap is true', () => {
+    const result = computeStandardPayment({
+      paymentType: 'principal', payAmount: 1000, principalOutstanding: 750, interestBalance: 0, autoCap: true
+    });
+    expect(result.newPrincipalOutstanding).toBe(0);
+    expect(result.newStatus).toBe('fully_paid');
+    expect(result.cappedAmount).toBe(750);
+    expect(result.changeDue).toBe(250);
+  });
+
+  it('safely caps interest overpayment when autoCap is true', () => {
+    const result = computeStandardPayment({
+      paymentType: 'interest', payAmount: 500, principalOutstanding: 10000, interestBalance: 300, autoCap: true
+    });
+    expect(result.newInterestBalance).toBe(0);
+    expect(result.cappedAmount).toBe(300);
+    expect(result.changeDue).toBe(200);
   });
 
   it('rejects an unrecognized payment type', () => {

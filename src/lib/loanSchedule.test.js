@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidSriLankanNIC, getSriLankaTodayRange, addInterval } from './loanSchedule.js';
+import { isValidSriLankanNIC, getSriLankaTodayRange, getSriLankaDateString, addInterval } from './loanSchedule.js';
 
 describe('isValidSriLankanNIC', () => {
   it('accepts the old 9-digit + V/X format', () => {
@@ -54,6 +54,20 @@ describe('getSriLankaTodayRange', () => {
   it('treats a late-UTC-evening instant as the next Sri Lankan day', () => {
     const { start } = getSriLankaTodayRange(new Date('2026-08-13T19:00:00Z'));
     expect(start.toISOString()).toBe('2026-08-13T18:30:00.000Z'); // SL midnight on the 14th
+  });
+});
+
+describe('getSriLankaDateString', () => {
+  it('correctly maps late UTC evening to the next Sri Lankan calendar date', () => {
+    // 2026-08-13 at 22:00 UTC is 03:30 AM on 2026-08-14 in Sri Lanka
+    const dateStr = getSriLankaDateString(new Date('2026-08-13T22:00:00Z'));
+    expect(dateStr).toBe('2026-08-14');
+  });
+
+  it('correctly maps morning UTC time to the same Sri Lankan calendar date', () => {
+    // 2026-08-14 at 04:00 UTC is 09:30 AM on 2026-08-14 in Sri Lanka
+    const dateStr = getSriLankaDateString(new Date('2026-08-14T04:00:00Z'));
+    expect(dateStr).toBe('2026-08-14');
   });
 });
 
