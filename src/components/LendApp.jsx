@@ -352,11 +352,13 @@ export default function LendApp() {
     (config.fields || []).forEach(f => { initial[f.key] = f.initialValue ?? ''; });
     setActionModalValues(initial);
     setActionModalError('');
+    setActionModalSubmitting(false);
   };
   const closeActionModal = () => {
     setActionModal(null);
     setActionModalValues({});
     setActionModalError('');
+    setActionModalSubmitting(false);
   };
   const handleActionModalConfirm = async () => {
     if (!actionModal) return;
